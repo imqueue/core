@@ -4,7 +4,7 @@
   "description": "Simple messaging queue for inter service communication",
   "scripts": {
     "prepublish": "./node_modules/.bin/tsc",
-    "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"require('opn')('file://`pwd`/coverage/index.html')\"",
+    "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"require('opn')('file://`pwd`/coverage/index.html');process.exit(0)\"",
     "test-dev": "npm run test && npm run clean-js && npm run clean-typedefs && npm run clean-maps",
     "clean-typedefs": "find . -name '*.d.ts' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
     "clean-maps": "find . -name '*.js.map' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
@@ -12,7 +12,7 @@
     "clean-tests": "rm -rf .nyc_output coverage",
     "clean-doc": "rm -rf docs",
     "clean": "npm run clean-tests && npm run clean-typedefs && npm run clean-maps && npm run clean-js && npm run clean-doc",
-    "doc": "rm -rf docs && typedoc  --excludePrivate --excludeExternals --hideGenerator --exclude \"**/+(test|node_modules|docs|coverage|.nyc_output)/**/*\" --mode file --out ./docs . && /usr/bin/env node -e \"require('opn')('file://`pwd`/docs/index.html')\""
+    "doc": "rm -rf docs && typedoc  --excludePrivate --excludeExternals --hideGenerator --exclude \"**/+(test|node_modules|docs|coverage|.nyc_output)/**/*\" --mode file --out ./docs . && /usr/bin/env node -e \"require('opn')('file://`pwd`/docs/index.html');process.exit(0)\""
   },
   "author": "Mykhailo Stadnyk <mikhus@gmail.com> (https://github.com/Mikhus)",
   "license": "ISC",

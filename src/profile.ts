@@ -16,6 +16,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import 'reflect-metadata';
+import { ILogger } from '.';
 
 export const IMQ_LOG_TIME = !!process.env['IMQ_LOG_TIME'];
 export const IMQ_LOG_ARGS = !!process.env['IMQ_LOG_ARGS'];
@@ -29,7 +30,7 @@ export const IMQ_LOG_ARGS = !!process.env['IMQ_LOG_ARGS'];
  * @param {any[]} args
  * @param {string | symbol} methodName
  * @param {number} start
- * @param {boolean} isWaiter
+ * @param {ILogger} logger
  */
 export function printDebugInfo(
     debugTime: boolean,
@@ -38,23 +39,19 @@ export function printDebugInfo(
     args: any[],
     methodName: string | symbol,
     start: number,
-    isWaiter: boolean = false
+    logger: ILogger = console
 ) {
-    const end = Date.now();
-
     if (debugTime) {
-        console.log(
-            `${className}.${methodName
-                }() executed in ${end - start} ms` +
-            (isWaiter ? ' (waiter)' : '')
+        const end = Date.now();
+        logger.log(
+            `${className}.${methodName}() executed in ${end - start} ms`
         );
     }
 
     if (debugArgs) {
-        console.log(
-            `${className}.${methodName
-                }() called with args: ${JSON.stringify(args, null, 2)}` +
-            (isWaiter ? ' (waiter)' : '')
+        logger.log(
+            `${className}.${methodName}() called with args: ${
+                JSON.stringify(args, null, 2)}`
         );
     }
 }
@@ -128,7 +125,8 @@ export function profile(
                         className,
                         args,
                         methodName,
-                        start
+                        start,
+                        this.logger
                     );
 
                     return res;
@@ -142,7 +140,8 @@ export function profile(
                 className,
                 args,
                 methodName,
-                start
+                start,
+                this.logger
             );
 
             return result;

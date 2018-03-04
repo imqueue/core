@@ -24,7 +24,15 @@ function bytes(str: string) {
 (async() => {
     try {
         const queueName = 'TestIMQ';
-        const options: Partial<IMQOptions> = { vendor: 'Redis' };
+        const options: Partial<IMQOptions> = {
+            vendor: 'Redis',
+            logger: {
+                log() {},
+                info() {},
+                warn() {},
+                error: console.error
+            }
+        };
         const [mq, mq2] = await Promise.all([
             IMQ.create(queueName, options).start(),
             IMQ.create(queueName, options).start()
@@ -81,13 +89,13 @@ function bytes(str: string) {
         };
 
         let count = 0;
-        const STEPS = 10000;
+        const STEPS = Number(process.argv.pop()) || 10000;
         const fmt = new Intl.NumberFormat(
             'en-US', { maximumSignificantDigits: 3 }
         );
 
-        mq.on('message', (...args: any[]) => count++);
-        mq2.on('message', (...args: any[]) => count++);
+        mq.on('message', () => count++);
+        mq2.on('message', () => count++);
 
         console.log('Sending %s messages, please, wait...', fmt.format(STEPS));
 

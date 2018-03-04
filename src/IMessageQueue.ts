@@ -21,6 +21,14 @@ export interface IJson {
     [name: string]: number | string | boolean | null | IJson |
         number[] | string[] | boolean[] | null[] | IJson[];
 }
+
+export interface ILogger {
+    log(...args: any[]): void,
+    info(...args: any[]): void;
+    warn(...args: any[]): void;
+    error(...args: any[]): void;
+}
+
 export type IMessage = {
     id: string,
     message: IJson,
@@ -29,10 +37,11 @@ export type IMessage = {
 };
 
 export type IMQOptions = {
+    host: string,
+    port: number,
     vendor?: string,
     prefix?: string,
-    host: string,
-    port: number
+    logger?: ILogger
 };
 
 export interface IMessageQueueConstructor {

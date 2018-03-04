@@ -29,11 +29,13 @@ import {
 import { EventEmitter } from 'events';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import {ILogger} from "./IMessageQueue";
 
 const DEFAULT_OPTIONS: IMQOptions = {
     host: 'localhost',
     port: 6379,
-    prefix: 'imq'
+    prefix: 'imq',
+    logger: console
 };
 
 /**
@@ -68,6 +70,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
     private initialized: boolean = false;
     private watchOwner = false;
+
+    private get logger(): ILogger {
+        return this.options.logger || console;
+    };
 
     private scripts: { [name: string]: { code: string, checksum?: string } } = {
         moveDelayed: {
@@ -149,7 +155,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 options.host
             );
             context[channel].on('ready', async () => {
-                console.log(`RedisQueue: ${channel} channel connected`);
+                this.logger.info(`RedisQueue: ${channel} channel connected`);
 
                 await context[channel].client(
                     'setname',
@@ -160,7 +166,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 resolve(context[channel]);
             });
             context[channel].on('error', (err: Error) => {
-                console.error(`Error connecting redis on ${channel}:`, err);
+                this.logger.error(`Error connecting redis on ${channel}:`, err);
                 reject(err);
             });
         });
@@ -187,7 +193,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         catch (err) {
-            console.error('RedisQueue message is invalid:', err);
+            this.logger.error('RedisQueue message is invalid:', err);
         }
 
         return this;
@@ -243,7 +249,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         catch (err) {
-            console.error('RedisQueue events error:', err);
+            this.logger.error('RedisQueue events error:', err);
         }
 
         self.watcher.on('pmessage', async (...args: any[]) => {
@@ -259,7 +265,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             }
 
             catch (err) {
-                console.error('RedisQueue watch error:', err);
+                this.logger.error('RedisQueue watch error:', err);
             }
         });
 

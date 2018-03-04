@@ -12,7 +12,7 @@
     "clean-tests": "rm -rf .nyc_output coverage",
     "clean-doc": "rm -rf docs",
     "clean": "npm run clean-tests && npm run clean-typedefs && npm run clean-maps && npm run clean-js && npm run clean-doc",
-    "doc": "rm -rf docs && typedoc --excludeNotExported --excludePrivate --excludeExternals --out docs --hideGenerator --target ES2015 --exclude \"**/+(test|node_modules|docs|coverage|.nyc_output)/**/*\" --mode file && /usr/bin/env node -e \"require('opn')('file://`pwd`/docs/index.html')\""
+    "doc": "rm -rf docs && typedoc  --excludePrivate --excludeExternals --hideGenerator --exclude \"**/+(test|node_modules|docs|coverage|.nyc_output)/**/*\" --mode file --out ./docs . && /usr/bin/env node -e \"require('opn')('file://`pwd`/docs/index.html')\""
   },
   "author": "Mykhailo Stadnyk <mikhus@gmail.com> (https://github.com/Mikhus)",
   "license": "ISC",

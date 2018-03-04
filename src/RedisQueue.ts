@@ -88,14 +88,31 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
     };
 
+    /**
+     * Return a lock key for watcher connection
+     *
+     * @access private
+     * @returns {string}
+     */
     private get lockKey() {
         return `${this.options.prefix}:watch:lock`;
     }
 
+    /**
+     * Returns current queue key
+     *
+     * @access private
+     * @returns {string}
+     */
     private get key() {
         return `${this.options.prefix}:${this.name}`;
     }
 
+    /**
+     * @constructor
+     * @param {string} name
+     * @param {IMQOptions} [options]
+     */
     constructor(
         public name: string,
         public options: IMQOptions = DEFAULT_OPTIONS
@@ -107,6 +124,15 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
     }
 
+    /**
+     * Establishes given connection channel by its' name
+     *
+     * @access private
+     * @param {"reader" | "writer" | "watcher"} channel
+     * @param {IMQOptions} options
+     * @param {any} context
+     * @returns {Promise<any>}
+     */
     @profile()
     private async connect(
         channel: 'reader' | 'writer' | 'watcher',
@@ -140,6 +166,13 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         });
     }
 
+    /**
+     * Processes given redis-queue message
+     *
+     * @access private
+     * @param {[any , any]} message
+     * @returns {RedisQueue}
+     */
     @profile()
     private process(message: [any, any]): RedisQueue {
         const [queue, data] = message;
@@ -160,7 +193,13 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return this;
     }
 
-    private async watcherCount() {
+    /**
+     * Returns number of established watcher connections on redis
+     *
+     * @access private
+     * @returns {Promise<number>}
+     */
+    private async watcherCount(): Promise<number> {
         return (<any>await this.writer.client('list'))
             .split(/\r?\n/)
             .filter((client: string) =>
@@ -168,6 +207,13 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             ).length;
     }
 
+    /**
+     * Processes delayed message by its given redis key
+     *
+     * @access private
+     * @param {string} key
+     * @returns {Promise<void>}
+     */
     private async processDelayed(key: string) {
         const self: any = this;
 
@@ -179,6 +225,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
     }
 
+    /**
+     * Setups watch process on delayed messages
+     *
+     * @access private
+     * @returns {RedisQueue}
+     */
     private watch() {
         const self: any = this;
 
@@ -221,6 +273,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return this;
     }
 
+    /**
+     * Initializes read process on redis message queue
+     *
+     * @returns {RedisQueue}
+     */
     private read(): RedisQueue {
         const self: any = this;
 
@@ -245,18 +302,41 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return this;
     }
 
-    private async isLocked() {
+    /**
+     * Checks if watcher connection is locked
+     *
+     * @access private
+     * @returns {Promise<boolean>}
+     */
+    private async isLocked(): Promise<boolean> {
         return this.writer.exists(this.lockKey);
     }
 
-    private async lock() {
-        return this.writer.setnx(this.lockKey, '');
+    /**
+     * Locks watcher connection
+     *
+     * @access private
+     * @returns {Promise<number>}
+     */
+    private async lock(): Promise<number> {
+        return <any>this.writer.setnx(this.lockKey, '');
     }
 
-    private async unlock() {
-        return this.writer.del(this.lockKey);
+    /**
+     * Unlocks watcher connection
+     *
+     * @access private
+     * @returns {Promise<number>}
+     */
+    private async unlock(): Promise<number> {
+        return <any>this.writer.del(this.lockKey);
     }
 
+    /**
+     * Aquires owner for watcher connection to this instance of the queue
+     *
+     * @returns {Promise<void>}
+     */
     private async ownWatch() {
         if (await this.lock()) {
             this.watchOwner = true;
@@ -265,6 +345,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
     }
 
+    /**
+     * Initializes and starts current queue routines
+     *
+     * @returns {Promise<RedisQueue>}
+     */
     @profile()
     public async start(): Promise<RedisQueue> {
         if (this.initialized) {
@@ -314,6 +399,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return this;
     }
 
+    /**
+     * Sends given message to a given queue (by name)
+     *
+     * @param {string} toQueue
+     * @param {IJson} message
+     * @param {number} [delay]
+     * @returns {Promise<RedisQueue>}
+     */
     @profile()
     public async send(
         toQueue: string,
@@ -348,6 +441,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return this;
     }
 
+    /**
+     * Stops current queue routines
+     *
+     * @returns {Promise<RedisQueue>}
+     */
     @profile()
     public async stop(): Promise<RedisQueue> {
         const self = this;
@@ -360,6 +458,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return this;
     }
 
+    /**
+     * Gracefully destroys this queue
+     *
+     * @returns {Promise<void>}
+     */
     @profile()
     public async destroy() {
         const self = this;
@@ -369,6 +472,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         if (self.writer) {
             self.writer.unref();
             delete self.writer;
+        }
+
+        if (self.watcher) {
+            self.watcher.unref();
+            self.watcher.removeAllListeners();
+            delete self.watcher;
         }
 
         await this.stop();

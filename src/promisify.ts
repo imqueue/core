@@ -15,6 +15,14 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
+
+/**
+ * Makes given object methods promise-like
+ *
+ * @param {{[p: string]: any}} obj
+ * @param {string[]} restrict - stick promise-like behavior to a given
+ *                              restricted list of methods
+ */
 export function promisify(
     obj: { [name: string]: any },
     restrict?: string[]

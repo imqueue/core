@@ -45,6 +45,7 @@ export interface IMessageQueue extends EventEmitter {
      */
 
     start(): Promise<IMessageQueue>;
+
     stop(): Promise<IMessageQueue>;
 
     send(
@@ -54,5 +55,4 @@ export interface IMessageQueue extends EventEmitter {
     ): Promise<IMessageQueue>;
 
     destroy(): void;
-
 }

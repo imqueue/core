@@ -20,6 +20,17 @@ import 'reflect-metadata';
 export const IMQ_LOG_TIME = !!process.env['IMQ_LOG_TIME'];
 export const IMQ_LOG_ARGS = !!process.env['IMQ_LOG_ARGS'];
 
+/**
+ * Prints debug information
+ *
+ * @param {boolean} debugTime
+ * @param {boolean} debugArgs
+ * @param {string} className
+ * @param {any[]} args
+ * @param {string | symbol} methodName
+ * @param {number} start
+ * @param {boolean} isWaiter
+ */
 export function printDebugInfo(
     debugTime: boolean,
     debugArgs: boolean,

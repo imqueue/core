@@ -16,12 +16,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import { expect } from 'chai';
-import { RedisQueue } from '../src';
+import IMQ from '..';
 
-describe('RedisQueue', () => {
+describe('IMQ', () => {
 
     it('should be a class', () => {
-        expect(typeof RedisQueue).to.equal('function');
+        expect(typeof IMQ).to.equal('function');
     });
 
 });

@@ -1,6 +1,6 @@
 # imq
 
-Simple messaging queue for inter service communication.
+Simple JSON-based messaging queue for inter service communication
 
 # Install
 

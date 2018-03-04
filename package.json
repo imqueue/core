@@ -1,7 +1,7 @@
 {
   "name": "imq",
   "version": "1.0.0-dev",
-  "description": "Simple messaging queue for inter service communication",
+  "description": "Simple JSON-based messaging queue for inter service communication",
   "scripts": {
     "prepublish": "./node_modules/.bin/tsc",
     "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"require('opn')('file://`pwd`/coverage/index.html');process.exit(0)\"",

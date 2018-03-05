@@ -35,7 +35,8 @@ const DEFAULT_OPTIONS: IMQOptions = {
     host: 'localhost',
     port: 6379,
     prefix: 'imq',
-    logger: console
+    logger: console,
+    watcherCheckDelay: 5000
 };
 
 /**
@@ -65,12 +66,24 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
 
     private reader: IRedisClient;
-    private writer: IRedisClient;
+    private static writer: IRedisClient;
     private watcher: IRedisClient;
 
     private initialized: boolean = false;
     private watchOwner = false;
 
+    private watchCheckInterval: any;
+
+    /**
+     * @type {IRedisClient}
+     */
+    private get writer(): IRedisClient {
+        return RedisQueue.writer;
+    }
+
+    /**
+     * @type {ILogger}
+     */
     private get logger(): ILogger {
         return this.options.logger || console;
     };
@@ -166,8 +179,19 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 resolve(context[channel]);
             });
             context[channel].on('error', (err: Error) => {
+                this.initialized = false;
                 this.logger.error(`Error connecting redis on ${channel}:`, err);
                 reject(err);
+            });
+            context[channel].on('end', () => {
+                this.initialized = false;
+                this.logger.warn(`Redis connection ${channel} closed!`);
+            });
+            context[channel].on('reconnecting', () => {
+                this.initialized = false;
+                this.logger.warn(
+                    `Redis connection ${channel} is reconnecting!`
+                );
             });
         });
     }
@@ -285,23 +309,22 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {RedisQueue}
      */
     private read(): RedisQueue {
-        const self: any = this;
-
-        if (!self.reader) {
+        if (!this.reader) {
+            this.logger.error('Reader connection is not initialized!');
             return this;
         }
 
         process.nextTick(async () => {
             while (true) {
-                if (!self.reader) {
+                if (!this.reader) {
                     break;
                 }
 
-                this.process(await self.reader.brpop(this.key, 0));
+                this.process(<any>await this.reader.brpop(this.key, 0));
             }
         });
 
-        self.reader.brpop(this.key, 0).then(
+        (<any>this.reader.brpop(this.key, 0)).then(
             (message: [any, any]) => this.process(message).read()
         );
 
@@ -315,27 +338,27 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<boolean>}
      */
     private async isLocked(): Promise<boolean> {
-        return this.writer.exists(this.lockKey);
+        return !!Number(await this.writer.exists(this.lockKey));
     }
 
     /**
      * Locks watcher connection
      *
      * @access private
-     * @returns {Promise<number>}
+     * @returns {Promise<boolean>}
      */
-    private async lock(): Promise<number> {
-        return <any>this.writer.setnx(this.lockKey, '');
+    private async lock(): Promise<boolean> {
+        return !!Number(await this.writer.setnx(this.lockKey, ''));
     }
 
     /**
      * Unlocks watcher connection
      *
      * @access private
-     * @returns {Promise<number>}
+     * @returns {Promise<boolean>}
      */
-    private async unlock(): Promise<number> {
-        return <any>this.writer.del(this.lockKey);
+    private async unlock(): Promise<boolean> {
+        return !!Number(await this.writer.del(this.lockKey));
     }
 
     /**
@@ -344,7 +367,24 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<void>}
      */
     private async ownWatch() {
-        if (await this.lock()) {
+        const owned = await this.lock();
+        if (owned) {
+            Object.keys(this.scripts).forEach(async (script: string) => {
+                const checksum = this.scripts[script].checksum = sha1(
+                    this.scripts[script].code);
+                const loaded = (<any>await this.writer.script(
+                    'exists',
+                    checksum
+                )).shift();
+
+                if (!loaded) {
+                    await this.writer.script(
+                        'load',
+                        this.scripts[script].code
+                    );
+                }
+            });
+
             this.watchOwner = true;
             await this.connect('watcher', this.options);
             this.watch();
@@ -362,19 +402,22 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             return this;
         }
 
-        await Promise.all([
-            this.connect('reader', this.options),
-            this.connect('writer', this.options)
-        ]);
+        this.watchCheckInterval = setInterval(
+            async () => await this.ownWatch(),
+            this.options.watcherCheckDelay
+        );
 
-        Object.keys(this.scripts).forEach(async (script: string) => {
-            const checksum = this.scripts[script].checksum = sha1(
-                this.scripts[script].code);
+        const connPromises = [];
 
-            if (!(<any>await this.writer.script('exists', checksum)).shift()) {
-                await this.writer.script('load', this.scripts[script].code);
-            }
-        });
+        if (!this.reader) {
+            connPromises.push(this.connect('reader', this.options));
+        }
+
+        if (!this.writer) {
+            connPromises.push(this.connect('writer', this.options, RedisQueue));
+        }
+
+        await Promise.all(connPromises);
 
         const free = async () => {
             if (this.watchOwner) {
@@ -419,10 +462,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         message: IJson,
         delay?: number
     ): Promise<RedisQueue> {
-        const self = this;
-
-        if (!self.writer) {
-            return this;
+        if (!this.writer) {
+            await this.start();
         }
 
         const id = uuid();
@@ -431,17 +472,17 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         if (delay) {
             await Promise.all([
-                self.writer.zadd(
+                this.writer.zadd(
                     `${key}:delayed`,
                     Date.now() + delay,
                     JSON.stringify(data)
                 ),
-                self.writer.set(`${key}:${id}:ttl`, '', 'PX', delay, 'NX')
+                this.writer.set(`${key}:${id}:ttl`, '', 'PX', delay, 'NX')
             ]);
         }
 
         else {
-            await self.writer.lpush(key, JSON.stringify(data));
+            await this.writer.lpush(key, JSON.stringify(data));
         }
 
         return this;
@@ -471,19 +512,22 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     @profile()
     public async destroy() {
-        const self = this;
-
         this.removeAllListeners();
 
-        if (self.writer) {
-            self.writer.unref();
-            delete self.writer;
+        if (this.watchCheckInterval) {
+            clearInterval(this.watchCheckInterval);
+            delete this.watchCheckInterval;
         }
 
-        if (self.watcher) {
-            self.watcher.unref();
-            self.watcher.removeAllListeners();
-            delete self.watcher;
+        if (RedisQueue.writer) {
+            RedisQueue.writer.unref();
+            delete RedisQueue.writer;
+        }
+
+        if (this.watcher) {
+            this.watcher.unref();
+            this.watcher.removeAllListeners();
+            delete this.watcher;
         }
 
         await this.stop();

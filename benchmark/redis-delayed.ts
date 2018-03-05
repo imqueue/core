@@ -1,5 +1,5 @@
 /*!
- * Redis message-queue adapter benchmark test
+ * Redis message-queue adapter benchmark test for delayed messages
  *
  * Copyright (c) 2018, Mykhailo Stadnyk <mikhus@gmail.com>
  *
@@ -90,6 +90,7 @@ function bytes(str: string) {
 
         let count = 0;
         const STEPS = Number(process.argv.pop()) || 10000;
+        const DELAY = 5000;
         const fmt = new Intl.NumberFormat(
             'en-US', { maximumSignificantDigits: 3 }
         );
@@ -101,13 +102,16 @@ function bytes(str: string) {
 
         const start = Date.now();
 
+        console.log(`Sending all messages at once with ${
+            fmt.format(DELAY)}ms delivery delay...`);
+
         for (let i = 0; i < STEPS; i++) {
-            mq2.send(queueName, jsonExample).catch();
+            mq2.send(queueName, jsonExample, DELAY).catch();
         }
 
         const interval = setInterval(async () => {
             if (count >= STEPS) {
-                const time = Date.now() - start;
+                const time = Date.now() - DELAY - start;
 
                 console.log(
                     '%s is sent/received in %s ±10 ms',

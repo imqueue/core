@@ -41,7 +41,8 @@ export type IMQOptions = {
     port: number,
     vendor?: string,
     prefix?: string,
-    logger?: ILogger
+    logger?: ILogger,
+    watcherCheckDelay?: number
 };
 
 export interface IMessageQueueConstructor {

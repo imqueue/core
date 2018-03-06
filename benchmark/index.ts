@@ -22,6 +22,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as yargs from 'yargs';
 import { run } from './redis-test';
+import { resolve }  from 'path';
 
 /**
  * Command line args
@@ -56,6 +57,8 @@ const METRICS_DELAY = 100;
 const CPUS = os.cpus();
 const numCpus = CPUS.length;
 const CPU_NAMES = ['redis'];
+const STEPS = Number(ARGV.m) || 10000;
+const MSG_DELAY = Number(ARGV.d) || 0;
 
 if (numCpus - 2 < maxChildren) {
     maxChildren = numCpus - 2;
@@ -98,7 +101,7 @@ function cpuAvg(i: number) {
  *
  * @param {any[]} metrics
  */
-function saveStats(metrics: any[]) {
+function saveStats(metrics: any[], data: any[]) {
     const stats: any[] = [];
 
     for (let i = 1, s = metrics.length; i < s; i++) {
@@ -115,6 +118,7 @@ function saveStats(metrics: any[]) {
     }
 
     const config = {
+        bindto: '#chart',
         data: {
             columns: stats
         },
@@ -122,16 +126,78 @@ function saveStats(metrics: any[]) {
             x: {
                 type: 'category',
                 categories: stats[0].slice(1).map((v: any, i: number) =>
-                    (i * 100) + 'ms')
+                    ((i * 100) / 1000).toFixed(1) + 's')
             }
         },
         zoom: {
             enabled: true
         }
     };
+    const fmt = new Intl.NumberFormat(
+        'en-US', { maximumSignificantDigits: 3 }
+    );
 
-    fs.writeFileSync('./stats.json', JSON.stringify(config));
-    console.log('CPU stats saved to stats.json file.');
+    let html = `<!doctype html>
+<html>
+<head>
+    <title>Benchmark results</title>    
+    <meta charset="utf-8">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/c3/0.4.21/c3.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/c3/0.4.21/c3.min.css">
+</head>
+<body>
+    <h2 class="title">Test Info</h2>
+    <ul>
+        <li>Number of workers: ${fmt.format(maxChildren)}</li>
+        <li>Number of messages per worker: ${fmt.format(STEPS)}</li>
+        <li>Total messages executed: ${fmt.format(STEPS * maxChildren)}</li>
+        <li>Average round-trip ratio: ${
+            fmt.format(Math.round(data.reduce((prev, next) => 
+                prev + next.ratio, 0
+            ) / data.length))
+        } msg/sec</li>
+        <li>Average message payload is: ${
+            fmt.format(Math.round(data.reduce((prev, next) =>
+                prev + next.bytesLen, 0
+            ) / data.length))
+        } bytes</li>
+        <li>Average time of all messages delivery is: ${
+            fmt.format(Number((data.reduce((prev, next) =>
+                prev + next.time, 0
+            ) / 1000 / data.length).toFixed(2)))
+        } sec ±10 ms</li>
+        <li>Max delivery time is: ${
+            fmt.format(
+                Number((Math.max.apply(null, data.map((item => item.time)))
+                / 1000).toFixed(2)))
+        } sec ±10 ms</li>
+        ${MSG_DELAY ? '<li>Message delivery delay used: ' + MSG_DELAY : ''}
+    </ul>
+    <h2 class="title">CPU Usage</h2>
+    <div class="chart">
+        <div id="chart"></div>
+    </div>
+    <script>var chart = c3.generate(${JSON.stringify(config)});</script>
+</body>
+</html>
+`;
+    const htmlFile = resolve(__dirname, '../benchmark-result/index.html');
+
+    if (!fs.existsSync('./benchmark-result')) {
+        fs.mkdirSync('./benchmark-result');
+    }
+
+    fs.writeFileSync(
+        './benchmark-result/index.html',
+        html, { encoding: 'utf8' }
+    );
+
+    console.log('Benchmark stats saved!');
+    console.log(`Opening \`file://${htmlFile}\``);
+
+    require('opn')(`file://${htmlFile}`);
+    process.exit(0);
 }
 
 // main program:
@@ -142,20 +208,28 @@ if (cluster.isMaster) {
     const statsWorker = cluster.fork();
     statsWorker.send('stats');
 
-    const done: boolean[] = [];
+    let done: number = 0;
+    const data: any[] = [];
+
+    statsWorker.on('message', (msg) => {
+        if (/^metrics:/.test(msg)) {
+            saveStats(JSON.parse(msg.split('metrics:').pop() || ''), data);
+            process.exit(0);
+        }
+    });
 
     for (let i = 0; i < maxChildren; i++) {
-        done[i] = false;
         const worker = cluster.fork();
+
         worker.send(`imq ${i}`);
-
         worker.on('message', (msg: string) => {
-            const index = parseInt(String(msg.split(/\s+/).pop()), 10);
-            done[index] = true;
+            if (/^data:/.test(msg)) {
+                done++;
+                data.push(JSON.parse(msg.split('data:').pop() || ''));
 
-            if (!~done.indexOf(false)) {
-                statsWorker.send('stop');
-                process.exit(0);
+                if (done >= maxChildren) {
+                    statsWorker.send('stop');
+                }
             }
         });
     }
@@ -173,19 +247,15 @@ else {
             na.setAffinity(mask);
 
             try {
-                await run(
-                    Number(ARGV.m) || 10000,
-                    Number(ARGV.d) || 0
-                );
+                const data = await run(STEPS, MSG_DELAY);
+                (<any>process).send('data:' + JSON.stringify(data));
             }
 
             catch (err) {
+                (<any>process).send('data:' + JSON.stringify(null))
                 console.error(err.stack);
                 process.exit(1);
             }
-
-            (<any>process).send(`img ${index}`);
-            process.exit(0);
         }
 
         else if (msg === 'stats') {
@@ -210,7 +280,7 @@ else {
 
         else if (msg === 'stop') {
             metricsInterval && clearInterval(metricsInterval);
-            saveStats(metrics);
+            (<any>process).send('metrics:' + JSON.stringify(metrics));
             process.exit(0);
         }
     });

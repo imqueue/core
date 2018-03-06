@@ -123,6 +123,8 @@ export async function run(STEPS: number, MSG_DELAY: number = 0) {
         const interval = setInterval(async () => {
             if (count >= STEPS) {
                 const time = Date.now() - start;
+                const bytesLen = bytes(JSON.stringify(jsonExample));
+                const ratio = count / (time / 1000);
 
                 console.log(
                     '%s is sent/received in %s ±10 ms',
@@ -131,17 +133,17 @@ export async function run(STEPS: number, MSG_DELAY: number = 0) {
                 );
                 console.log(
                     'Round-trip ratio: %s messages/sec',
-                    fmt.format(count / (time / 1000))
+                    fmt.format(ratio)
                 );
                 console.log(
                     'Message payload is: %s bytes',
-                    fmt.format(bytes(JSON.stringify(jsonExample)))
+                    fmt.format(bytesLen)
                 );
 
                 mq.destroy();
 
                 clearInterval(interval);
-                resolve();
+                resolve({ count, time, ratio, bytesLen });
             }
         }, 10);
     });

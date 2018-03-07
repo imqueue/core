@@ -131,11 +131,22 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
         data: {
             columns: stats
         },
+        point: { show: false },
         axis: {
             x: {
                 type: 'category',
                 categories: stats[0].slice(1).map((v: any, i: number) =>
-                    ((i * 100) / 1000).toFixed(1) + 's')
+                    ((i * 100) / 1000).toFixed(1) + 's'),
+                tick: {
+                    centered: true,
+                    fit: false,
+                    culling: { max: 20 },
+                    outer: false
+                }
+            },
+            y: {
+                max: 100,
+                tick: { outer: false }
             }
         },
         zoom: {
@@ -147,11 +158,22 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
         data: {
             columns: [memStats]
         },
+        point: { show: false },
         axis: {
             x: {
                 type: 'category',
                 categories: memStats.slice(1).map((v: any, i: number) =>
-                    ((i * 100) / 1000).toFixed(1) + 's')
+                    ((i * 100) / 1000).toFixed(1) + 's'),
+                tick: {
+                    centered: true,
+                    fit: false,
+                    culling: { max: 20 },
+                    outer: false
+                }
+            },
+            y: {
+                max: 100,
+                tick: { outer: false }
             }
         },
         zoom: {

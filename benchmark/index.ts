@@ -23,6 +23,7 @@ import * as fs from 'fs';
 import * as yargs from 'yargs';
 import { run } from './redis-test';
 import { resolve }  from 'path';
+import { uuid, IJson } from '..';
 
 /**
  * Command line args
@@ -47,6 +48,13 @@ const ARGV = yargs
     .alias('z', 'gzip')
     .describe('z', 'use gzip for message encoding/decoding')
 
+    .alias('e', 'example-message')
+    .describe('e', 'Path to a file containing JSON of example message to ' +
+        'use during the tests')
+
+    .alias('t', 'message-multiply-times')
+    .describe('t', 'Increase sample message data given number of times')
+
     .boolean(['h', 'z'])
     .argv;
 
@@ -59,10 +67,29 @@ let maxChildren = Number(ARGV.c) || 1;
 const METRICS_DELAY = 100;
 const CPUS = os.cpus();
 const numCpus = CPUS.length;
-const CPU_NAMES = ['redis'];
+const CPU_NAMES = ['Redis Process, CPU Used, %'];
 const STEPS = Number(ARGV.m) || 10000;
 const MSG_DELAY = Number(ARGV.d) || 0;
 const USE_GZIP: boolean = ARGV.z;
+const MSG_MULTIPLIER = Number(ARGV.t) || 0;
+
+let SAMPLE_MESSAGE: IJson;
+
+if (ARGV.e) {
+    try {
+        SAMPLE_MESSAGE = JSON.parse(fs.readFileSync(ARGV.e).toString());
+
+        if (MSG_MULTIPLIER) {
+            SAMPLE_MESSAGE = new Array(MSG_MULTIPLIER).fill(SAMPLE_MESSAGE);
+        }
+    }
+
+    catch (err) {
+        console.warn('Given example message is invalid, ' +
+            'proceeding test execution with with standard ' +
+            'example message.');
+    }
+}
 
 if (numCpus - 2 < maxChildren) {
     maxChildren = numCpus - 2;
@@ -73,7 +100,7 @@ if (!maxChildren) {
 }
 
 for (let i = 0; i < maxChildren; i++) {
-    CPU_NAMES.push(`imq${i + 1}`);
+    CPU_NAMES.push(`IMQ worker #${i + 1}, CPU Used, %`);
 }
 
 /**
@@ -107,7 +134,7 @@ function cpuAvg(i: number) {
  */
 function saveStats({ metrics,  memusage }: any, data: any[]) {
     const stats: any[] = [];
-    const memStats: any[] = ['Memory Used, %'];
+    const memStats: any[] = ['System Memory Used, %'];
 
     for (let i = 1, s = metrics.length; i < s; i++) {
         for (let cpu = 0, ss = CPU_NAMES.length; cpu < ss; cpu++) {
@@ -187,23 +214,45 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
     let html = `<!doctype html>
 <html>
 <head>
-    <title>Benchmark results</title>
+    <title>IMQ Benchmark results</title>
     <meta charset="utf-8">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/c3/0.4.21/c3.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/c3/0.4.21/c3.min.css">
 </head>
 <body>
-    <h2 class="title">Test Info</h2>
+    <h1>IMQ Benchmark Results</h1>
+     <p>This test was executed using CPU affinity assignment for each running 
+    process. Redis server has it's own dedicated CPU core, all worker processes
+    are attached to their own cores as well. Each worker process running a bunch
+    of requests simultaneously in asynchronous manner, so depending on the
+    given test parameters all requests are executed almost at the same time.
+    <blockquote>
+    <i>NOTE: In MacOS it is not possible to implement CPU affinity assignment for
+    a given process, so there is no way to guaranty a proper process load
+    visibility.</i>
+    </blockquote>
+    </p>
+    <h2 class="title">Test Execution Information</h2>
     <ul>
+        <li>Execution Datetime: <i>${ new Date().toISOString() }</i></li>
+        <li>System Info:
+            <ul>
+                <li>CPU: ${CPUS[0].model} &times; ${ numCpus } cores</li>
+                <li>CPU Clock Speed: ${ CPUS[0].speed }Mhz</li>
+                <li>RAM: ${ Math.ceil(os.totalmem() / Math.pow(1024, 3)) }GB</li>
+                <li>OS Architecture: ${ os.arch() }</li>
+                <li>OS Platform: ${ os.platform() }</li>
+            </ul>
+        </li>
         <li>Number of workers: ${fmt.format(maxChildren)}</li>
         <li>Number of messages per worker: ${fmt.format(STEPS)}</li>
         <li>Total messages executed: ${fmt.format(STEPS * maxChildren)}</li>
-        <li>Round-trip ratio across all workers is: ${
+        <li>Round-trip ratio across all workers is: <b>${
             fmt.format(data.reduce((prev, next) =>
                 prev + next.ratio, 0
             ))
-        } msg/sec</li>
+        } msg/sec</b></li>
         <li>Average message payload to redis is: ${
             fmt.format(Math.round(data.reduce((prev, next) =>
                 prev + next.bytesLen, 0
@@ -242,16 +291,13 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
 </body>
 </html>
 `;
-    const htmlFile = resolve(__dirname, '../benchmark-result/index.html');
+    const htmlFile = resolve(__dirname, `../benchmark-result/${uuid()}.html`);
 
     if (!fs.existsSync('./benchmark-result')) {
         fs.mkdirSync('./benchmark-result');
     }
 
-    fs.writeFileSync(
-        './benchmark-result/index.html',
-        html, { encoding: 'utf8' }
-    );
+    fs.writeFileSync(htmlFile, html, { encoding: 'utf8' });
 
     console.log('Benchmark stats saved!');
     console.log(`Opening file://${htmlFile}`);
@@ -308,7 +354,12 @@ else {
             na.setAffinity(mask);
 
             try {
-                const data = await run(STEPS, MSG_DELAY, USE_GZIP);
+                const data = await run(
+                    STEPS,
+                    MSG_DELAY,
+                    USE_GZIP,
+                    SAMPLE_MESSAGE
+                );
                 (<any>process).send('data:' + JSON.stringify(data));
             }
 

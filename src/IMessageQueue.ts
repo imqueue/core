@@ -18,8 +18,8 @@
 import { EventEmitter } from 'events';
 
 export interface IJson {
-    [name: string]: number | string | boolean | null | IJson |
-        number[] | string[] | boolean[] | null[] | IJson[];
+    [name: string]: number | string | boolean | null | IJson | any |
+        number[] | string[] | boolean[] | null[] | IJson[] | any[];
 }
 
 export interface ILogger {

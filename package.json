@@ -11,7 +11,8 @@
     "clean-js": "find . -name '*.js' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
     "clean-tests": "rm -rf .nyc_output coverage",
     "clean-doc": "rm -rf docs",
-    "clean": "npm run clean-tests && npm run clean-typedefs && npm run clean-maps && npm run clean-js && npm run clean-doc",
+    "clean-benchmark": "rm -rf benchmark-result",
+    "clean": "npm run clean-tests && npm run clean-typedefs && npm run clean-maps && npm run clean-js && npm run clean-doc && npm run benchmark-result",
     "doc": "rm -rf docs && typedoc  --excludePrivate --excludeExternals --hideGenerator --exclude \"**/+(test|node_modules|docs|coverage|benchmark|.nyc_output)/**/*\" --mode file --out ./docs . && /usr/bin/env node -e \"require('opn')('file://`pwd`/docs/index.html');process.exit(0)\""
   },
   "author": "Mykhailo Stadnyk <mikhus@gmail.com> (https://github.com/Mikhus)",

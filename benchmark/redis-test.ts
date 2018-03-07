@@ -20,7 +20,7 @@ import IMQ, { IMQOptions, IJson, uuid, pack } from '../index';
 /**
  * Sample message used within tests
  */
-const jsonExample: IJson = {
+const JSON_EXAMPLE: IJson = {
     "Glossary": {
         "Title": "Example Glossary",
         "GlossDiv": {
@@ -91,7 +91,8 @@ export function bytes(str: string, useGzip: boolean = false) {
 export async function run(
     STEPS: number,
     MSG_DELAY: number = 0,
-    useGzip: boolean = false
+    useGzip: boolean = false,
+    jsonExample: IJson = JSON_EXAMPLE
 ) {
     const bytesLen = bytes(
         (useGzip ? pack : JSON.stringify)(jsonExample),

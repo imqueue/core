@@ -23,14 +23,14 @@ import {
     IMessageQueue,
     IMQOptions,
     IMessage,
+    ILogger,
     profile,
     uuid
 } from '.';
 import { EventEmitter } from 'events';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import { gzipSync as gzip, unzipSync as unzip } from 'zlib';
-import {ILogger} from "./IMessageQueue";
+import { gzipSync as gzip, gunzipSync as gunzip } from 'zlib';
 
 const DEFAULT_OPTIONS: IMQOptions = {
     host: 'localhost',
@@ -55,20 +55,12 @@ export function sha1(str: string) {
     return sha.digest('hex');
 }
 
-export function pack(data: any, useGzip: boolean = false): any {
-    if (useGzip) {
-        return gzip(JSON.stringify(data));
-    }
-
-    return JSON.stringify(data);
+export function pack(data: any): string {
+    return gzip(JSON.stringify(data)).toString('binary');
 }
 
-export function unpack(data: any, useGzip: boolean = false): any {
-    if (useGzip) {
-        return JSON.parse(unzip(data).toString('utf8'));
-    }
-
-    return JSON.parse(data);
+export function unpack(data: string): string {
+    return JSON.parse(gunzip(Buffer.from(data, 'binary')).toString());
 }
 
 /**
@@ -145,6 +137,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return `${this.options.prefix}:${this.name}`;
     }
 
+    private pack: Function;
+    private unpack: Function;
+
     /**
      * @constructor
      * @param {string} name
@@ -159,6 +154,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         if (options) {
             this.options = Object.assign(DEFAULT_OPTIONS, options);
         }
+
+        this.pack = this.options.useGzip ? pack : JSON.stringify;
+        this.unpack = this.options.useGzip ? unpack : JSON.parse;
     }
 
     /**
@@ -223,14 +221,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     @profile()
     private process(message: [any, any]): RedisQueue {
-        const [queue, data] = message;
+        let [queue, data] = message;
 
         if (!queue || queue !== this.key) {
             return this;
         }
 
         try {
-            const { id, message, from } = unpack(data);
+            const { id, message, from } = this.unpack(data);
             this.emit('message', message, id, from);
         }
 
@@ -342,10 +340,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             }
         });
 
-        (<any>this.reader.brpop(this.key, 0)).then(
-            (message: [any, any]) => this.process(message).read()
-        );
-
         return this;
     }
 
@@ -380,7 +374,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     }
 
     /**
-     * Aquires owner for watcher connection to this instance of the queue
+     * Acquires owner for watcher connection to this instance of the queue
      *
      * @returns {Promise<void>}
      */
@@ -487,20 +481,21 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const id = uuid();
         const data: IMessage = { id, message, from: this.name };
         const key = `${this.options.prefix}:${toQueue}`;
+        const packet = this.pack(data);
 
         if (delay) {
             await Promise.all([
                 this.writer.zadd(
                     `${key}:delayed`,
                     Date.now() + delay,
-                    pack(data)
+                    packet
                 ),
                 this.writer.set(`${key}:${id}:ttl`, '', 'PX', delay, 'NX')
             ]);
         }
 
         else {
-            await this.writer.lpush(key, pack(data));
+            await this.writer.lpush(key, packet);
         }
 
         return this;

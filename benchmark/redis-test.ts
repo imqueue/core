@@ -88,10 +88,17 @@ export function bytes(str: string) {
  * @param {number} MSG_DELAY
  * @returns {Promise<any>}
  */
-export async function run(STEPS: number, MSG_DELAY: number = 0) {
+export async function run(
+    STEPS: number,
+    MSG_DELAY: number = 0,
+    useGzip: boolean = false
+) {
     return new Promise(async (resolve) => {
         const queueName = `imq-test:${uuid()}`;
-        const options: Partial<IMQOptions> = { vendor: 'Redis' };
+        const options: Partial<IMQOptions> = {
+            vendor: 'Redis',
+            useGzip
+        };
         const mq = await IMQ.create(queueName, options).start();
 
         let count = 0;

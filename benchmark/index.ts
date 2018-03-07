@@ -44,7 +44,10 @@ const ARGV = yargs
     .describe('m', 'number of messages to be sent by a child process ' +
         'during test execution')
 
-    .boolean(['h'])
+    .alias('z', 'gzip')
+    .describe('z', 'use gzip for message encoding/decoding')
+
+    .boolean(['h', 'z'])
     .argv;
 
 const na = require('nodeaffinity');
@@ -59,6 +62,7 @@ const numCpus = CPUS.length;
 const CPU_NAMES = ['redis'];
 const STEPS = Number(ARGV.m) || 10000;
 const MSG_DELAY = Number(ARGV.d) || 0;
+const USE_GZIP: boolean = ARGV.z;
 
 if (numCpus - 2 < maxChildren) {
     maxChildren = numCpus - 2;
@@ -101,8 +105,9 @@ function cpuAvg(i: number) {
  *
  * @param {any[]} metrics
  */
-function saveStats(metrics: any[], data: any[]) {
+function saveStats({ metrics,  memusage }: any, data: any[]) {
     const stats: any[] = [];
+    const memStats: any[] = ['Memory Used, %'];
 
     for (let i = 1, s = metrics.length; i < s; i++) {
         for (let cpu = 0, ss = CPU_NAMES.length; cpu < ss; cpu++) {
@@ -117,8 +122,12 @@ function saveStats(metrics: any[], data: any[]) {
         }
     }
 
+    for (let i = 0, s = memusage.length; i < s; i++) {
+        memStats.push(100 - ~~(100 * memusage[i].free / memusage[i].total));
+    }
+
     const config = {
-        bindto: '#chart',
+        bindto: '#cpu-usage',
         data: {
             columns: stats
         },
@@ -133,6 +142,22 @@ function saveStats(metrics: any[], data: any[]) {
             enabled: true
         }
     };
+    const memConfig = {
+        bindto: '#memory-usage',
+        data: {
+            columns: [memStats]
+        },
+        axis: {
+            x: {
+                type: 'category',
+                categories: memStats.slice(1).map((v: any, i: number) =>
+                    ((i * 100) / 1000).toFixed(1) + 's')
+            }
+        },
+        zoom: {
+            enabled: true
+        }
+    };
     const fmt = new Intl.NumberFormat(
         'en-US', { maximumSignificantDigits: 3 }
     );
@@ -140,7 +165,7 @@ function saveStats(metrics: any[], data: any[]) {
     let html = `<!doctype html>
 <html>
 <head>
-    <title>Benchmark results</title>    
+    <title>Benchmark results</title>
     <meta charset="utf-8">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.17/d3.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/c3/0.4.21/c3.min.js"></script>
@@ -152,10 +177,10 @@ function saveStats(metrics: any[], data: any[]) {
         <li>Number of workers: ${fmt.format(maxChildren)}</li>
         <li>Number of messages per worker: ${fmt.format(STEPS)}</li>
         <li>Total messages executed: ${fmt.format(STEPS * maxChildren)}</li>
-        <li>Average round-trip ratio: ${
-            fmt.format(Math.round(data.reduce((prev, next) => 
+        <li>Round-trip ratio across all workers is: ${
+            fmt.format(data.reduce((prev, next) =>
                 prev + next.ratio, 0
-            ) / data.length))
+            ))
         } msg/sec</li>
         <li>Average message payload is: ${
             fmt.format(Math.round(data.reduce((prev, next) =>
@@ -173,12 +198,20 @@ function saveStats(metrics: any[], data: any[]) {
                 / 1000).toFixed(2)))
         } sec ±10 ms</li>
         ${MSG_DELAY ? '<li>Message delivery delay used: ' + MSG_DELAY : ''}
+        <li>Gzip compression for messages is: <b>${ USE_GZIP ? 'On' : 'Off' }</b></li>
     </ul>
     <h2 class="title">CPU Usage</h2>
     <div class="chart">
-        <div id="chart"></div>
+        <div id="cpu-usage"></div>
     </div>
-    <script>var chart = c3.generate(${JSON.stringify(config)});</script>
+    <h2 class="title">Memory Usage</h2>
+    <div class="chart">
+        <div id="memory-usage"></div>
+    </div>
+    <script>
+    c3.generate(${JSON.stringify(config)});
+    c3.generate(${JSON.stringify(memConfig)});
+    </script>
 </body>
 </html>
 `;
@@ -194,7 +227,7 @@ function saveStats(metrics: any[], data: any[]) {
     );
 
     console.log('Benchmark stats saved!');
-    console.log(`Opening \`file://${htmlFile}\``);
+    console.log(`Opening file://${htmlFile}`);
 
     require('opn')(`file://${htmlFile}`);
     process.exit(0);
@@ -237,6 +270,7 @@ if (cluster.isMaster) {
 
 else {
     const metrics: any[] = [];
+    const memusage: any[] = [];
     let metricsInterval: any;
 
     process.on('message', async (msg: string) => {
@@ -247,7 +281,7 @@ else {
             na.setAffinity(mask);
 
             try {
-                const data = await run(STEPS, MSG_DELAY);
+                const data = await run(STEPS, MSG_DELAY, USE_GZIP);
                 (<any>process).send('data:' + JSON.stringify(data));
             }
 
@@ -275,12 +309,19 @@ else {
                 metrics.push(
                     CPU_NAMES.map((name: string, i: number) => cpuAvg(i + 1))
                 );
+                memusage.push({
+                    total: os.totalmem(),
+                    free: os.freemem()
+                });
             }, METRICS_DELAY)
         }
 
         else if (msg === 'stop') {
             metricsInterval && clearInterval(metricsInterval);
-            (<any>process).send('metrics:' + JSON.stringify(metrics));
+            (<any>process).send('metrics:' + JSON.stringify({
+                metrics,
+                memusage
+            }));
             process.exit(0);
         }
     });

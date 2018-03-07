@@ -29,6 +29,7 @@ import {
 import { EventEmitter } from 'events';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { gzipSync as gzip, unzipSync as unzip } from 'zlib';
 import {ILogger} from "./IMessageQueue";
 
 const DEFAULT_OPTIONS: IMQOptions = {
@@ -36,7 +37,8 @@ const DEFAULT_OPTIONS: IMQOptions = {
     port: 6379,
     prefix: 'imq',
     logger: console,
-    watcherCheckDelay: 5000
+    watcherCheckDelay: 5000,
+    useGzip: false
 };
 
 /**
@@ -51,6 +53,22 @@ export function sha1(str: string) {
     sha.update(str);
 
     return sha.digest('hex');
+}
+
+export function pack(data: any, useGzip: boolean = false): any {
+    if (useGzip) {
+        return gzip(JSON.stringify(data));
+    }
+
+    return JSON.stringify(data);
+}
+
+export function unpack(data: any, useGzip: boolean = false): any {
+    if (useGzip) {
+        return JSON.parse(unzip(data).toString('utf8'));
+    }
+
+    return JSON.parse(data);
 }
 
 /**
@@ -212,7 +230,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         try {
-            const { id, message, from } = JSON.parse(data);
+            const { id, message, from } = unpack(data);
             this.emit('message', message, id, from);
         }
 
@@ -475,14 +493,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 this.writer.zadd(
                     `${key}:delayed`,
                     Date.now() + delay,
-                    JSON.stringify(data)
+                    pack(data)
                 ),
                 this.writer.set(`${key}:${id}:ttl`, '', 'PX', delay, 'NX')
             ]);
         }
 
         else {
-            await this.writer.lpush(key, JSON.stringify(data));
+            await this.writer.lpush(key, pack(data));
         }
 
         return this;

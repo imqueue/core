@@ -42,7 +42,8 @@ export type IMQOptions = {
     vendor?: string,
     prefix?: string,
     logger?: ILogger,
-    watcherCheckDelay?: number
+    watcherCheckDelay?: number,
+    useGzip: boolean
 };
 
 export interface IMessageQueueConstructor {

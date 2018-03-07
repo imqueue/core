@@ -15,7 +15,7 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-import IMQ, { IMQOptions, IJson, uuid } from '../index';
+import IMQ, { IMQOptions, IJson, uuid, pack } from '../index';
 
 /**
  * Sample message used within tests
@@ -77,8 +77,8 @@ const jsonExample: IJson = {
  * @param {string} str
  * @returns {number}
  */
-export function bytes(str: string) {
-    return Buffer.from(str, 'utf8').length;
+export function bytes(str: string, useGzip: boolean = false) {
+    return Buffer.from(str, useGzip ? 'binary' : 'utf8').length;
 }
 
 /**
@@ -93,6 +93,12 @@ export async function run(
     MSG_DELAY: number = 0,
     useGzip: boolean = false
 ) {
+    const bytesLen = bytes(
+        (useGzip ? pack : JSON.stringify)(jsonExample),
+        useGzip
+    );
+    const srcBytesLen = bytes(JSON.stringify(jsonExample));
+
     return new Promise(async (resolve) => {
         const queueName = `imq-test:${uuid()}`;
         const options: Partial<IMQOptions> = {
@@ -130,7 +136,6 @@ export async function run(
         const interval = setInterval(async () => {
             if (count >= STEPS) {
                 const time = Date.now() - start;
-                const bytesLen = bytes(JSON.stringify(jsonExample));
                 const ratio = count / (time / 1000);
 
                 console.log(
@@ -150,7 +155,7 @@ export async function run(
                 mq.destroy();
 
                 clearInterval(interval);
-                resolve({ count, time, ratio, bytesLen });
+                resolve({ count, time, ratio, bytesLen, srcBytesLen });
             }
         }, 10);
     });

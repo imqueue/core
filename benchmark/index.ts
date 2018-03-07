@@ -182,11 +182,16 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
                 prev + next.ratio, 0
             ))
         } msg/sec</li>
-        <li>Average message payload is: ${
+        <li>Average message payload to redis is: ${
             fmt.format(Math.round(data.reduce((prev, next) =>
                 prev + next.bytesLen, 0
             ) / data.length))
         } bytes</li>
+        <li>Average source message payload is: ${
+            fmt.format(Math.round(data.reduce((prev, next) =>
+                prev + next.srcBytesLen, 0
+            ) / data.length))
+        }</li>
         <li>Average time of all messages delivery is: ${
             fmt.format(Number((data.reduce((prev, next) =>
                 prev + next.time, 0

@@ -55,10 +55,24 @@ export function sha1(str: string) {
     return sha.digest('hex');
 }
 
+/**
+ * Compress given data and returns binary string
+ *
+ * @param {any} data
+ * @returns {string}
+ */
+// istanbul ignore next
 export function pack(data: any): string {
     return gzip(JSON.stringify(data)).toString('binary');
 }
 
+/**
+ * Decompress binary string and returns plain data
+ *
+ * @param {string} data
+ * @returns {any}
+ */
+// istanbul ignore next
 export function unpack(data: string): string {
     return JSON.parse(gunzip(Buffer.from(data, 'binary')).toString());
 }
@@ -96,7 +110,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @type {ILogger}
      */
     private get logger(): ILogger {
-        /* istanbul ignore next */
+        // istanbul ignore next
         return this.options.logger || console;
     };
 
@@ -156,7 +170,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         super();
 
         if (options) {
-            this.options = Object.assign(DEFAULT_OPTIONS, options);
+            this.options = Object.assign({}, DEFAULT_OPTIONS, options);
         }
 
         this.pack = this.options.useGzip ? pack : JSON.stringify;
@@ -178,7 +192,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         options: IMQOptions,
         context: any = this
     ) {
-        /* istanbul ignore next */
+        // istanbul ignore next
         if (context[channel]) {
             return context[channel];
         }
@@ -199,18 +213,18 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
                 resolve(context[channel]);
             });
-            /* istanbul ignore next */
+            // istanbul ignore next
             context[channel].on('error', (err: Error) => {
                 this.initialized = false;
                 this.logger.error(`Error connecting redis on ${channel}:`, err);
                 reject(err);
             });
-            /* istanbul ignore next */
+            // istanbul ignore next
             context[channel].on('end', () => {
                 this.initialized = false;
                 this.logger.warn(`Redis connection ${channel} closed!`);
             });
-            /* istanbul ignore next */
+            // istanbul ignore next
             context[channel].on('reconnecting', () => {
                 this.initialized = false;
                 this.logger.warn(
@@ -231,6 +245,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private process(message: [any, any]): RedisQueue {
         let [queue, data] = message;
 
+        // istanbul ignore next
         if (!queue || queue !== this.key) {
             return this;
         }
@@ -241,6 +256,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         catch (err) {
+            // istanbul ignore next
             this.logger.error('RedisQueue message is invalid:', err);
         }
 
@@ -253,6 +269,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @access private
      * @returns {Promise<number>}
      */
+    // istanbul ignore next
     private async watcherCount(): Promise<number> {
         return (<any>await this.writer.client('list') || '')
             .split(/\r?\n/)
@@ -285,6 +302,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @access private
      * @returns {RedisQueue}
      */
+    // istanbul ignore next
     private watch() {
         const self: any = this;
 
@@ -333,6 +351,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {RedisQueue}
      */
     private read(): RedisQueue {
+        // istanbul ignore next
         if (!this.reader) {
             this.logger.error('Reader connection is not initialized!');
             return this;
@@ -345,11 +364,13 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                         break;
                     }
 
-                    this.process(<any>await this.reader.brpop(this.key, 0));
+                    const msg: any = await this.reader.brpop(this.key, 0);
+                    this.process(msg);
                 }
             }
 
             catch (err) {
+                // istanbul ignore next
                 this.logger.error('RedisQueue reader failed:', err);
             }
         });
@@ -392,6 +413,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @returns {Promise<void>}
      */
+    // istanbul ignore next
     private async ownWatch() {
         const owned = await this.lock();
         if (owned) {
@@ -438,7 +460,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             return this;
         }
 
-        /* istanbul ignore next */
+        // istanbul ignore next
         !this.watchCheckInterval && (this.watchCheckInterval = setInterval(
             async () => await this.ownWatch(),
             this.options.watcherCheckDelay
@@ -446,7 +468,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         const connPromises = [];
 
-        /* istanbul ignore next */
+        // istanbul ignore next
         if (!this.reader) {
             connPromises.push(this.connect('reader', this.options));
         }
@@ -504,6 +526,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         message: IJson,
         delay?: number
     ): Promise<RedisQueue> {
+        // istanbul ignore next
         if (!this.writer) {
             await this.start();
         }
@@ -557,7 +580,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async destroy() {
         this.removeAllListeners();
 
-        /* istanbul ignore next */
+        // istanbul ignore next
         if (this.watchCheckInterval) {
             clearInterval(this.watchCheckInterval);
             delete this.watchCheckInterval;

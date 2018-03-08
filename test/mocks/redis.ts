@@ -26,12 +26,13 @@ function sha1(str: string) {
 }
 
 export class RedisClientMock extends EventEmitter {
-    private static __queues__: any;
+    private static __queues__: any = {};
     private static __clientList: any = {};
     private __rt: any;
     private static __keys: any = {};
     private static __scripts: any = {};
     private __name: string = '';
+    private __zsets: any = {};
 
     constructor(...args: any[]) {
         super();
@@ -59,7 +60,7 @@ export class RedisClientMock extends EventEmitter {
         args.pop()(null, result);
     }
 
-    lpush(key: string, value: any, cb: any) {
+    lpush(key: string, value: any, cb?: any) {
         const self = RedisClientMock;
         if (!self.__queues__[key]) {
             self.__queues__[key] = [];
@@ -68,13 +69,15 @@ export class RedisClientMock extends EventEmitter {
         cb(null, 1);
     }
 
-    brpop(key: string, cb: any) {
+    brpop(key: string, timeout?: number, cb?: Function) {
         const q = RedisClientMock.__queues__[key] || [];
         if (!q.length) {
             this.__rt && clearTimeout(this.__rt);
-            this.__rt = setTimeout(() => this.brpop(key, cb), 1000);
+            this.__rt = setTimeout(() => this.brpop(
+                key, timeout, cb
+            ), timeout || 100);
         } else {
-            cb(null, q.pop());
+            cb && cb(null, [key, q.pop()]);
         }
     }
 
@@ -136,7 +139,14 @@ export class RedisClientMock extends EventEmitter {
         cb(null, count);
     }
 
-    zadd(...args: any[]) { args.pop()(); }
+    zadd(key: string, score: number, value: string, cb?: Function) {
+        const timeout = score - Date.now();
+        setTimeout(() => {
+            const toKey = key.split(/:/).slice(0,2).join(':');
+            this.lpush(toKey, value);
+        }, timeout);
+        cb && cb();
+    }
 
     unref(...args: any[]) {
         delete RedisClientMock.__clientList[this.__name];

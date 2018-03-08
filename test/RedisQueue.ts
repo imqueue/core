@@ -117,8 +117,47 @@ describe('RedisQueue', function() {
     });
 
     describe('send()', () => {
-        it('should send given message to a given queue', async () => {
+        it('should send given message to a given queue', (done) => {
+            const message: any = { hello: 'world' };
+            const rqFrom = new RedisQueue('IMQUnitTestsFrom', { logger });
+            const rqTo = new RedisQueue('IMQUnitTestsTo', { logger });
 
+            rqTo.on('message', (msg, id, from) => {
+                expect(msg).to.deep.equal(message);
+                expect(id).not.to.be.undefined;
+                expect(from).to.equal('IMQUnitTestsFrom');
+                rqFrom.destroy();
+                rqTo.destroy();
+                done();
+            });
+
+            rqFrom.start().then(() => { rqTo.start().then(() => {
+                rqFrom.send('IMQUnitTestsTo', message);
+            });});
+        });
+
+        it('should deliver message with the given delay', (done) => {
+            const message: any = { hello: 'world' };
+            const delay: number = 1000;
+            const rqFrom = new RedisQueue('IMQUnitTestsFromD', { logger });
+            const rqTo = new RedisQueue('IMQUnitTestsToD', { logger });
+
+            let start: number;
+
+            rqTo.on('message', (msg, id, from) => {
+                expect(Date.now() - start).to.be.gte(delay);
+                expect(msg).to.deep.equal(message);
+                expect(id).not.to.be.undefined;
+                expect(from).to.equal('IMQUnitTestsFromD');
+                rqFrom.destroy();
+                rqTo.destroy();
+                done();
+            });
+
+            rqFrom.start().then(() => { rqTo.start().then(() => {
+                start = Date.now();
+                rqFrom.send('IMQUnitTestsToD', message, delay);
+            });});
         });
     });
 
@@ -140,12 +179,6 @@ describe('RedisQueue', function() {
         it('should remove all event listeners', async () => {
             await rq.destroy();
             expect(rq.listenerCount()).to.equal(0);
-        });
-    });
-
-    describe('event on("message", callback)', () => {
-        it('should properly handle message from queue with a given callback', () => {
-
         });
     });
 

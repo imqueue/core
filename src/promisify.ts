@@ -16,6 +16,29 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
+import * as fs from 'fs';
+
+/**
+ * Returns entire list of the given object properties including
+ * entire prototype chain
+ *
+ * @param {any} obj
+ * @returns {string[]}
+ */
+export function propertiesOf(obj: any): string[] {
+    const props: string[] = [];
+
+    do {
+        Object.getOwnPropertyNames(obj).forEach((prop) => {
+            if (!~props.indexOf(prop)) {
+                props.push(prop);
+            }
+        });
+    } while (obj = Object.getPrototypeOf(obj));
+
+    return props;
+}
+
 /**
  * Makes given object methods promise-like
  *
@@ -27,17 +50,19 @@ export function promisify(
     obj: { [name: string]: any },
     restrict?: string[]
 ) {
-    let prop: string;
-
-    for (prop in obj) {
-        if (typeof obj[prop] !== 'function' ||
-            (restrict && !~restrict.indexOf(prop.toLowerCase()))
-        ) {
+    for (let prop of propertiesOf(obj)) {
+        try {
+            if (typeof obj[prop] !== 'function' ||
+                (restrict && !~restrict.indexOf(prop.toLowerCase()))
+            ) {
+                continue;
+            }
+        } catch (err) {
+            /* istanbul ignore next */
             continue;
         }
 
-        obj[prop] = ((method: Function) => function() {
-            const callArgs = Array.prototype.slice.call(arguments, 0);
+        obj[prop] = ((method: Function) => function(...callArgs: any[]) {
             const callback = callArgs[callArgs.length - 1];
 
             if (typeof callback === 'function') {
@@ -45,9 +70,7 @@ export function promisify(
             }
 
             return new Promise((resolve, reject) => {
-                method.call(
-                    this,
-                    ...callArgs,
+                method.call(this, ...callArgs,
                     function (err: Error, ...args: any[]) {
                         if (err) {
                             return reject(err);
@@ -55,10 +78,7 @@ export function promisify(
 
                         resolve(args.length === 1 ? args[0] : args);
                     });
-            }).catch((err) => console.error(
-                'Redis command call error:',
-                err.stack
-            ));
+            });
         })(obj[prop]);
     }
 }

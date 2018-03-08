@@ -1,5 +1,5 @@
 /*!
- * RedisMessageQueue Unit Tests
+ * RedisQueue Unit Tests
  *
  * Copyright (c) 2018, Mykhailo Stadnyk <mikhus@gmail.com>
  *
@@ -15,6 +15,7 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
+import './mocks';
 import { expect } from 'chai';
 import { RedisQueue } from '../src';
 
@@ -22,6 +23,26 @@ describe('RedisQueue', () => {
 
     it('should be a class', () => {
         expect(typeof RedisQueue).to.equal('function');
+    });
+
+    describe('constructor()', () => {
+
+    });
+
+    describe('start()', () => {
+
+    });
+
+    describe('stop()', () => {
+
+    });
+
+    describe('send()', () => {
+
+    });
+
+    describe('destroy()', () => {
+
     });
 
 });

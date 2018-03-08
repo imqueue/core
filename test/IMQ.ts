@@ -1,5 +1,5 @@
 /*!
- * RedisMessageQueue Unit Tests
+ * IMessageQueue Unit Tests
  *
  * Copyright (c) 2018, Mykhailo Stadnyk <mikhus@gmail.com>
  *
@@ -15,13 +15,31 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
+import './mocks';
 import { expect } from 'chai';
-import IMQ from '..';
+import IMQ, { RedisQueue } from '..';
 
 describe('IMQ', () => {
 
     it('should be a class', () => {
         expect(typeof IMQ).to.equal('function');
+    });
+
+    describe('create()', () => {
+        it('should return proper object', () => {
+            expect(IMQ.create('IMQUnitTest', { vendor: 'Redis' }))
+                .instanceof(RedisQueue);
+        });
+
+        it('should throw if unknown vendor specified', () => {
+            expect(() => IMQ.create('IMQUnitTest', { vendor: 'JudgmentDay' }))
+                .to.throw(Error);
+        });
+
+        it('should allow to be called with no options', () => {
+            expect(() => IMQ.create('IMQUnitTest'))
+                .not.to.throw(Error);
+        });
     });
 
 });

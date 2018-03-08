@@ -1,4 +1,4 @@
-# imq
+# I Message Queue (imq)
 
 Simple JSON-based messaging queue for inter service communication
 
@@ -94,3 +94,15 @@ process running on a local machine, All others are safe to run queue workers.
 For example, if there is 8 cores on a machine it is safe to run up to 6 workers.
 For 4-core machine this number is limited to 2.
 If there is less cores results will not give good visibility of load.
+
+## Running Unit Tests
+
+~~~bash
+git clone git@github.com:Mikhus/imq.git
+cd imq
+npm test
+~~~
+
+## License
+
+[ISC](https://github.com/Mikhus/imq/blob/master/LICENSE)

@@ -262,7 +262,7 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
             fmt.format(Math.round(data.reduce((prev, next) =>
                 prev + next.srcBytesLen, 0
             ) / data.length))
-        }</li>
+        } bytes</li>
         <li>Average time of all messages delivery is: ${
             fmt.format(Number((data.reduce((prev, next) =>
                 prev + next.time, 0

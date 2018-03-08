@@ -44,7 +44,7 @@ describe('uuid()', function() {
         }
     });
 
-    it('should be unique each time generated', () => {
+    it('should be unique each time generated (100,000 samples)', () => {
         const keyStore: { [name: string]: number } = {};
 
         for (let i = 0; i < steps; i++) {

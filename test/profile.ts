@@ -18,13 +18,7 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { profile, ILogger } from '..';
-
-const logger: any = {
-    log() {},
-    info() {},
-    warn() {},
-    error() {}
-};
+import { logger } from './mocks';
 
 class ProfiledClass {
     private logger: ILogger = logger;

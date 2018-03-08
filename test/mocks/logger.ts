@@ -1,5 +1,5 @@
 /*!
- * IMQ Unit Test Mocks
+ * IMQ Unit Test Mocks: logger
  *
  * Copyright (c) 2018, Mykhailo Stadnyk <mikhus@gmail.com>
  *
@@ -15,5 +15,9 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-export * from './redis';
-export * from './logger';
+export const logger: any = {
+    log() {},
+    info() {},
+    warn() {},
+    error() {}
+};

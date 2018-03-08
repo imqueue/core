@@ -39,6 +39,7 @@ export function printDebugInfo(
     args: any[],
     methodName: string | symbol,
     start: number,
+    /* istanbul ignore next */
     logger: ILogger = console
 ) {
     if (debugTime) {
@@ -103,6 +104,7 @@ export function profile(
         methodName: string | symbol,
         descriptor: TypedPropertyDescriptor<Function>
     ) {
+        /* istanbul ignore next */
         const original = descriptor.value || target[methodName];
 
         descriptor.value = function(...args: any[]) {
@@ -112,10 +114,12 @@ export function profile(
 
             const start = Date.now();
             const result = original.apply(this, args);
+            /* istanbul ignore next */
             const className = typeof target === 'function' && target.name
                 ? target.name              // static
                 : target.constructor.name; // dynamic
 
+            /* istanbul ignore next */
             if (result && typeof result.then === 'function') {
                 // async call detected
                 result.then((res: any) => {

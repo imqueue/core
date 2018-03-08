@@ -15,11 +15,15 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-import './mocks';
+import { logger } from './mocks';
 import { expect } from 'chai';
-import { RedisQueue } from '../src';
+import { RedisQueue, uuid } from '../src';
+import * as redis from 'redis';
 
-describe('RedisQueue', () => {
+process.setMaxListeners(100);
+
+describe('RedisQueue', function() {
+    this.timeout(30000);
 
     it('should be a class', () => {
         expect(typeof RedisQueue).to.equal('function');
@@ -51,42 +55,96 @@ describe('RedisQueue', () => {
         });
 
         it('should create reader connection', async () => {
+            try {
+                const rq: any = new RedisQueue(uuid(), { logger });
+                await rq.start();
+                expect(rq.reader).to.be.instanceof(redis.RedisClient);
+                await rq.destroy();
+            }
 
+            catch (err) { console.error(err) }
         });
 
         it('should create shared writer connection', async () => {
-
+            const rq: any = new RedisQueue(uuid(), { logger });
+            await rq.start();
+            expect(rq.writer).to.be.instanceof(redis.RedisClient);
+            await rq.destroy();
         });
 
         it('should create single watcher connection', async () => {
+            const rq1: any = new RedisQueue(uuid(), { logger });
+            const rq2: any = new RedisQueue(uuid(), { logger });
+            await rq1.start();
+            await rq2.start();
+            expect(await rq1.watcherCount()).to.be.equal(1);
+            expect(await rq2.watcherCount()).to.be.equal(1);
+            await rq1.destroy();
+            await rq2.destroy();
+        });
 
+        it('should restart stopped queue', async () => {
+            const rq: any = new RedisQueue(uuid(), { logger });
+            await rq.start();
+            await rq.stop();
+            await rq.start();
+            expect(rq.reader).to.be.instanceof(redis.RedisClient);
+            await rq.destroy();
+        });
+
+        it('should not fail on double start', async () => {
+            const rq: any = new RedisQueue(uuid(), { logger });
+            let passed = true;
+            try {
+                await rq.start();
+                await rq.start();
+            } catch (err) { passed = false }
+            expect(passed).to.be.true;
+            rq.destroy();
         });
     });
 
-    describe('on("message", callback)', () => {
-        it('should properly handle message from queue with a given callback', () => {
-
-        })
-    });
-
     describe('stop()', () => {
-        it('should stop reading messages from queue', () => {
-
+        it('should stop reading messages from queue', async () => {
+            const name = uuid()
+            const rq: any =  new RedisQueue(name, { logger });
+            await rq.start();
+            expect(rq.reader).to.be.instanceof(redis.RedisClient);
+            await rq.stop();
+            expect(rq.reader).not.to.be.ok;
+            await rq.destroy();
         });
     });
 
     describe('send()', () => {
-        it('should send given message to a given queue', () => {
+        it('should send given message to a given queue', async () => {
 
         });
     });
 
     describe('destroy()', () => {
-        it('should destroy all connections', () => {
+        let rq: any;
 
+        beforeEach(async () => {
+            rq =  new RedisQueue(uuid(), { logger });
+            await rq.start();
         });
 
-        it('should remove all event listeners', () => {
+        it('should destroy all connections', async () => {
+            await rq.destroy();
+            expect(rq.watcher).not.to.be.ok;
+            expect(rq.reader).not.to.be.ok;
+            expect(rq.wriiter).not.to.be.ok;
+        });
+
+        it('should remove all event listeners', async () => {
+            await rq.destroy();
+            expect(rq.listenerCount()).to.equal(0);
+        });
+    });
+
+    describe('event on("message", callback)', () => {
+        it('should properly handle message from queue with a given callback', () => {
 
         });
     });

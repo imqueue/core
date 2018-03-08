@@ -83,6 +83,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private watchOwner = false;
 
     private watchCheckInterval: any;
+    private signalsInitialized: boolean = false;
 
     /**
      * @type {IRedisClient}
@@ -95,6 +96,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @type {ILogger}
      */
     private get logger(): ILogger {
+        /* istanbul ignore next */
         return this.options.logger || console;
     };
 
@@ -176,6 +178,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         options: IMQOptions,
         context: any = this
     ) {
+        /* istanbul ignore next */
         if (context[channel]) {
             return context[channel];
         }
@@ -196,15 +199,18 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
                 resolve(context[channel]);
             });
+            /* istanbul ignore next */
             context[channel].on('error', (err: Error) => {
                 this.initialized = false;
                 this.logger.error(`Error connecting redis on ${channel}:`, err);
                 reject(err);
             });
+            /* istanbul ignore next */
             context[channel].on('end', () => {
                 this.initialized = false;
                 this.logger.warn(`Redis connection ${channel} closed!`);
             });
+            /* istanbul ignore next */
             context[channel].on('reconnecting', () => {
                 this.initialized = false;
                 this.logger.warn(
@@ -248,10 +254,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<number>}
      */
     private async watcherCount(): Promise<number> {
-        return (<any>await this.writer.client('list'))
+        return (<any>await this.writer.client('list') || '')
             .split(/\r?\n/)
             .filter((client: string) =>
-                /\s+name=[\S]+?:watcher:/.test(client)
+                /\bname=[\S]+?:watcher:/.test(client)
             ).length;
     }
 
@@ -333,12 +339,18 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         process.nextTick(async () => {
-            while (true) {
-                if (!this.reader) {
-                    break;
-                }
+            try {
+                while (true) {
+                    if (!this.reader) {
+                        break;
+                    }
 
-                this.process(<any>await this.reader.brpop(this.key, 0));
+                    this.process(<any>await this.reader.brpop(this.key, 0));
+                }
+            }
+
+            catch (err) {
+                this.logger.error('RedisQueue reader failed:', err);
             }
         });
 
@@ -384,18 +396,24 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const owned = await this.lock();
         if (owned) {
             Object.keys(this.scripts).forEach(async (script: string) => {
-                const checksum = this.scripts[script].checksum = sha1(
-                    this.scripts[script].code);
-                const loaded = (<any>await this.writer.script(
-                    'exists',
-                    checksum
-                )).shift();
+                try {
+                    const checksum = this.scripts[script].checksum = sha1(
+                        this.scripts[script].code);
+                    const loaded = ((<any>await this.writer.script(
+                        'exists',
+                        checksum
+                    )) || []).shift();
 
-                if (!loaded) {
-                    await this.writer.script(
-                        'load',
-                        this.scripts[script].code
-                    );
+                    if (!loaded) {
+                        await this.writer.script(
+                            'load',
+                            this.scripts[script].code
+                        );
+                    }
+                }
+
+                catch (err) {
+                    this.logger.error('Script load error:', err);
                 }
             });
 
@@ -420,13 +438,15 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             return this;
         }
 
-        this.watchCheckInterval = setInterval(
+        /* istanbul ignore next */
+        !this.watchCheckInterval && (this.watchCheckInterval = setInterval(
             async () => await this.ownWatch(),
             this.options.watcherCheckDelay
-        );
+        ));
 
         const connPromises = [];
 
+        /* istanbul ignore next */
         if (!this.reader) {
             connPromises.push(this.connect('reader', this.options));
         }
@@ -437,17 +457,21 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         await Promise.all(connPromises);
 
-        const free = async () => {
-            if (this.watchOwner) {
-                await this.unlock();
-            }
+        if (!this.signalsInitialized) {
+            const free = async () => {
+                if (this.watchOwner) {
+                    await this.unlock();
+                }
 
-            process.exit(0);
-        };
+                process.exit(0);
+            };
 
-        process.on('SIGTERM', free);
-        process.on('SIGINT', free);
-        process.on('exit', free);
+            process.on('SIGTERM', free);
+            process.on('SIGINT', free);
+            process.on('exit', free);
+
+            this.signalsInitialized = true;
+        }
 
         if (!await this.watcherCount()) {
             if (await this.isLocked()) {
@@ -516,7 +540,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async stop(): Promise<RedisQueue> {
         const self = this;
 
-        self.reader.unref();
+        self.reader && self.reader.unref();
         delete self.reader;
 
         this.initialized = false;
@@ -533,6 +557,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async destroy() {
         this.removeAllListeners();
 
+        /* istanbul ignore next */
         if (this.watchCheckInterval) {
             clearInterval(this.watchCheckInterval);
             delete this.watchCheckInterval;

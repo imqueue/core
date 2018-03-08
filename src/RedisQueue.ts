@@ -140,6 +140,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private pack: Function;
     private unpack: Function;
 
+    public options: IMQOptions = DEFAULT_OPTIONS;
+
     /**
      * @constructor
      * @param {string} name
@@ -147,7 +149,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     constructor(
         public name: string,
-        public options: IMQOptions = DEFAULT_OPTIONS
+        options?: Partial<IMQOptions>
     ) {
         super();
 
@@ -410,6 +412,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     @profile()
     public async start(): Promise<RedisQueue> {
+        if (!this.name) {
+            throw new TypeError('No queue name provided!');
+        }
+
         if (this.initialized) {
             return this;
         }

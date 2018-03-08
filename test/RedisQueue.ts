@@ -25,24 +25,70 @@ describe('RedisQueue', () => {
         expect(typeof RedisQueue).to.equal('function');
     });
 
-    describe('constructor()', () => {
+    it('should implement IMessageQueue interface', () => {
+        expect(typeof RedisQueue.prototype.start).to.equal('function');
+        expect(typeof RedisQueue.prototype.stop).to.equal('function');
+        expect(typeof RedisQueue.prototype.send).to.equal('function');
+        expect(typeof RedisQueue.prototype.destroy).to.equal('function');
+    });
 
+    describe('constructor()', () => {
+        it('should not throw', () => {
+            expect(() => new (<any>RedisQueue)()).not.to.throw(Error);
+            expect(() => new RedisQueue('IMQUnitTests')).not.to.throw(Error);
+            expect(() => new RedisQueue('IMQUnitTests', {}))
+                .not.to.throw(Error);
+            expect(() => new RedisQueue('IMQUnitTests', { useGzip: true }))
+                .not.to.throw(Error);
+        });
     });
 
     describe('start()', () => {
+        it('should throw if no name provided', async () => {
+            const rq = new (<any>RedisQueue)();
+            try { await rq.start() }
+            catch (err) { expect(err).to.be.instanceof(TypeError) }
+        });
 
+        it('should create reader connection', async () => {
+
+        });
+
+        it('should create shared writer connection', async () => {
+
+        });
+
+        it('should create single watcher connection', async () => {
+
+        });
+    });
+
+    describe('on("message", callback)', () => {
+        it('should properly handle message from queue with a given callback', () => {
+
+        })
     });
 
     describe('stop()', () => {
+        it('should stop reading messages from queue', () => {
 
+        });
     });
 
     describe('send()', () => {
+        it('should send given message to a given queue', () => {
 
+        });
     });
 
     describe('destroy()', () => {
+        it('should destroy all connections', () => {
 
+        });
+
+        it('should remove all event listeners', () => {
+
+        });
     });
 
 });

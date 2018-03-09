@@ -47,7 +47,7 @@ import IMQ, { IMessageQueue, IJson } from 'imq';
 
     // sending delayed messages
     const delay = 1000;
-    await queueOne.send('QueueOne', { 'i am delayed by': delay }, delay);
+    await queueOne.send('QueueOne', { delay }, delay);
 })();
 ~~~
 

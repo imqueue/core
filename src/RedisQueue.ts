@@ -139,7 +139,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @access private
      * @returns {string}
      */
-    private get lockKey() {
+    private get lockKey(): string {
         return `${this.options.prefix}:watch:lock`;
     }
 
@@ -149,7 +149,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @access private
      * @returns {string}
      */
-    private get key() {
+    private get key(): string {
         return `${this.options.prefix}:${this.name}`;
     }
 
@@ -505,7 +505,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         this.read();
 
-        this.processDelayed(`${this.options.prefix}:${this.name}`).catch();
+        this.processDelayed(this.key).catch();
 
         this.initialized = true;
 
@@ -525,7 +525,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         toQueue: string,
         message: IJson,
         delay?: number
-    ): Promise<RedisQueue> {
+    ): Promise<string> {
         // istanbul ignore next
         if (!this.writer) {
             await this.start();
@@ -551,7 +551,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             await this.writer.lpush(key, packet);
         }
 
-        return this;
+        return id;
     }
 
     /**
@@ -586,11 +586,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             delete this.watchCheckInterval;
         }
 
-        if (RedisQueue.writer) {
-            RedisQueue.writer.unref();
-            delete RedisQueue.writer;
-        }
-
         if (this.watcher) {
             this.watcher.unref();
             this.watcher.removeAllListeners();
@@ -598,6 +593,31 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         await this.stop();
+        await this.clear();
+
+        if (this.writer) {
+            this.writer.unref();
+            delete RedisQueue.writer;
+        }
+    }
+
+    /**
+     * Clears queue data in redis;
+     *
+     * @returns {Promise<void>}
+     */
+    @profile()
+    public async clear(): Promise<RedisQueue> {
+        if (!this.writer) {
+            return this;
+        }
+
+        await Promise.all([
+            this.writer.del(this.key),
+            this.writer.del(`${this.key}:delayed`)
+        ]);
+
+        return this;
     }
 
 }

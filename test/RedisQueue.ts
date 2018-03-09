@@ -182,4 +182,17 @@ describe('RedisQueue', function() {
         });
     });
 
+    describe('clear()', () => {
+        it('should clean-up queue data in redis', async () => {
+            const rq: any =  new RedisQueue(uuid(), { logger });
+            await rq.start();
+            rq.clear();
+            expect(await rq.writer.exists(rq.key))
+                .not.to.be.ok;
+            expect(await rq.writer.exists(`${rq.key}:delayed`))
+                .not.to.be.ok;
+            rq.destroy();
+        });
+    });
+
 });

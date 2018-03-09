@@ -56,14 +56,8 @@ export interface IMessageQueue extends EventEmitter {
      */
 
     start(): Promise<IMessageQueue>;
-
     stop(): Promise<IMessageQueue>;
-
-    send(
-        toQueue: string,
-        message: IJson,
-        delay?: number
-    ): Promise<IMessageQueue>;
-
+    send(toQueue: string, message: IJson, delay?: number): Promise<string>;
     destroy(): void;
+    clear(): Promise<IMessageQueue>;
 }

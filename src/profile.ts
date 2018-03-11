@@ -17,9 +17,34 @@
  */
 import 'reflect-metadata';
 import { ILogger } from '.';
+import * as mt from 'microtime';
 
+export type AllowedTimeFormat = 'microseconds' | 'milliseconds' | 'seconds';
+
+/**
+ * Environment variable IMQ_LOG_TIME=[1, 0] - enables/disables profiled
+ * timings logging
+ *
+ * @type {boolean}
+ */
 export const IMQ_LOG_TIME = !!process.env['IMQ_LOG_TIME'];
+
+/**
+ * Environment variable IMQ_LOG_ARGS=[1, 0] - enebles/disables profiled
+ * call arguments to be logged
+ *
+ * @type {boolean}
+ */
 export const IMQ_LOG_ARGS = !!process.env['IMQ_LOG_ARGS'];
+
+/**
+ * Environment variable IMQ_LOG_TIME_FORMAT=['microseconds', 'milliseconds', 'seconds'].
+ * Specifies profiled time logging format, by default is 'microseconds'
+ *
+ * @type {AllowedTimeFormat | string}
+ */
+export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
+    <AllowedTimeFormat>process.env['IMQ_LOG_TIME_FORMAT'] || 'microseconds';
 
 /**
  * Prints debug information
@@ -43,10 +68,21 @@ export function printDebugInfo(
     logger: ILogger = console
 ) {
     if (debugTime) {
-        const end = Date.now();
-        logger.log(
-            `${className}.${methodName}() executed in ${end - start} ms`
-        );
+        const time = mt.now() - start;
+        let timeStr = '';
+        // istanbul ignore next
+        switch (IMQ_LOG_TIME_FORMAT) {
+            case 'milliseconds':
+                timeStr = (time / 1000).toFixed(3) + ' ms';
+                break;
+            case 'seconds':
+                timeStr = (time / 1000000).toFixed(3) + ' sec';
+                break;
+            default:
+                timeStr = time + ' μs'
+                break;
+        }
+        logger.log(`${className}.${methodName}() executed in ${timeStr}`);
     }
 
     if (debugArgs) {
@@ -112,12 +148,12 @@ export function profile(
                 return original.apply(this, args);
             }
 
-            const start = Date.now();
-            const result = original.apply(this, args);
             /* istanbul ignore next */
             const className = typeof target === 'function' && target.name
                 ? target.name              // static
                 : target.constructor.name; // dynamic
+            const start = mt.now();
+            const result = original.apply(this, args);
 
             /* istanbul ignore next */
             if (result && typeof result.then === 'function') {

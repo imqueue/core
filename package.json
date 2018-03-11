@@ -22,8 +22,10 @@
   "author": "Mykhailo Stadnyk <mikhus@gmail.com> (https://github.com/Mikhus)",
   "license": "ISC",
   "dependencies": {
+    "@types/microtime": "^2.1.0",
     "@types/node": "^9.4.6",
     "@types/redis": "^2.8.6",
+    "microtime": "^2.1.7",
     "redis": "^2.8.0",
     "reflect-metadata": "^0.1.12",
     "source-map-support": "^0.5.3",

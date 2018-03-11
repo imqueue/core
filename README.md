@@ -1,5 +1,7 @@
 # I Message Queue (imq)
 
+[![Build Status](https://travis-ci.org/Mikhus/imq.svg?branch=master)](https://travis-ci.org/Mikhus/imq) [![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/Mikhus/imq/master/LICENSE)
+
 Simple JSON-based messaging queue for inter service communication
 
 # Requirements
@@ -105,4 +107,4 @@ npm test
 
 ## License
 
-[ISC](https://github.com/Mikhus/imq/blob/master/LICENSE)
+[ISC](https://rawgit.com/Mikhus/imq/master/LICENSE)

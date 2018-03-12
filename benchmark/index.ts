@@ -48,6 +48,9 @@ const ARGV = yargs
     .alias('z', 'gzip')
     .describe('z', 'use gzip for message encoding/decoding')
 
+    .alias('s', 'safe')
+    .describe('s', 'use safe (guaranteed) message delivery algorithm')
+
     .alias('e', 'example-message')
     .describe('e', 'Path to a file containing JSON of example message to ' +
         'use during the tests')
@@ -55,7 +58,7 @@ const ARGV = yargs
     .alias('t', 'message-multiply-times')
     .describe('t', 'Increase sample message data given number of times')
 
-    .boolean(['h', 'z'])
+    .boolean(['h', 'z', 's'])
     .argv;
 
 const na = require('nodeaffinity');
@@ -72,6 +75,7 @@ const STEPS = Number(ARGV.m) || 10000;
 const MSG_DELAY = Number(ARGV.d) || 0;
 const USE_GZIP: boolean = ARGV.z;
 const MSG_MULTIPLIER = Number(ARGV.t) || 0;
+const SAFE_DELIVERY: boolean = ARGV.s;
 
 let SAMPLE_MESSAGE: IJson;
 
@@ -358,6 +362,7 @@ else {
                     STEPS,
                     MSG_DELAY,
                     USE_GZIP,
+                    SAFE_DELIVERY,
                     SAMPLE_MESSAGE
                 );
                 (<any>process).send('data:' + JSON.stringify(data));

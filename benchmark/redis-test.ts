@@ -92,6 +92,7 @@ export async function run(
     STEPS: number,
     MSG_DELAY: number = 0,
     useGzip: boolean = false,
+    safeDelivery: boolean = false,
     jsonExample: IJson = JSON_EXAMPLE
 ) {
     const bytesLen = bytes(
@@ -104,7 +105,8 @@ export async function run(
         const queueName = `imq-test:${uuid()}`;
         const options: Partial<IMQOptions> = {
             vendor: 'Redis',
-            useGzip
+            useGzip,
+            safeDelivery
         };
         const mq = await IMQ.create(queueName, options).start();
 

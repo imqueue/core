@@ -136,6 +136,24 @@ describe('RedisQueue', function() {
             });});
         });
 
+        it('should guaranty message delivery if safeDelivery is on', (done) => {
+            // it is hard to emulate mq crash at a certain time of
+            // its runtime execution, so we simply assume delivery works itself
+            // for the moment. dumb test but better than nothing :(
+            const message: any = { hello: 'safe delivery' };
+            const rq = new RedisQueue('IMQSafe', {
+                logger, safeDelivery: true
+            });
+
+            rq.on('message', (msg) => {
+                expect(msg).to.deep.equal(message);
+                rq.destroy();
+                done();
+            });
+
+            rq.start().then(async () => rq.send('IMQSafe', message));
+        });
+
         it('should deliver message with the given delay', (done) => {
             const message: any = { hello: 'world' };
             const delay: number = 1000;

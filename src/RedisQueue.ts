@@ -38,7 +38,9 @@ const DEFAULT_OPTIONS: IMQOptions = {
     prefix: 'imq',
     logger: console,
     watcherCheckDelay: 5000,
-    useGzip: false
+    useGzip: false,
+    safeDelivery: false,
+    safeDeliveryTtl: 5000
 };
 
 /**
@@ -98,6 +100,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
     private watchCheckInterval: any;
     private signalsInitialized: boolean = false;
+
+    private safeCheckInterval: any;
 
     /**
      * @type {IRedisClient}
@@ -257,6 +261,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         catch (err) {
             // istanbul ignore next
+            this.emit('error', err, 'OnMessage');
+            // istanbul ignore next
             this.logger.error('RedisQueue message is invalid:', err);
         }
 
@@ -286,10 +292,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<void>}
      */
     private async processDelayed(key: string) {
-        const self: any = this;
-
         if (this.scripts.moveDelayed.checksum) {
-            await self.writer.evalsha(
+            await this.writer.evalsha(
                 this.scripts.moveDelayed.checksum,
                 2, `${key}:delayed`, key, Date.now()
             );
@@ -304,21 +308,20 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     // istanbul ignore next
     private watch() {
-        const self: any = this;
-
-        if (!self.watcher || self.watcher.__ready__) {
+        if (!this.watcher || this.watcher.__ready__) {
             return this;
         }
 
         try {
-            self.writer.config('set', 'notify-keyspace-events', 'Ex');
+            this.writer.config('set', 'notify-keyspace-events', 'Ex');
         }
 
         catch (err) {
+            this.emit('error', err, 'OnConfig');
             this.logger.error('RedisQueue events error:', err);
         }
 
-        self.watcher.on('pmessage', async (...args: any[]) => {
+        this.watcher.on('pmessage', async (...args: any[]) => {
             try {
                 const key = args.pop().split(':');
 
@@ -331,18 +334,133 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             }
 
             catch (err) {
+                this.emit('error', err, 'OnWatch');
                 this.logger.error('RedisQueue watch error:', err);
             }
         });
 
-        self.watcher.psubscribe(
+        this.watcher.psubscribe(
             '__keyevent@0__:expired',
             `${this.options.prefix}:delayed:*`
         );
 
-        self.watcher.__ready__ = true;
+        // watch for expired unhandled safe queues
+        if (this.options.safeDelivery && !this.safeCheckInterval) {
+            this.safeCheckInterval = setInterval(async () => {
+                if (!this.writer) {
+                    clearInterval(this.safeCheckInterval);
+                    delete this.safeCheckInterval;
+                    return ;
+                }
+
+                const now = Date.now();
+                let cursor: string = '0';
+
+                while (true) {
+                    try {
+                        const data: Array<[string, string[]]> =
+                            <any>await this.writer.scan(
+                                cursor, 'match',
+                                `${this.options.prefix}:*:worker:*`,
+                                'count', '1000'
+                            );
+
+                        cursor = <any>data.shift();
+                        const keys: string[] = <any>data.shift() || [];
+
+                        if (keys.length) {
+                            for (let key of keys) {
+                                const kp: string[] = key.split(':');
+
+                                if (Number(kp.pop()) >= now) {
+                                    const qKey = `${kp.shift()}:${kp.shift()}`;
+                                    await this.writer.rpoplpush(key, qKey);
+                                }
+                            }
+                        }
+
+                        if (cursor === '0') {
+                            return ;
+                        }
+                    }
+
+                    catch (err) {
+                        this.emit('error', err, 'OnSafeDelivery');
+                        clearInterval(this.safeCheckInterval);
+                        delete this.safeCheckInterval;
+                        return ;
+                    }
+                }
+            }, this.options.safeDeliveryTtl);
+        }
+
+        this.watcher.__ready__ = true;
 
         return this;
+    }
+
+    /**
+     * Unreliable but fast way of message handling by the queue
+     */
+    private readUnsafe() {
+        process.nextTick(async () => {
+            try {
+                const key = this.key;
+
+                while (true) {
+                    if (!this.reader) {
+                        break;
+                    }
+
+                    const msg: any = await this.reader.brpop(key, 0);
+                    this.process(msg);
+                }
+            }
+
+            catch (err) {
+                // istanbul ignore next
+                this.emit('error', err, 'OnReadUnsafe');
+                // istanbul ignore next
+                this.logger.error('RedisQueue unsafe reader failed:', err);
+            }
+        });
+    }
+
+    /**
+     * Reliable but slow method of message handling by message queue
+     */
+    private readSafe() {
+        process.nextTick(async () => {
+            try {
+                const key = this.key;
+
+                while (true) {
+                    const expire: number = Date.now() +
+                        Number(this.options.safeDeliveryTtl);
+                    const workerKey = `${key}:worker:${uuid()}:${expire}`;
+
+                    if (!this.reader || !this.writer) {
+                        break;
+                    }
+
+                    await this.reader.brpoplpush(this.key, workerKey, 0);
+
+                    const msg: any = await this.writer.lrange(
+                        workerKey, -1, 1
+                    );
+
+                    this.process([key, msg]);
+                    await this.writer.del(workerKey);
+                }
+            }
+
+            catch (err) {
+                // istanbul ignore next
+                this.emit('error', err, 'OnReadSafe');
+                // istanbul ignore next
+                this.logger.error('RedisQueue safe reader failed:', err);
+            }
+        });
     }
 
     /**
@@ -357,23 +475,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             return this;
         }
 
-        process.nextTick(async () => {
-            try {
-                while (true) {
-                    if (!this.reader) {
-                        break;
-                    }
+        const readMethod = this.options.safeDelivery
+            ? 'readSafe'
+            : 'readUnsafe';
 
-                    const msg: any = await this.reader.brpop(this.key, 0);
-                    this.process(msg);
-                }
-            }
-
-            catch (err) {
-                // istanbul ignore next
-                this.logger.error('RedisQueue reader failed:', err);
-            }
-        });
+        this[readMethod]();
 
         return this;
     }
@@ -416,6 +522,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     // istanbul ignore next
     private async ownWatch() {
         const owned = await this.lock();
+
         if (owned) {
             Object.keys(this.scripts).forEach(async (script: string) => {
                 try {
@@ -435,6 +542,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 }
 
                 catch (err) {
+                    this.emit('error', err, 'OnScriptLoad');
                     this.logger.error('Script load error:', err);
                 }
             });
@@ -490,7 +598,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
             process.on('SIGTERM', free);
             process.on('SIGINT', free);
-            process.on('exit', free);
 
             this.signalsInitialized = true;
         }
@@ -505,7 +612,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         this.read();
 
-        this.processDelayed(this.key).catch();
+        this.processDelayed(this.key).catch(
+            // istanbul ignore next
+            (err) => this.emit('error', err, 'OnProcessDelayed')
+        );
 
         this.initialized = true;
 
@@ -561,10 +671,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     @profile()
     public async stop(): Promise<RedisQueue> {
-        const self = this;
-
-        self.reader && self.reader.unref();
-        delete self.reader;
+        if (this.reader) {
+            this.reader.removeAllListeners();
+            this.reader.unref();
+            delete this.reader;
+        }
 
         this.initialized = false;
 
@@ -586,9 +697,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             delete this.watchCheckInterval;
         }
 
+        if (this.safeCheckInterval) {
+            clearInterval(this.safeCheckInterval);
+            delete this.safeCheckInterval;
+        }
+
         if (this.watcher) {
-            this.watcher.unref();
             this.watcher.removeAllListeners();
+            this.watcher.unref();
             delete this.watcher;
         }
 
@@ -596,6 +712,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         await this.clear();
 
         if (this.writer) {
+            this.writer.removeAllListeners();
             this.writer.unref();
             delete RedisQueue.writer;
         }

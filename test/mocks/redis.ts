@@ -32,7 +32,6 @@ export class RedisClientMock extends EventEmitter {
     private static __keys: any = {};
     private static __scripts: any = {};
     private __name: string = '';
-    private __zsets: any = {};
 
     constructor(...args: any[]) {
         super();
@@ -77,8 +76,41 @@ export class RedisClientMock extends EventEmitter {
                 key, timeout, cb
             ), timeout || 100);
         } else {
-            cb && cb(null, [key, q.pop()]);
+            cb && cb(null, [key, q.shift()]);
         }
+    }
+
+    brpoplpush(from: string, to: string, timeout: number, cb?: Function) {
+        const fromQ = RedisClientMock.__queues__[from] =
+            RedisClientMock.__queues__[from] || [];
+        const toQ = RedisClientMock.__queues__[to] =
+            RedisClientMock.__queues__[to] || [];
+        if (!fromQ.length) {
+            this.__rt && clearTimeout(this.__rt);
+            this.__rt = setTimeout(() => this.brpoplpush(
+                from, to, timeout, cb
+            ), timeout || 100);
+        } else {
+            toQ.push(fromQ.shift());
+            cb && cb(null, '1');
+        }
+    }
+
+    lrange(key: string, start: number, stop: number, cb?: Function) {
+        const q = RedisClientMock.__queues__[key] =
+            RedisClientMock.__queues__[key] || [];
+        cb && cb(null, q.splice(start, stop)[0]);
+    }
+
+    scan(...args: any[]) {
+        const qs = RedisClientMock.__queues__;
+        const found: string[] = [];
+        for (let q of Object.keys(qs)) {
+            if (q.match(/worker/)) {
+                found.push(q);
+            }
+        }
+        return ['0', found];
     }
 
     script(...args: any[]) {
@@ -135,6 +167,10 @@ export class RedisClientMock extends EventEmitter {
                 delete self.__keys[key];
                 count++;
             }
+            if (self.__queues__[key] !== undefined) {
+                delete self.__queues__[key];
+                count++;
+            }
         }
         cb(null, count);
     }
@@ -155,6 +191,8 @@ export class RedisClientMock extends EventEmitter {
             delete this.__rt;
         }
     }
+
+    config(...args: any[]) {}
 }
 
 export class RedisMultiMock {}

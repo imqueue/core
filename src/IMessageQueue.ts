@@ -16,48 +16,262 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import { EventEmitter } from 'events';
+export { EventEmitter } from 'events';
 
+/**
+ * JSON-compatible type definition
+ *
+ * @type {any}
+ */
 export interface IJson {
     [name: string]: number | string | boolean | null | IJson | any |
         number[] | string[] | boolean[] | null[] | IJson[] | any[];
 }
 
+/**
+ * Logger interface
+ */
 export interface ILogger {
+    /**
+     * Log level function
+     *
+     * @param {...any[]}
+     */
     log(...args: any[]): void,
+
+    /**
+     * Info level function
+     *
+     * @param {...any[]}
+     */
     info(...args: any[]): void;
+
+    /**
+     * Warning level function
+     *
+     * @param {...any[]}
+     */
     warn(...args: any[]): void;
+
+    /**
+     * Error level function
+     *
+     * @param {...any[]}
+     */
     error(...args: any[]): void;
 }
 
+/**
+ * Message format
+ */
 export type IMessage = {
+    /**
+     * Message unique identifier
+     *
+     * @type {string}
+     */
     id: string,
+
+    /**
+     * Message data. Any JSON-compatible data allowed
+     *
+     * @type {IJson}
+     */
     message: IJson,
+
+    /**
+     * Message source queue name
+     *
+     * @type {string}
+     */
     from: string,
+
+    /**
+     * Message delay in milliseconds (for delayed messages). Optional.
+     *
+     * @type {number}
+     */
     delay?: number
 };
 
+/**
+ * Message queue options
+ */
 export type IMQOptions = {
+    /**
+     * Message queue network host
+     *
+     * @type {string}
+     */
     host: string,
+
+    /**
+     * Message queue network port
+     *
+     * @type {number}
+     */
     port: number,
+
+    /**
+     * Message queue vendor
+     *
+     * @type {string}
+     */
     vendor?: string,
+
+    /**
+     * Message queue global key prefix (namespace)
+     *
+     * @type {string}
+     */
     prefix?: string,
+
+    /**
+     * Logger defined to be used within message queue in runtime
+     *
+     * @type {ILogger}
+     */
     logger?: ILogger,
+
+    /**
+     * Watcher check delay period. This is used by a queue watcher
+     * agent to make sure at least one watcher is available for
+     * queue operations.
+     *
+     * @type {number}
+     */
     watcherCheckDelay?: number,
-    useGzip: boolean
+
+    /**
+     * A way to serialize message using compression. Will increase
+     * load to worker process but can decrease network traffic between worker
+     * and queue host application
+     *
+     * @type {boolean}
+     */
+    useGzip?: boolean,
+
+    /**
+     * Enables/disables safe message delivery. When safe message delivery
+     * is turned on it will use more complex algorithm for message handling
+     * by a worker process, guaranteeing that if worker fails the message will
+     * be delivered to another possible worker anyway. In most cases it
+     * is not required unless it is required by a system design.
+     *
+     * @type {boolean}
+     */
+    safeDelivery?: boolean,
+
+    /**
+     * Time-to-live of worker queues (after this time messages are back to
+     * main queue for handling if worker died). Only works if safeDelivery
+     * option enabled.
+     *
+     * @type {number}
+     */
+    safeDeliveryTtl?: number
 };
 
 export interface IMessageQueueConstructor {
     new (name: string, options?: Partial<IMQOptions>): IMessageQueue;
 }
 
+/**
+ * Generic messaging queue implementation interface
+ *
+ * @example
+ * ~~~typescript
+ * import { IMessageQueue, EventEmitter, uuid } from 'imq';
+ *
+ * class SomeMQAdapter implements IMessageQueue extends EventEmitter {
+ *      public async start(): Promise<SomeMQAdapter> {
+ *          // ... implementation goes here
+ *          return this;
+ *      }
+ *      public async stop(): Promise<SomeMQAdapter> {
+ *          // ... implementation goes here
+ *          return this;
+ *      }
+ *      public async send(
+ *          toQueue: string,
+ *          message: IJson,
+ *          delay?: number
+ *      ): Promise<string> {
+ *          const messageId = uuid();
+ *          // ... implementation goes here
+ *          return messageId;
+ *      }
+ *      public async destroy(): Promise<void> {
+ *          // ... implementation goes here
+ *      }
+ *      public async clear(): Promise<SomeMQAdapter> {
+ *          // ... implementation goes here
+ *          return this;
+ *      }
+ * }
+ * ~~~
+ */
 export interface IMessageQueue extends EventEmitter {
     /**
-     * @event message (message: IJson, id: string, from: string)
+     * Message event. Occurs every time queue got the message.
+     *
+     * @event IMessageQueue#message
+     * @type {IJson} message - message data
+     * @type {string} id - message identifier
+     * @type {string} from - source queue produced the message
      */
 
+    /**
+     * Message event. Occurs every time queue got the message.
+     *
+     * @event IMessageQueue#error
+     * @type {Error} err - error caught by message queue
+     * @type {string} code - message queue error code
+     */
+
+    /**
+     * Starts the messaging queue.
+     * Supposed to be an async function.
+     *
+     * @returns {Promise<IMessageQueue>}
+     */
     start(): Promise<IMessageQueue>;
+
+    /**
+     * Stops the queue (should stop handle queue messages).
+     * Supposed to be an async function.
+     *
+     * @returns {Promise<IMessageQueue>}
+     */
     stop(): Promise<IMessageQueue>;
+
+    /**
+     * Sends a message to given queue name with the given data.
+     * Supposed to be an async function.
+     *
+     * @param {string} toQueue - queue name to which message should be sent to
+     * @param {IJson} message - message data
+     * @param {number} [delay] - if specified, message will be handled in the
+     *                           target queue after specified period of time
+     *                           in milliseconds.
+     * @returns {Promise<string>} - message identifier
+     */
     send(toQueue: string, message: IJson, delay?: number): Promise<string>;
-    destroy(): void;
+
+    /**
+     * Safely destroys current queue, unregistering all set event
+     * listeners and connections.
+     * Supposed to be an async function.
+     *
+     * @returns {Promise<void>}
+     */
+    destroy(): Promise<void>;
+
+    /**
+     * Clears queue data in queue host application.
+     * Supposed to be an async function.
+     *
+     * @returns {Promise<IMessageQueue>}
+     */
     clear(): Promise<IMessageQueue>;
 }

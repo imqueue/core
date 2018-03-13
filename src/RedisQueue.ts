@@ -624,7 +624,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async send(
         toQueue: string,
         message: IJson,
-        delay?: number
+        delay?: number,
+        errorHandler?: Function
     ): Promise<string> {
         // istanbul ignore next
         if (!this.writer) {
@@ -635,18 +636,23 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const data: IMessage = { id, message, from: this.name };
         const key = `${this.options.prefix}:${toQueue}`;
         const packet = this.pack(data);
+        const cb = (result: any, error: any) =>
+            error && errorHandler && errorHandler(error);
 
         if (delay) {
-            this.writer.zadd(
-                `${key}:delayed`,
-                Date.now() + delay,
-                packet
-            ),
-            this.writer.set(`${key}:${id}:ttl`, '', 'PX', delay, 'NX')
+            this.writer.zadd(`${key}:delayed`, Date.now() + delay, packet,
+                (res, err) => {
+                    if (err)  return cb(res, err);
+                    this.writer.set(
+                        `${key}:${id}:ttl`,
+                        '', 'PX', delay, 'NX',
+                        cb
+                    );
+                });
         }
 
         else {
-            this.writer.lpush(key, packet);
+            this.writer.lpush(key, packet, cb);
         }
 
         return id;

@@ -446,7 +446,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     );
 
                     this.process([key, msg]);
-                    await this.writer.del(workerKey);
+                    this.writer.del(workerKey);
                 }
             }
 

@@ -618,6 +618,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {string} toQueue
      * @param {IJson} message
      * @param {number} [delay]
+     * @param {Function} [errorHandler]
      * @returns {Promise<RedisQueue>}
      */
     @profile()

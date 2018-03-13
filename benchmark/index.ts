@@ -42,21 +42,24 @@ const ARGV = yargs
         'argument is equal to 0.')
 
     .alias('m', 'messages')
-    .describe('m', 'number of messages to be sent by a child process ' +
-        'during test execution')
+    .describe('m', 'Number of messages to be sent by a child process ' +
+        'during test execution.')
 
     .alias('z', 'gzip')
-    .describe('z', 'use gzip for message encoding/decoding')
+    .describe('z', 'Use gzip for message encoding/decoding.')
 
     .alias('s', 'safe')
-    .describe('s', 'use safe (guaranteed) message delivery algorithm')
+    .describe('s', 'Use safe (guaranteed) message delivery algorithm.')
 
     .alias('e', 'example-message')
     .describe('e', 'Path to a file containing JSON of example message to ' +
-        'use during the tests')
+        'use during the tests.')
+
+    .alias('p', 'port')
+    .describe('p', 'Redis server port to connect to.')
 
     .alias('t', 'message-multiply-times')
-    .describe('t', 'Increase sample message data given number of times')
+    .describe('t', 'Increase sample message data given number of times.')
 
     .boolean(['h', 'z', 's'])
     .argv;
@@ -76,6 +79,7 @@ const MSG_DELAY = Number(ARGV.d) || 0;
 const USE_GZIP: boolean = ARGV.z;
 const MSG_MULTIPLIER = Number(ARGV.t) || 0;
 const SAFE_DELIVERY: boolean = ARGV.s;
+const REDIS_PORT: number = Number(ARGV.p) || 6379;
 
 let SAMPLE_MESSAGE: IJson;
 
@@ -277,8 +281,9 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
                 Number((Math.max.apply(null, data.map((item => item.time)))
                 / 1000).toFixed(2)))
         } sec ±10 ms</li>
-        ${MSG_DELAY ? '<li>Message delivery delay used: ' + MSG_DELAY : ''}
+        ${MSG_DELAY ? '<li>Message delivery delay used: ' + MSG_DELAY + '</li>' : ''}
         <li>Gzip compression for messages is: <b>${ USE_GZIP ? 'On' : 'Off' }</b></li>
+        <li>Safe delivery is: <b>${ SAFE_DELIVERY ? 'On' : 'Off' }</b></li>
     </ul>
     <h2 class="title">CPU Usage</h2>
     <div class="chart">
@@ -359,6 +364,7 @@ else {
 
             try {
                 const data = await run(
+                    REDIS_PORT,
                     STEPS,
                     MSG_DELAY,
                     USE_GZIP,

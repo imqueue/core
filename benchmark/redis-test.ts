@@ -84,13 +84,18 @@ export function bytes(str: string, useGzip: boolean = false) {
 /**
  * Test worker execution
  *
- * @param {number} STEPS
- * @param {number} MSG_DELAY
+ * @param {number} port
+ * @param {number} steps
+ * @param {number} [msgDelay]
+ * @param {boolean} [useGzip]
+ * @param {boolean} safeDelivery
+ * @param {IJson} jsonExample
  * @returns {Promise<any>}
  */
 export async function run(
-    STEPS: number,
-    MSG_DELAY: number = 0,
+    port: number,
+    steps: number,
+    msgDelay: number = 0,
     useGzip: boolean = false,
     safeDelivery: boolean = false,
     jsonExample: IJson = JSON_EXAMPLE
@@ -105,6 +110,7 @@ export async function run(
         const queueName = `imq-test:${uuid()}`;
         const options: Partial<IMQOptions> = {
             vendor: 'Redis',
+            port,
             useGzip,
             safeDelivery
         };
@@ -117,27 +123,27 @@ export async function run(
 
         mq.on('message', () => count++);
 
-        if (MSG_DELAY) {
+        if (msgDelay) {
             console.log(
                 'Sending %s messages, using %s delay please, wait...',
-                fmt.format(STEPS),
-                fmt.format(MSG_DELAY)
+                fmt.format(steps),
+                fmt.format(msgDelay)
             );
         } else {
             console.log(
                 'Sending %s messages, please, wait...',
-                fmt.format(STEPS)
+                fmt.format(steps)
             );
         }
 
         const start = Date.now();
 
-        for (let i = 0; i < STEPS; i++) {
-            mq.send(queueName, jsonExample, MSG_DELAY).catch();
+        for (let i = 0; i < steps; i++) {
+            mq.send(queueName, jsonExample, msgDelay).catch();
         }
 
         const interval = setInterval(async () => {
-            if (count >= STEPS) {
+            if (count >= steps) {
                 const time = Date.now() - start;
                 const ratio = count / (time / 1000);
 

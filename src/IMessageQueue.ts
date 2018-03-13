@@ -254,9 +254,13 @@ export interface IMessageQueue extends EventEmitter {
      * @param {number} [delay] - if specified, message will be handled in the
      *                           target queue after specified period of time
      *                           in milliseconds.
+     * @param {Function} [errorHandler] - callback called only when internal
+     *                                    error occurs during message send
+     *                                    execution.
      * @returns {Promise<string>} - message identifier
      */
-    send(toQueue: string, message: IJson, delay?: number): Promise<string>;
+    send(toQueue: string, message: IJson, delay?: number,
+         errorHandler?: Function): Promise<string>;
 
     /**
      * Safely destroys current queue, unregistering all set event

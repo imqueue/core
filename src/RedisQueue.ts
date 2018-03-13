@@ -637,13 +637,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const data: IMessage = { id, message, from: this.name };
         const key = `${this.options.prefix}:${toQueue}`;
         const packet = this.pack(data);
-        const cb = (error: any, result: any) =>
+        const cb = (error: any) =>
             error && errorHandler && errorHandler(error);
 
         if (delay) {
             this.writer.zadd(`${key}:delayed`, Date.now() + delay, packet,
-                (res, err) => {
-                    if (err)  return cb(res, err);
+                (err) => {
+                    if (err) return cb(err);
+
                     this.writer.set(
                         `${key}:${id}:ttl`,
                         '', 'PX', delay, 'NX',

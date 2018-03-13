@@ -58,6 +58,17 @@ export function sha1(str: string) {
 }
 
 /**
+ * Returns random integer between given min and max
+ *
+ * @param {number} min
+ * @param {number} max
+ * @returns {number}
+ */
+export function intrand(min: number, max: number) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/**
  * Compress given data and returns binary string
  *
  * @param {any} data
@@ -586,6 +597,60 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     }
 
     /**
+     * Initializes single watcher connection across all queues with the same
+     * prefix.
+     *
+     * @returns {Promise<void>}
+     */
+    // istanbul ignore next
+    private async initWatcher() {
+        return new Promise<void>(async (resolve, reject) => {
+            try {
+                if (!await this.watcherCount()) {
+                    await this.ownWatch();
+
+                    if (this.watchOwner && this.watcher) {
+                        resolve();
+                    }
+
+                    else {
+                        // check for possible dead-lock to resolve
+                        setTimeout(async () => {
+                            try {
+                                const noWatcher = !await this.watcherCount();
+
+                                if (await this.isLocked() && noWatcher) {
+                                    await this.unlock();
+                                    await this.ownWatch();
+                                }
+
+                                resolve();
+                            }
+
+                            catch (err) {
+                                reject(err);
+                            }
+                        }, intrand(1, 50));
+                    }
+                }
+
+                else {
+                    resolve();
+                }
+            }
+
+            catch (err) {
+                this.logger.error(
+                    `${this.name}: error initializing watcher, pid ${
+                        process.pid}`,
+                    err
+                );
+                reject(err);
+            }
+        });
+    }
+
+    /**
      * Initializes and starts current queue routines
      *
      * @returns {Promise<RedisQueue>}
@@ -629,13 +694,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             this.signalsInitialized = true;
         }
 
-        if (!await this.watcherCount()) {
-            if (await this.isLocked()) {
-                await this.unlock();
-            }
-
-            await this.ownWatch();
-        }
+        await this.initWatcher();
 
         this.read();
 

@@ -94,13 +94,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private reader: IRedisClient;
     private static writer: IRedisClient;
     private watcher: IRedisClient;
-
     private initialized: boolean = false;
     private watchOwner = false;
-
-    private watchCheckInterval: any;
     private signalsInitialized: boolean = false;
-
     private safeCheckInterval: any;
 
     /**
@@ -568,12 +564,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             return this;
         }
 
-        // istanbul ignore next
-        !this.watchCheckInterval && (this.watchCheckInterval = setInterval(
-            async () => await this.ownWatch(),
-            this.options.watcherCheckDelay
-        ));
-
         const connPromises = [];
 
         // istanbul ignore next
@@ -647,18 +637,16 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const packet = this.pack(data);
 
         if (delay) {
-            await Promise.all([
-                this.writer.zadd(
-                    `${key}:delayed`,
-                    Date.now() + delay,
-                    packet
-                ),
-                this.writer.set(`${key}:${id}:ttl`, '', 'PX', delay, 'NX')
-            ]);
+            this.writer.zadd(
+                `${key}:delayed`,
+                Date.now() + delay,
+                packet
+            ),
+            this.writer.set(`${key}:${id}:ttl`, '', 'PX', delay, 'NX')
         }
 
         else {
-            await this.writer.lpush(key, packet);
+            this.writer.lpush(key, packet);
         }
 
         return id;
@@ -690,12 +678,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     @profile()
     public async destroy() {
         this.removeAllListeners();
-
-        // istanbul ignore next
-        if (this.watchCheckInterval) {
-            clearInterval(this.watchCheckInterval);
-            delete this.watchCheckInterval;
-        }
 
         if (this.safeCheckInterval) {
             clearInterval(this.safeCheckInterval);

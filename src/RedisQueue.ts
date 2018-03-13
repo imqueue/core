@@ -637,7 +637,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const data: IMessage = { id, message, from: this.name };
         const key = `${this.options.prefix}:${toQueue}`;
         const packet = this.pack(data);
-        const cb = (result: any, error: any) =>
+        const cb = (error: any, result: any) =>
             error && errorHandler && errorHandler(error);
 
         if (delay) {

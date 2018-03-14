@@ -115,7 +115,7 @@ for (let i = 0; i < maxChildren; i++) {
  * Returns usage metrics for a given CPU
  *
  * @param {number} i
- * @returns {{idle: number; total: number}}
+ * @returns {{idle: number, total: number}}
  */
 function cpuAvg(i: number) {
     const cpus = os.cpus();
@@ -138,7 +138,8 @@ function cpuAvg(i: number) {
 /**
  * Prepares and saves stats from a given collected metrics
  *
- * @param {any[]} metrics
+ * @param {{ metrics: any, memusage: any }} stats
+ * @param {any} data
  */
 function saveStats({ metrics,  memusage }: any, data: any[]) {
     const stats: any[] = [];
@@ -219,6 +220,7 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
         'en-US', { maximumSignificantDigits: 3 }
     );
 
+    // language=HTML
     let html = `<!doctype html>
 <html>
 <head>
@@ -375,7 +377,7 @@ else {
             }
 
             catch (err) {
-                (<any>process).send('data:' + JSON.stringify(null))
+                (<any>process).send('data:' + JSON.stringify(null));
                 console.error(err.stack);
                 process.exit(1);
             }

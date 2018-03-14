@@ -110,6 +110,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private signalsInitialized: boolean = false;
     private safeCheckInterval: any;
 
+    // noinspection JSMethodCanBeStatic
     /**
      * @type {IRedisClient}
      */

@@ -30,7 +30,7 @@ export type AllowedTimeFormat = 'microseconds' | 'milliseconds' | 'seconds';
 export const IMQ_LOG_TIME = !!process.env['IMQ_LOG_TIME'];
 
 /**
- * Environment variable IMQ_LOG_ARGS=[1, 0] - enebles/disables profiled
+ * Environment variable IMQ_LOG_ARGS=[1, 0] - enables/disables profiled
  * call arguments to be logged
  *
  * @type {boolean}
@@ -79,7 +79,7 @@ export function printDebugInfo(
                 timeStr = (time / 1000000).toFixed(3) + ' sec';
                 break;
             default:
-                timeStr = time + ' μs'
+                timeStr = time + ' μs';
                 break;
         }
         logger.log(`${className}.${methodName}() executed in ${timeStr}`);

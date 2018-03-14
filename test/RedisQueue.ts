@@ -106,7 +106,7 @@ describe('RedisQueue', function() {
 
     describe('stop()', () => {
         it('should stop reading messages from queue', async () => {
-            const name = uuid()
+            const name = uuid();
             const rq: any =  new RedisQueue(name, { logger });
             await rq.start();
             expect(rq.reader).to.be.instanceof(redis.RedisClient);
@@ -126,13 +126,13 @@ describe('RedisQueue', function() {
                 expect(msg).to.deep.equal(message);
                 expect(id).not.to.be.undefined;
                 expect(from).to.equal('IMQUnitTestsFrom');
-                rqFrom.destroy();
-                rqTo.destroy();
+                rqFrom.destroy().catch();
+                rqTo.destroy().catch();
                 done();
             });
 
             rqFrom.start().then(() => { rqTo.start().then(() => {
-                rqFrom.send('IMQUnitTestsTo', message);
+                rqFrom.send('IMQUnitTestsTo', message).catch();
             });});
         });
 
@@ -147,7 +147,7 @@ describe('RedisQueue', function() {
 
             rq.on('message', (msg) => {
                 expect(msg).to.deep.equal(message);
-                rq.destroy();
+                rq.destroy().catch();
                 done();
             });
 
@@ -167,14 +167,14 @@ describe('RedisQueue', function() {
                 expect(msg).to.deep.equal(message);
                 expect(id).not.to.be.undefined;
                 expect(from).to.equal('IMQUnitTestsFromD');
-                rqFrom.destroy();
-                rqTo.destroy();
+                rqFrom.destroy().catch();
+                rqTo.destroy().catch();
                 done();
             });
 
             rqFrom.start().then(() => { rqTo.start().then(() => {
                 start = Date.now();
-                rqFrom.send('IMQUnitTestsToD', message, delay);
+                rqFrom.send('IMQUnitTestsToD', message, delay).catch();
             });});
         });
     });

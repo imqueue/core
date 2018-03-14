@@ -24,17 +24,19 @@ const commands: string[] = [...new Set<string>(
 
 /**
  * Extends default RedisClient type to allow dynamic properties access on it
+ *
+ * @type {IRedisClient}
  */
 export interface IRedisClient extends redis.RedisClient {
-    prototype: any;
     [name: string]: any;
 }
 
 /**
  * Extends default Multi type to allow dynamic properties access on it
+ *
+ * @type {IMulti}
  */
 export interface IMulti extends redis.Multi {
-    prototype: any;
     [name: string]: any;
 }
 

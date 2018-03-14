@@ -35,34 +35,36 @@ export interface ILogger {
     /**
      * Log level function
      *
-     * @param {...any[]}
+     * @param {...any[]} args
      */
     log(...args: any[]): void,
 
     /**
      * Info level function
      *
-     * @param {...any[]}
+     * @param {...any[]} args
      */
     info(...args: any[]): void;
 
     /**
      * Warning level function
      *
-     * @param {...any[]}
+     * @param {...any[]} args
      */
     warn(...args: any[]): void;
 
     /**
      * Error level function
      *
-     * @param {...any[]}
+     * @param {...any[]} args
      */
     error(...args: any[]): void;
 }
 
 /**
- * Message format
+ * Defines message format.
+ *
+ * @type {IMessage}
  */
 export type IMessage = {
     /**
@@ -173,6 +175,13 @@ export type IMQOptions = {
 };
 
 export interface IMessageQueueConstructor {
+    /**
+     * Class constructor
+     *
+     * @param {string} name
+     * @param {Partial<IMQOptions>} [options]
+     * @returns {IMessageQueue}
+     */
     new (name: string, options?: Partial<IMQOptions>): IMessageQueue;
 }
 
@@ -263,7 +272,7 @@ export interface IMessageQueue extends EventEmitter {
          errorHandler?: Function): Promise<string>;
 
     /**
-     * Safely destroys current queue, unregistering all set event
+     * Safely destroys current queue, unregistered all set event
      * listeners and connections.
      * Supposed to be an async function.
      *

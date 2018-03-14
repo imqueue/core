@@ -75,6 +75,7 @@ const JSON_EXAMPLE: IJson = {
  * Counts and returns byte-length in a given string
  *
  * @param {string} str
+ * @param {boolean} useGzip
  * @returns {number}
  */
 export function bytes(str: string, useGzip: boolean = false) {
@@ -161,7 +162,7 @@ export async function run(
                     fmt.format(bytesLen)
                 );
 
-                mq.destroy();
+                mq.destroy().catch();
 
                 clearInterval(interval);
                 resolve({ count, time, ratio, bytesLen, srcBytesLen });

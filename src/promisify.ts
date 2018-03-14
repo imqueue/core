@@ -16,8 +16,6 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-import * as fs from 'fs';
-
 /**
  * Returns entire list of the given object properties including
  * entire prototype chain
@@ -42,14 +40,11 @@ export function propertiesOf(obj: any): string[] {
 /**
  * Makes given object methods promise-like
  *
- * @param {{[p: string]: any}} obj
+ * @param {any} obj - source object to modify
  * @param {string[]} restrict - stick promise-like behavior to a given
  *                              restricted list of methods
  */
-export function promisify(
-    obj: { [name: string]: any },
-    restrict?: string[]
-) {
+export function promisify(obj: any, restrict?: string[]) {
     for (let prop of propertiesOf(obj)) {
         try {
             if (typeof obj[prop] !== 'function' ||

@@ -4,10 +4,36 @@
 
 Simple JSON-based messaging queue for inter service communication
 
+# Features
+
+With current implementation on RedisQueue:
+
+ - **Fast unwarranted** message delivery (if consumer grab the message and dies 
+   message will be lost). Up to ~35-40k of 1Kb messages per second on i7 core by
+   benchmarks.
+ - **Fast warranted** message delivery (only 1.5-2 times slower than 
+   unwarranted). If consumer grab the message and dies it will be re-scheduled
+   in queue. Up to ~20-25K of 1Kb messages per second on i7 core by benchmarks.
+ - **No timers or permanent redis polling** used for implementation, as result -
+   no delays in delivery and low CPU usage on application workers.
+ - **Supports gzip compression for messages** (decrease traffic usage, but 
+   slower).
+ - **Concurrent workers model supported**, the same queue can have multiple
+   consumers.
+ - **Delayed messages supported**, fast as ~10K of 1Kb messages per second on i7 
+   core by benchmarks.
+
 # Requirements
 
 Currently this module have only one available adapter which is Redis server
 related. So redis-server > 3.8+ is required.
+
+If config command is disabled on redis it will be required to turn on manually
+keyspace notification events, like:
+
+~~~
+notify-keyspace-events Ex
+~~~
 
 Further, more adapters will be added.
 

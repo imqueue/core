@@ -59,7 +59,8 @@ const ARGV = yargs
     .describe('p', 'Redis server port to connect to.')
 
     .alias('t', 'message-multiply-times')
-    .describe('t', 'Increase sample message data given number of times.')
+    .describe('t', 'Increase sample message data given number of times per ' +
+        'request.')
 
     .boolean(['h', 'z', 's'])
     .argv;

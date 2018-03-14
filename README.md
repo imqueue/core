@@ -12,16 +12,20 @@ With current implementation on RedisQueue:
    message will be lost). Up to ~35-40k of 1Kb messages per second on i7 core by
    benchmarks.
  - **Fast warranted** message delivery (only 1.5-2 times slower than 
-   unwarranted). If consumer grab the message and dies it will be re-scheduled
+   unwarranted). If consumer grab a message and dies it will be re-scheduled
    in queue. Up to ~20-25K of 1Kb messages per second on i7 core by benchmarks.
- - **No timers or permanent redis polling** used for implementation, as result -
-   no delays in delivery and low CPU usage on application workers.
+ - **No timers or constant redis polling** used for implementation, as result -
+   no delays in delivery and low CPU usage on application workers. When idling
+   id does not consume resources!
  - **Supports gzip compression for messages** (decrease traffic usage, but 
    slower).
  - **Concurrent workers model supported**, the same queue can have multiple
    consumers.
  - **Delayed messages supported**, fast as ~10K of 1Kb messages per second on i7 
    core by benchmarks.
+ - **Safe predictable scaling of queues**. Scaling number of workers does not 
+   influence traffic usage.
+ - **TypeScript included!**
 
 # Requirements
 
@@ -29,13 +33,13 @@ Currently this module have only one available adapter which is Redis server
 related. So redis-server > 3.8+ is required.
 
 If config command is disabled on redis it will be required to turn on manually
-keyspace notification events, like:
+keyspace notification events (actual on use with ElasticCache on AWS), like:
 
 ~~~
 notify-keyspace-events Ex
 ~~~
 
-Further, more adapters will be added.
+Further, more adapters will be added... if needed.
 
 # Install
 
@@ -94,7 +98,7 @@ cd imq
 node benchmark -c 4 -m 10000
 ~~~
 
-Here are all possible benchmark options:
+Other possible benchmark options:
 
 ~~~
 node benchmark -h                                   
@@ -118,13 +122,19 @@ Options:
 ~~~
 
 Number of child workers running message queues are limited to a max number
-of CPU the system has -2. First one, which is CPU0 is reserved for OS tasks and
+of CPU in the system -2. First one, which is CPU0 is reserved for OS tasks and
 for stats collector process. Second, which is CPU1 is dedicated to redis
 process running on a local machine, All others are safe to run queue workers.
 
 For example, if there is 8 cores on a machine it is safe to run up to 6 workers.
 For 4-core machine this number is limited to 2.
 If there is less cores results will not give good visibility of load.
+
+*NOTE: paragraphs above this note are Linux-only related! On MacOS 
+there is no good way to set process affinity to a CPU core, Windows support is
+not tested and is missing for the moment in benchmarking. I does not mean
+benchmark will not work on Mac & Win but the results won't be accurate and
+predictable.*
 
 ## Running Unit Tests
 

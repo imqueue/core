@@ -391,7 +391,10 @@ else {
                 .split(/\r?\n/)[0];
             const mask = numCpus < 2 ? 1 : 2;
 
-            if (/redis-server/.test(redisProcess) && !/grep/.test(redisProcess)) {
+            if (os.platform() === 'linux' &&
+                /redis-server/.test(redisProcess) &&
+                !/grep/.test(redisProcess)
+            ) {
                 const redisPid = parseInt(redisProcess.split(/\s+/)[0], 10);
                 redisPid && exec(`taskset -p ${mask} ${redisPid}`);
             }
@@ -404,15 +407,18 @@ else {
                     total: os.totalmem(),
                     free: os.freemem()
                 });
-            }, METRICS_DELAY)
+            }, METRICS_DELAY);
         }
 
         else if (msg === 'stop') {
             metricsInterval && clearInterval(metricsInterval);
+            metricsInterval = null;
+            console.log('Finalizing...');
             (<any>process).send('metrics:' + JSON.stringify({
                 metrics,
                 memusage
             }));
+
             process.exit(0);
         }
     });

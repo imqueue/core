@@ -79,13 +79,16 @@ Options:
   -d, --delay                   Number of milliseconds to delay message delivery
                                 for delayed messages. By default delayed
                                 messages is of and this argument is equal to 0.
-  -m, --messages                number of messages to be sent by a child process
-                                during test execution
-  -z, --gzip                    use gzip for message encoding/decoding [boolean]
+  -m, --messages                Number of messages to be sent by a child process
+                                during test execution.
+  -z, --gzip                    Use gzip for message encoding/decoding.[boolean]
+  -s, --safe                    Use safe (guaranteed) message delivery
+                                algorithm.                             [boolean]
   -e, --example-message         Path to a file containing JSON of example
-                                message to use during the tests
+                                message to use during the tests.
+  -p, --port                    Redis server port to connect to.
   -t, --message-multiply-times  Increase sample message data given number of
-                                times
+                                times.
 ~~~
 
 Number of child workers running message queues are limited to a max number

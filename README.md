@@ -16,7 +16,7 @@ With current implementation on RedisQueue:
    in queue. Up to ~20-25K of 1Kb messages per second on i7 core by benchmarks.
  - **No timers or constant redis polling** used for implementation, as result -
    no delays in delivery and low CPU usage on application workers. When idling
-   id does not consume resources!
+   it does not consume resources!
  - **Supports gzip compression for messages** (decrease traffic usage, but 
    slower).
  - **Concurrent workers model supported**, the same queue can have multiple

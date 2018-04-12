@@ -32,7 +32,7 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import { gzipSync as gzip, gunzipSync as gunzip } from 'zlib';
 
-const DEFAULT_OPTIONS: IMQOptions = {
+export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     host: 'localhost',
     port: 6379,
     prefix: 'imq',
@@ -168,7 +168,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private pack: Function;
     private unpack: Function;
 
-    public options: IMQOptions = DEFAULT_OPTIONS;
+    public options: IMQOptions = DEFAULT_IMQ_OPTIONS;
 
     /**
      * @constructor
@@ -182,7 +182,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         super();
 
         if (options) {
-            this.options = Object.assign({}, DEFAULT_OPTIONS, options);
+            this.options = Object.assign({}, DEFAULT_IMQ_OPTIONS, options);
         }
 
         this.pack = this.options.useGzip ? pack : JSON.stringify;

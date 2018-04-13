@@ -19,3 +19,4 @@ export * from './promisify';
 export * from './redis';
 export * from './IMessageQueue';
 export * from './RedisQueue';
+export * from './ClusteredRedisQueue';

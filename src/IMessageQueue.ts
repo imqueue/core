@@ -105,14 +105,14 @@ export type IMQOptions = {
      *
      * @type {string}
      */
-    host: string,
+    host?: string,
 
     /**
      * Message queue network port
      *
      * @type {number}
      */
-    port: number,
+    port?: number,
 
     /**
      * Message queue vendor
@@ -171,7 +171,15 @@ export type IMQOptions = {
      *
      * @type {number}
      */
-    safeDeliveryTtl?: number
+    safeDeliveryTtl?: number,
+
+    /**
+     * Queue cluster instances, if MQ should be clustered
+     */
+    cluster?: Array<{
+        host: string,
+        port: number
+    }>
 };
 
 export interface IMessageQueueConstructor {

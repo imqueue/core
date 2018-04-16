@@ -122,6 +122,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         RedisQueue.writers[this.redisKey] = conn;
     }
 
+    /**
+     * @type {IRedisClient}
+     */
     private get watcher(): IRedisClient {
         return this.watchers[this.redisKey];
     }

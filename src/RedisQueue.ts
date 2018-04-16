@@ -821,7 +821,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         if (this.watcher) {
             this.watcher.removeAllListeners();
             this.watcher.unref();
-            delete this.watcher;
+            delete this.watchers[this.redisKey];
         }
 
         await this.stop();

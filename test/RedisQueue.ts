@@ -191,7 +191,7 @@ describe('RedisQueue', function() {
             await rq.destroy();
             expect(rq.watcher).not.to.be.ok;
             expect(rq.reader).not.to.be.ok;
-            expect(rq.wriiter).not.to.be.ok;
+            expect(rq.writer).not.to.be.ok;
         });
 
         it('should remove all event listeners', async () => {

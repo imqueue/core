@@ -36,6 +36,7 @@ export class RedisClientMock extends EventEmitter {
     private static __keys: any = {};
     private static __scripts: any = {};
     private __name: string = '';
+    public connected: boolean = true;
 
     constructor() {
         super();

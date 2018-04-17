@@ -17,7 +17,7 @@
  */
 import './mocks';
 import { expect } from 'chai';
-import IMQ, { RedisQueue } from '..';
+import IMQ, { RedisQueue, ClusteredRedisQueue } from '..';
 
 describe('IMQ', () => {
 
@@ -39,6 +39,19 @@ describe('IMQ', () => {
         it('should allow to be called with no options', () => {
             expect(() => IMQ.create('IMQUnitTest'))
                 .not.to.throw(Error);
+        });
+
+        it('should return clustered object if cluster options passed', () => {
+            expect(IMQ.create('IMQUnitTest', {
+                vendor: 'Redis',
+                cluster: [{
+                    host: 'localhost',
+                    port: 1111
+                }, {
+                    host: 'localhost',
+                    port: 2222
+                }]
+            })).instanceof(ClusteredRedisQueue);
         });
     });
 

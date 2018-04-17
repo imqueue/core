@@ -25,6 +25,8 @@ With current implementation on RedisQueue:
    core by benchmarks.
  - **Safe predictable scaling of queues**. Scaling number of workers does not 
    influence traffic usage.
+ - **Round-robin message balancing between several redis instances**. This
+   allows easy messaging queue redis horizontal scaling.
  - **TypeScript included!**
 
 # Requirements

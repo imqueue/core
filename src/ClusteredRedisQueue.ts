@@ -20,7 +20,8 @@ import {
     IJson,
     IMQOptions,
     DEFAULT_IMQ_OPTIONS,
-    RedisQueue
+    RedisQueue,
+    ILogger
 } from '.';
 import { EventEmitter } from 'events';
 
@@ -32,6 +33,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     private servers: Array<{ host: string, port: number }> = [];
     private currentQueue = 0;
     private queueLength = 0;
+    public logger: ILogger;
 
     /**
      * Class constructor
@@ -45,6 +47,9 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         options?: Partial<IMQOptions>
     ) {
         this.options = Object.assign({}, DEFAULT_IMQ_OPTIONS, options || {});
+
+        // istanbul ignore next
+        this.logger = this.options.logger || console;
 
         if (!this.options.cluster) {
             throw new TypeError('ClusteredRedisQueue: cluster ' +

@@ -72,9 +72,13 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async start(): Promise<ClusteredRedisQueue> {
+        const promises = [];
+
         for (let imq of this.imqs) {
-            imq.start();
+             promises.push(imq.start());
         }
+
+        await Promise.all(promises);
 
         return this;
     }
@@ -86,9 +90,13 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async stop(): Promise<ClusteredRedisQueue> {
+        const promises = [];
+
         for (let imq of this.imqs) {
-            imq.stop();
+            promises.push(imq.stop());
         }
+
+        await Promise.all(promises);
 
         return this;
     }
@@ -117,8 +125,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
             this.currentQueue = 0;
         }
 
-        const id = await this.imqs[this.currentQueue].send(
-            toQueue, message, delay, errorHandler);
+        const imq: any = this.imqs[this.currentQueue];
+        const id = await imq.send(toQueue, message, delay, errorHandler);
 
         this.currentQueue++;
 
@@ -133,9 +141,13 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<void>}
      */
     public async destroy(): Promise<void> {
+        const promises = [];
+
         for (let imq of this.imqs) {
-            imq.destroy();
+            promises.push(imq.destroy());
         }
+
+        await Promise.all(promises);
     }
 
     /**
@@ -145,9 +157,13 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<IMessageQueue>}
      */
     public async clear(): Promise<ClusteredRedisQueue> {
+        const promises = [];
+
         for (let imq of this.imqs) {
-            imq.clear();
+            promises.push(imq.clear());
         }
+
+        await Promise.all(promises);
 
         return this;
     }

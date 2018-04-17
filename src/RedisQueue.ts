@@ -224,7 +224,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         return new Promise((resolve, reject) => {
             context[channel] = <IRedisClient>redis.createClient(
+                // istanbul ignore next
                 options.port || 6379,
+                // istanbul ignore next
                 options.host || 'localhost'
             );
             context[channel].on('ready', async () => {

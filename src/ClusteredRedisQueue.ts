@@ -52,6 +52,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         }
 
         this.mqOptions = Object.assign({}, this.options);
+        // istanbul ignore next
         this.servers = this.mqOptions.cluster || [];
 
         delete this.mqOptions.cluster;
@@ -153,6 +154,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // EventEmitter interface
 
+    // istanbul ignore next
     public on(...args: any[]) {
         for (let imq of this.imqs) {
             imq.on.apply(imq, args);
@@ -161,6 +163,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public off(...args: any[]) {
         for (let imq of this.imqs) {
             imq.off.apply(imq, args);
@@ -169,6 +172,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public once(...args: any[]) {
         for (let imq of this.imqs) {
             imq.once.apply(imq, args);
@@ -177,6 +181,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public addListener(...args: any[]) {
         for (let imq of this.imqs) {
             imq.addListener.apply(imq, args);
@@ -185,6 +190,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public removeListener(...args: any[]) {
         for (let imq of this.imqs) {
             imq.removeListener.apply(imq, args);
@@ -193,6 +199,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public removeAllListeners(...args: any[]) {
         for (let imq of this.imqs) {
             imq.removeAllListeners.apply(imq, args);
@@ -201,6 +208,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public prependListener(...args: any[]) {
         for (let imq of this.imqs) {
             imq.prependListener.apply(imq, args);
@@ -209,6 +217,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public prependOnceListener(...args: any[]) {
         for (let imq of this.imqs) {
             imq.prependListener.apply(imq, args);
@@ -217,6 +226,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public setMaxListeners(...args: any[]) {
         for (let imq of this.imqs) {
             imq.setMaxListeners.apply(imq, args);
@@ -225,6 +235,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return this;
     }
 
+    // istanbul ignore next
     public listeners(...args: any[]) {
         let listeners: any[] = [];
         for (let imq of this.imqs) {
@@ -234,6 +245,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return listeners;
     }
 
+    // istanbul ignore next
     public rawListeners(...args: any[]) {
         let listeners: any[] = [];
         for (let imq of this.imqs) {
@@ -243,10 +255,12 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return listeners;
     }
 
+    // istanbul ignore next
     public getMaxListeners() {
         return this.imqs[0].getMaxListeners();
     }
 
+    // istanbul ignore next
     public emit(...args: any[]) {
         for (let imq of this.imqs) {
             imq.emit.apply(imq, args);
@@ -255,10 +269,12 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         return true;
     }
 
+    // istanbul ignore next
     public eventNames(...args: any[]) {
         return this.imqs[0].eventNames.apply(this.imqs[0], args);
     }
 
+    // istanbul ignore next
     public listenerCount(...args: any[]) {
         return this.imqs[0].listenerCount.apply(this.imqs[0], args);
     }

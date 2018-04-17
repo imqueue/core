@@ -77,6 +77,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async start(): Promise<ClusteredRedisQueue> {
+        this.logger.log('Starting clustered redis message queue...');
+
         const promises = [];
 
         for (let imq of this.imqs) {
@@ -95,6 +97,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async stop(): Promise<ClusteredRedisQueue> {
+        this.logger.log('Stopping clustered redis message queue...');
+
         const promises = [];
 
         for (let imq of this.imqs) {
@@ -146,6 +150,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<void>}
      */
     public async destroy(): Promise<void> {
+        this.logger.log('Destroying clustered redis message queue...');
+
         const promises = [];
 
         for (let imq of this.imqs) {
@@ -162,6 +168,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<IMessageQueue>}
      */
     public async clear(): Promise<ClusteredRedisQueue> {
+        this.logger.log('Clearing clustered redis message queue...');
+
         const promises = [];
 
         for (let imq of this.imqs) {

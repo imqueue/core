@@ -51,8 +51,6 @@ export default class IMQ {
             ClassName = `Clustered${ClassName}`;
         }
 
-        console.log(ClassName);
-
         const Adapter: IMessageQueueConstructor =
             require(`${__dirname}/src/${ClassName}.js`)[ClassName];
 

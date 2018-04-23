@@ -22,13 +22,13 @@
   "author": "Mykhailo Stadnyk <mikhus@gmail.com> (https://github.com/Mikhus)",
   "license": "ISC",
   "dependencies": {
+    "@types/redis": "^2.8.6",
     "microtime": "^2.1.7",
     "redis": "^2.8.0"
   },
   "devDependencies": {
     "@types/microtime": "^2.1.0",
     "@types/node": "^9.4.6",
-    "@types/redis": "^2.8.6",
     "@types/chai": "^4.1.2",
     "@types/memwatch-next": "^0.3.1",
     "@types/mocha": "^2.2.48",

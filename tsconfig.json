@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "target": "es6",
     "module": "commonjs",
     "declaration": true,
     "noImplicitAny": true,
@@ -13,11 +12,10 @@
     "inlineSources": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
+    "target": "es2017",
     "lib": [
       "dom",
-      "es2015",
-      "esnext.asynciterable",
-      "ES2016.Array.Include"
+      "es2017"
     ]
   }
 }

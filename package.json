@@ -1,6 +1,6 @@
 {
   "name": "imq",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Simple JSON-based messaging queue for inter service communication",
   "scripts": {
     "prepublish": "./node_modules/.bin/tsc",

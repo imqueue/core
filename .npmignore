@@ -33,3 +33,10 @@ debug*
 Thumbs.db
 
 benchmark-result/*
+benchmark/
+test/
+
+*.js.map
+*.ts
+!*.d.ts
+tsconfig.json

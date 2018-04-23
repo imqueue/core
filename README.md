@@ -1,6 +1,6 @@
 # I Message Queue (imq)
 
-[![Build Status](https://travis-ci.org/Mikhus/imq.svg?branch=master)](https://travis-ci.org/Mikhus/imq) [![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/Mikhus/imq/master/LICENSE)
+[![Build Status](https://travis-ci.org/imqueue/imq.svg?branch=master)](https://travis-ci.org/imqueue/imq) [![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/imqueue/imq/master/LICENSE)
 
 Simple JSON-based messaging queue for inter service communication
 
@@ -141,11 +141,11 @@ predictable.*
 ## Running Unit Tests
 
 ~~~bash
-git clone git@github.com:Mikhus/imq.git
+git clone git@github.com:imqueue/imq.git
 cd imq
 npm test
 ~~~
 
 ## License
 
-[ISC](https://rawgit.com/Mikhus/imq/master/LICENSE)
+[ISC](https://rawgit.com/imqueue/imq/master/LICENSE)

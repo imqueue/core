@@ -15,7 +15,6 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-import * as mw from 'memwatch-next';
 import { execSync as exec } from 'child_process';
 import * as cluster from 'cluster';
 import * as os from 'os';
@@ -66,8 +65,6 @@ const ARGV = yargs
     .argv;
 
 const na = require('nodeaffinity');
-
-mw.on('leak', (info) => console.error('Memory leak detected:\n', info));
 
 let maxChildren = Number(ARGV.c) || 1;
 

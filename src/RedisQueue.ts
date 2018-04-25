@@ -462,8 +462,18 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                         break;
                     }
 
-                    const msg: any = await this.reader.brpop(key, 0);
-                    this.process(msg);
+                    try {
+                        const msg: any = await this.reader.brpop(key, 0);
+                        this.process(msg);
+                    } catch (err) {
+                        if (err.message.match(/Stream connection ended/)) {
+                            break;
+                        }
+
+                        else {
+                            throw err;
+                        }
+                    }
                 }
             }
 
@@ -497,7 +507,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                         break;
                     }
 
-                    await this.reader.brpoplpush(this.key, workerKey, 0);
+                    try {
+                        await this.reader.brpoplpush(this.key, workerKey, 0);
+                    } catch (err) {
+                        break;
+                    }
 
                     const msg: any = await this.writer.lrange(
                         workerKey, -1, 1
@@ -797,7 +811,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async stop(): Promise<RedisQueue> {
         if (this.reader) {
             this.reader.removeAllListeners();
-            this.reader.quit();
+            this.reader.end(false);
             this.reader.unref();
             delete this.reader;
         }
@@ -823,7 +837,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         if (this.watcher) {
             this.watcher.removeAllListeners();
-            this.watcher.quit();
+            this.watcher.end(false);
             this.watcher.unref();
             delete this.watchers[this.redisKey];
         }
@@ -833,7 +847,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         if (this.writer) {
             this.writer.removeAllListeners();
-            this.writer.quit();
+            this.writer.end(false);
             this.writer.unref();
             delete RedisQueue.writers[this.redisKey];
         }

@@ -46,6 +46,7 @@ export class RedisClientMock extends EventEmitter {
     }
 
     public end() {}
+    public quit() {}
 
     public set(...args: any[]): boolean {
         const [key, val] = args;

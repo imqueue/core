@@ -797,6 +797,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async stop(): Promise<RedisQueue> {
         if (this.reader) {
             this.reader.removeAllListeners();
+            this.reader.end(false);
             this.reader.unref();
             delete this.reader;
         }
@@ -822,6 +823,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         if (this.watcher) {
             this.watcher.removeAllListeners();
+            this.watcher.end(false);
             this.watcher.unref();
             delete this.watchers[this.redisKey];
         }
@@ -831,6 +833,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         if (this.writer) {
             this.writer.removeAllListeners();
+            this.writer.end(false);
             this.writer.unref();
             delete RedisQueue.writers[this.redisKey];
         }

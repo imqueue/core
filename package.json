@@ -19,6 +19,10 @@
     "type": "git",
     "url": "git://github.com/imqueue/imq.git"
   },
+  "bugs": {
+    "url" : "https://github.com/imqueue/imq/issues"
+  },
+  "homepage": "https://imqueue.com/",
   "author": "Mykhailo Stadnyk <mikhus@gmail.com> (https://github.com/Mikhus)",
   "license": "ISC",
   "dependencies": {

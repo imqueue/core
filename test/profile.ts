@@ -21,6 +21,7 @@ import { profile, ILogger } from '..';
 import { logger } from './mocks';
 
 class ProfiledClass {
+    // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
     @profile()
@@ -30,20 +31,23 @@ class ProfiledClass {
 }
 
 class ProfiledClassTimed {
+    // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
     @profile(true)
     public decoratedMethod() {}
 }
 
-class ProfiledClassArged {
+class ProfiledClassArgued {
+    // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
     @profile(false, true)
     public decoratedMethod() {}
 }
 
-class ProfiledClassTimedAndArged {
+class ProfiledClassTimedAndArgued {
+    // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
     @profile(true, true)
@@ -82,12 +86,12 @@ describe('profile()', function() {
     });
 
     it('should log args if enabled', () => {
-        new ProfiledClassArged().decoratedMethod();
+        new ProfiledClassArgued().decoratedMethod();
         expect(logger.log.calledOnce).to.be.true;
     });
 
     it('should log time and args if both enabled', () => {
-        new ProfiledClassTimedAndArged().decoratedMethod();
+        new ProfiledClassTimedAndArgued().decoratedMethod();
         expect(logger.log.calledTwice).to.be.true;
     });
 });

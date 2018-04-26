@@ -4,8 +4,9 @@
   "description": "Simple JSON-based messaging queue for inter service communication",
   "scripts": {
     "prepublish": "./node_modules/.bin/tsc",
-    "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && ./node_modules/.bin/nyc report --reporter=text-lcov | coveralls && /usr/bin/env node -e \"require('opn')('file://`pwd`/coverage/index.html');process.exit(0)\"",
-    "test-local": "export COVERALLS_REPO_TOKEN=$IMQ_COVERALLS_TOKEN && npm test",
+    "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && ./node_modules/.bin/nyc report --reporter=text-lcov | coveralls",
+    "test-fast": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"require('opn')('file://`pwd`/coverage/index.html');process.exit(0)\"",
+    "test-local": "export COVERALLS_REPO_TOKEN=$IMQ_COVERALLS_TOKEN && npm test && /usr/bin/env node -e \"require('opn')('https://coveralls.io/github/imqueue/imq');process.exit(0)\"",
     "test-dev": "npm run test && npm run clean-js && npm run clean-typedefs && npm run clean-maps",
     "clean-typedefs": "find . -name '*.d.ts' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
     "clean-maps": "find . -name '*.js.map' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",

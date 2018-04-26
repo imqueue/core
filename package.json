@@ -1,6 +1,6 @@
 {
   "name": "imq",
-  "version": "1.2.15",
+  "version": "1.2.16",
   "description": "Simple JSON-based messaging queue for inter service communication",
   "keywords": [
     "message-queue",

@@ -100,7 +100,7 @@ describe('RedisQueue', function() {
                 await rq.start();
             } catch (err) { passed = false }
             expect(passed).to.be.true;
-            rq.destroy();
+            rq.destroy().catch();
         });
     });
 
@@ -209,7 +209,7 @@ describe('RedisQueue', function() {
                 .not.to.be.ok;
             expect(await rq.writer.exists(`${rq.key}:delayed`))
                 .not.to.be.ok;
-            rq.destroy();
+            rq.destroy().catch();
         });
     });
 

@@ -38,6 +38,7 @@ class SecondTestClass {
 }
 
 class ThirdTestClass {
+    // noinspection JSMethodCanBeStatic
     public one(callback?: Function) {
         callback && callback();
     }

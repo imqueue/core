@@ -18,11 +18,6 @@
 import * as redis from 'redis';
 import { promisify } from '.';
 
-process.on('unhandledRejection', (reason, p) => {
-    console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
-    // application specific logging, throwing an error, or other logic here
-});
-
 const commands: string[] = [...new Set<string>(
     require('redis-commands').list.map((name: string) => name.toLowerCase())
 )].filter((name: string) => name !== 'stream');

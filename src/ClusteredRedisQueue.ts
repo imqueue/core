@@ -28,10 +28,11 @@ import { EventEmitter } from 'events';
 export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     private imqs: RedisQueue[] = [];
-    private options: IMQOptions;
-    private mqOptions: IMQOptions;
-    private servers: Array<{ host: string, port: number }> = [];
+    private readonly options: IMQOptions;
+    private readonly mqOptions: IMQOptions;
+    private readonly servers: Array<{ host: string, port: number }> = [];
     private currentQueue = 0;
+    // noinspection TypescriptExplicitMemberType,TypeScriptFieldCanBeMadeReadonly
     private queueLength = 0;
     public logger: ILogger;
 

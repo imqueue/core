@@ -108,7 +108,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private watchOwner = false;
     private signalsInitialized: boolean = false;
     private safeCheckInterval: any;
-    private redisKey: string;
+    private readonly redisKey: string;
 
     // noinspection JSMethodCanBeStatic
     /**
@@ -118,6 +118,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return RedisQueue.writers[this.redisKey];
     }
 
+    // noinspection JSUnusedLocalSymbols
     private set writer(conn: IRedisClient) {
         RedisQueue.writers[this.redisKey] = conn;
     }
@@ -129,6 +130,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return this.watchers[this.redisKey];
     }
 
+    // noinspection JSUnusedLocalSymbols
     private set watcher(conn: IRedisClient) {
         this.watchers[this.redisKey] = conn;
     }
@@ -180,8 +182,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return `${this.options.prefix}:${this.name}`;
     }
 
-    private pack: Function;
-    private unpack: Function;
+    private readonly pack: Function;
+    private readonly unpack: Function;
 
     public options: IMQOptions = DEFAULT_IMQ_OPTIONS;
 
@@ -466,13 +468,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                         const msg: any = await this.reader.brpop(key, 0);
                         this.process(msg);
                     } catch (err) {
+                        // istanbul ignore next
                         if (err.message.match(/Stream connection ended/)) {
                             break;
                         }
 
-                        else {
-                            throw err;
-                        }
+                        // istanbul ignore next
+                        // noinspection ExceptionCaughtLocallyJS
+                        throw err;
                     }
                 }
             }
@@ -510,6 +513,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     try {
                         await this.reader.brpoplpush(this.key, workerKey, 0);
                     } catch (err) {
+                        // istanbul ignore next
                         break;
                     }
 

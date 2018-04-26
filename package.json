@@ -1,6 +1,6 @@
 {
   "name": "imq",
-  "version": "1.2.12",
+  "version": "1.2.13",
   "description": "Simple JSON-based messaging queue for inter service communication",
   "scripts": {
     "prepublish": "./node_modules/.bin/tsc",
@@ -20,7 +20,7 @@
     "url": "git://github.com/imqueue/imq.git"
   },
   "bugs": {
-    "url" : "https://github.com/imqueue/imq/issues"
+    "url": "https://github.com/imqueue/imq/issues"
   },
   "homepage": "https://imqueue.com/",
   "author": "Mykhailo Stadnyk <mikhus@gmail.com> (https://github.com/Mikhus)",

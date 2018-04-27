@@ -4,6 +4,13 @@
 
 Simple JSON-based messaging queue for inter service communication
 
+**Related packages:**
+
+ - [imq-rpc](https://github.com/imqueue/imq-rpc) - RPC-like client/service
+   implementation over imq.
+ - [imq-cli](https://github.com/imqueue/imq-cli) - Command Line Interface
+   for imq and imq-rpc.
+
 # Features
 
 With current implementation on RedisQueue:

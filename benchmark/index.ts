@@ -133,13 +133,21 @@ function cpuAvg(i: number) {
     };
 }
 
+interface MachineStats {
+    stats: any[];
+    memStats: any[];
+}
+
 /**
- * Prepares and saves stats from a given collected metrics
+ * Does stats aggregation and returns results
  *
- * @param {{ metrics: any, memusage: any }} stats
- * @param {any} data
+ * @param {any} metrics
+ * @param {any} memusage
+ * @return {MachineStats}
  */
-function saveStats({ metrics,  memusage }: any, data: any[]) {
+function buildStats(
+    { metrics, memusage }: any
+): MachineStats {
     const stats: any[] = [];
     const memStats: any[] = ['System Memory Used, %'];
 
@@ -160,16 +168,27 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
         memStats.push(100 - ~~(100 * memusage[i].free / memusage[i].total));
     }
 
-    const config = {
-        bindto: '#cpu-usage',
+    return { stats, memStats };
+}
+
+/**
+ * Returns chart config for given chart id and stats
+ *
+ * @param {string} id
+ * @param {any[]} stats
+ * @return {any}
+ */
+function buildChartConfig(id: string, stats: any[]) {
+    return {
+        bindto: `#${id}`,
         data: {
-            columns: stats
+            columns: [stats]
         },
         point: { show: false },
         axis: {
             x: {
                 type: 'category',
-                categories: stats[0].slice(1).map((v: any, i: number) =>
+                categories: stats.slice(1).map((v: any, i: number) =>
                     ((i * 100) / 1000).toFixed(1) + 's'),
                 tick: {
                     centered: true,
@@ -187,33 +206,18 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
             enabled: true
         }
     };
-    const memConfig = {
-        bindto: '#memory-usage',
-        data: {
-            columns: [memStats]
-        },
-        point: { show: false },
-        axis: {
-            x: {
-                type: 'category',
-                categories: memStats.slice(1).map((v: any, i: number) =>
-                    ((i * 100) / 1000).toFixed(1) + 's'),
-                tick: {
-                    centered: true,
-                    fit: false,
-                    culling: { max: 20 },
-                    outer: false
-                }
-            },
-            y: {
-                max: 100,
-                tick: { outer: false }
-            }
-        },
-        zoom: {
-            enabled: true
-        }
-    };
+}
+
+/**
+ * Prepares and saves stats from a given collected metrics
+ *
+ * @param {{ metrics: any, memusage: any }} stats
+ * @param {any} data
+ */
+function saveStats({ metrics,  memusage }: any, data: any[]) {
+    const { stats, memStats } = buildStats({ metrics, memusage });
+    const config = buildChartConfig('cpu-usage', stats[0]);
+    const memConfig = buildChartConfig('memory-usage', memStats);
     const fmt = new Intl.NumberFormat(
         'en-US', { maximumSignificantDigits: 3 }
     );

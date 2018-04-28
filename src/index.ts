@@ -13,6 +13,16 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
+
+// istanbul ignore next
+// noinspection JSUnusedGlobalSymbols
+export function buildOptions<T>(
+    defaultOptions: T,
+    givenOptions?: Partial<T>
+): T {
+    return Object.assign({}, defaultOptions, givenOptions || {});
+}
+
 export * from './profile';
 export * from './uuid';
 export * from './promisify';

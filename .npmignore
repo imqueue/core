@@ -1,6 +1,8 @@
 .gitignore
 .travis.yml
 .dockerignore
+.codebeatignore
+.codebeatsettings
 
 .ssh/
 dist/

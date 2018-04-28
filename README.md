@@ -1,6 +1,9 @@
 # I Message Queue (imq)
 
-[![Build Status](https://travis-ci.org/imqueue/imq.svg?branch=master)](https://travis-ci.org/imqueue/imq) [![Coverage Status](https://coveralls.io/repos/github/imqueue/imq/badge.svg?branch=master)](https://coveralls.io/github/imqueue/imq?branch=master) [![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/imqueue/imq/master/LICENSE)
+[![Build Status](https://travis-ci.org/imqueue/imq.svg?branch=master)](https://travis-ci.org/imqueue/imq) 
+[![codebeat badge](https://codebeat.co/badges/85bb2a18-4ebb-4e48-a2ce-92b7bf438b1a)](https://codebeat.co/projects/github-com-imqueue-imq-master)
+[![Coverage Status](https://coveralls.io/repos/github/imqueue/imq/badge.svg?branch=master)](https://coveralls.io/github/imqueue/imq?branch=master) 
+[![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/imqueue/imq/master/LICENSE)
 
 Simple JSON-based messaging queue for inter service communication
 

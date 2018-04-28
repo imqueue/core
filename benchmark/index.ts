@@ -209,6 +209,20 @@ function buildChartConfig(id: string, stats: any[]) {
 }
 
 /**
+ * Return bytes count for a given data and bytes key
+ *
+ * @param {any[]} data
+ * @param {Intl.NumberFormat} fmt
+ * @param {string} key
+ * @return {string}
+ */
+function bytesCount(data: any[], fmt: Intl.NumberFormat, key: string) {
+    return fmt.format(Math.round(data.reduce((prev, next) =>
+        prev + next[key], 0
+    ) / data.length))
+}
+
+/**
  * Prepares and saves stats from a given collected metrics
  *
  * @param {{ metrics: any, memusage: any }} stats
@@ -266,14 +280,10 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
             ))
         } msg/sec</b></li>
         <li>Average message payload to redis is: ${
-            fmt.format(Math.round(data.reduce((prev, next) =>
-                prev + next.bytesLen, 0
-            ) / data.length))
+            bytesCount(data, fmt, 'bytesLen')
         } bytes</li>
         <li>Average source message payload is: ${
-            fmt.format(Math.round(data.reduce((prev, next) =>
-                prev + next.srcBytesLen, 0
-            ) / data.length))
+            bytesCount(data, fmt, 'srcBytesLen')
         } bytes</li>
         <li>Average time of all messages delivery is: ${
             fmt.format(Number((data.reduce((prev, next) =>

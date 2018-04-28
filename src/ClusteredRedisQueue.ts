@@ -283,12 +283,12 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public rawListeners(...args: any[]) {
-        let listeners: any[] = [];
+        let rawListeners: any[] = [];
         for (let imq of this.imqs) {
-            listeners = listeners.concat(imq.rawListeners.apply(imq, args));
+            rawListeners = rawListeners.concat(imq.rawListeners.apply(imq, args));
         }
 
-        return listeners;
+        return rawListeners;
     }
 
     // istanbul ignore next

@@ -303,13 +303,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         catch (err) {
             // istanbul ignore next
-            this.emit('error', err, 'OnMessage');
-            // istanbul ignore next
-            this.logger.error(
-                `${this.name}: process error - message is invalid, pid ${
-                    process.pid}, redis host ${this.redisKey}:`,
-                err
-            );
+            this.emitError('OnMessage', 'process error - message is invalid',
+                err);
         }
 
         return this;
@@ -388,7 +383,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             }
 
             catch (err) {
-                this.emit('error', err, 'OnSafeDelivery');
+                this.emitError('OnSafeDelivery',
+                    'safe queue message delivery problem', err);
+
                 return this.cleanSafeCheckInterval();
             }
         }
@@ -416,12 +413,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         catch (err) {
-            this.emit('error', err, 'OnWatch');
-            this.logger.error(
-                `${this.name}: watch error, pid ${
-                    process.pid} on redis host ${this.redisKey}:`,
-                err
-            );
+            this.emitError('OnWatch', 'watch error', err);
         }
     }
 
@@ -455,12 +447,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         catch (err) {
-            this.emit('error', err, 'OnConfig');
-            this.logger.warn(
-                `${this.name}: events config error, pid ${
-                    process.pid} on redis host ${this.redisKey}:`,
-                err
-            );
+            this.emitError('OnConfig', 'events config error', err);
         }
 
         this.watcher.on('pmessage', this.onWatchMessage.bind(this));
@@ -517,13 +504,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
             catch (err) {
                 // istanbul ignore next
-                this.emit('error', err, 'OnReadUnsafe');
-                // istanbul ignore next
-                this.logger.error(
-                    `${this.name}: unsafe reader failed, pid ${
-                        process.pid} on redis host ${this.redisKey}:`,
-                    err
-                );
+                this.emitError('OnReadUnsafe', 'unsafe reader failed', err);
             }
         });
     }
@@ -563,13 +544,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
             catch (err) {
                 // istanbul ignore next
-                this.emit('error', err, 'OnReadSafe');
-                // istanbul ignore next
-                this.logger.error(
-                    `${this.name}: safe reader failed, pid ${
-                        process.pid} on redis host ${this.redisKey}:`,
-                    err
-                );
+                this.emitError('OnReadSafe', 'safe reader failed', err);
             }
         });
     }
@@ -629,6 +604,24 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return !!Number(await this.writer.del(this.lockKey));
     }
 
+    // istanbul ignore next
+    /**
+     * Emits error
+     *
+     * @access private
+     * @param {string} eventName
+     * @param {string} message
+     * @param {Error} err
+     */
+    private emitError(eventName: string, message: string, err: Error) {
+        this.emit('error', err, eventName);
+        this.logger.error(
+            `${this.name}: ${message}, pid ${
+                process.pid} on redis host ${this.redisKey}:`,
+            err
+        );
+    }
+
     /**
      * Acquires owner for watcher connection to this instance of the queue
      *
@@ -657,12 +650,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 }
 
                 catch (err) {
-                    this.emit('error', err, 'OnScriptLoad');
-                    this.logger.error(
-                        `${this.name}: script load error, pid ${
-                            process.pid} on redis host ${this.redisKey}:`,
-                        err
-                    );
+                    this.emitError('OnScriptLoad', 'script load error', err);
                 }
             });
 
@@ -794,17 +782,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         this.read();
 
-        this.processDelayed(this.key).catch(
-            // istanbul ignore next
-            (err) => {
-                this.emit('error', err, 'OnProcessDelayed');
-                this.logger.error(
-                    `${this.name}: error processing delayed queue, pid ${
-                        process.pid} on redis host ${this.redisKey}`,
-                    err
-                );
-            }
-        );
+        // istanbul ignore next
+        this.processDelayed(this.key).catch((err) => {
+            this.emitError('OnProcessDelayed', 'error processing delayed queue',
+                err);
+        });
 
         this.initialized = true;
 

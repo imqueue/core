@@ -76,23 +76,36 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     }
 
     /**
+     * Batch imq action processing on all registered imqs at once
+     *
+     * @access private
+     * @param {string} action
+     * @param {string} message
+     * @return {Promise<this>}
+     */
+    private async batch(action: string, message: string) {
+        this.logger.log(message);
+
+        const promises = [];
+
+        for (let imq of this.imqs) {
+            promises.push(imq[action]());
+        }
+
+        await Promise.all(promises);
+
+        return this;
+    }
+
+    /**
      * Starts the messaging queue.
      * Supposed to be an async function.
      *
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async start(): Promise<ClusteredRedisQueue> {
-        this.logger.log('Starting clustered redis message queue...');
-
-        const promises = [];
-
-        for (let imq of this.imqs) {
-             promises.push(imq.start());
-        }
-
-        await Promise.all(promises);
-
-        return this;
+        return await this.batch('start',
+            'Starting clustered redis message queue...');
     }
 
     /**
@@ -102,17 +115,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async stop(): Promise<ClusteredRedisQueue> {
-        this.logger.log('Stopping clustered redis message queue...');
-
-        const promises = [];
-
-        for (let imq of this.imqs) {
-            promises.push(imq.stop());
-        }
-
-        await Promise.all(promises);
-
-        return this;
+        return await this.batch('stop',
+            'Stopping clustered redis message queue...');
     }
 
     /**
@@ -155,15 +159,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<void>}
      */
     public async destroy(): Promise<void> {
-        this.logger.log('Destroying clustered redis message queue...');
-
-        const promises = [];
-
-        for (let imq of this.imqs) {
-            promises.push(imq.destroy());
-        }
-
-        await Promise.all(promises);
+        await this.batch('destroy',
+            'Destroying clustered redis message queue...');
     }
 
     // noinspection JSUnusedGlobalSymbols
@@ -174,17 +171,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<IMessageQueue>}
      */
     public async clear(): Promise<ClusteredRedisQueue> {
-        this.logger.log('Clearing clustered redis message queue...');
-
-        const promises = [];
-
-        for (let imq of this.imqs) {
-            promises.push(imq.clear());
-        }
-
-        await Promise.all(promises);
-
-        return this;
+        return await this.batch('clear',
+            'Clearing clustered redis message queue...');;
     }
 
     // EventEmitter interface

@@ -16,6 +16,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import {
+    buildOptions,
     IMessageQueue,
     IJson,
     IMQOptions,
@@ -47,7 +48,10 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         public name: string,
         options?: Partial<IMQOptions>
     ) {
-        this.options = Object.assign({}, DEFAULT_IMQ_OPTIONS, options || {});
+        this.options = buildOptions<IMQOptions>(
+            DEFAULT_IMQ_OPTIONS,
+            options
+        );
 
         // istanbul ignore next
         this.logger = this.options.logger || console;
@@ -162,6 +166,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         await Promise.all(promises);
     }
 
+    // noinspection JSUnusedGlobalSymbols
     /**
      * Clears queue data in queue host application.
      * Supposed to be an async function.
@@ -194,6 +199,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     }
 
     // istanbul ignore next
+    // noinspection JSUnusedGlobalSymbols
     public off(...args: any[]) {
         for (let imq of this.imqs) {
             imq.off.apply(imq, args);
@@ -250,7 +256,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     // istanbul ignore next
     public prependOnceListener(...args: any[]) {
         for (let imq of this.imqs) {
-            imq.prependListener.apply(imq, args);
+            imq.prependOnceListener.apply(imq, args);
         }
 
         return this;

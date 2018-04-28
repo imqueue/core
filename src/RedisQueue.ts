@@ -16,6 +16,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import {
+    buildOptions,
     redis,
     IRedisClient,
     IJson,
@@ -185,7 +186,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private readonly pack: Function;
     private readonly unpack: Function;
 
-    public options: IMQOptions = DEFAULT_IMQ_OPTIONS;
+    public options: IMQOptions;
 
     /**
      * @constructor
@@ -198,7 +199,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     ) {
         super();
 
-        this.options = Object.assign({}, DEFAULT_IMQ_OPTIONS, options || {});
+        this.options = buildOptions<IMQOptions>(
+            DEFAULT_IMQ_OPTIONS,
+            options
+        );
         this.pack = this.options.useGzip ? pack : JSON.stringify;
         this.unpack = this.options.useGzip ? unpack : JSON.parse;
         this.redisKey = `${this.options.host}:${this.options.port}`;
@@ -344,6 +348,96 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
     }
 
+    // istanbul ignore next
+    /**
+     * Watch routine
+     *
+     * @access private
+     * @return {Promise<void>}
+     */
+    private async processWatch() {
+        const now = Date.now();
+        let cursor: string = '0';
+
+        while (true) {
+            try {
+                const data: Array<[string, string[]]> =
+                    <any>await this.writer.scan(
+                    cursor, 'match',
+                    `${this.options.prefix}:*:worker:*`,
+                    'count', '1000'
+                );
+
+                cursor = <any>data.shift();
+                const keys: string[] = <any>data.shift() || [];
+
+                if (keys.length) {
+                    for (let key of keys) {
+                        const kp: string[] = key.split(':');
+
+                        if (Number(kp.pop()) >= now) {
+                            const qKey = `${kp.shift()}:${kp.shift()}`;
+                            await this.writer.rpoplpush(key, qKey);
+                        }
+                    }
+                }
+
+                if (cursor === '0') {
+                    return ;
+                }
+            }
+
+            catch (err) {
+                this.emit('error', err, 'OnSafeDelivery');
+                return this.cleanSafeCheckInterval();
+            }
+        }
+    }
+
+    // istanbul ignore next
+    /**
+     * Watch message processor
+     *
+     * @access private
+     * @param {...any[]} args
+     * @return {Promise<void>}
+     */
+    private async onWatchMessage(...args: any[]) {
+        try {
+            const key = args.pop().split(':');
+
+            if (key.pop() !== 'ttl') {
+                return;
+            }
+
+            key.pop(); // msg id
+
+            await this.processDelayed(key.join(':'));
+        }
+
+        catch (err) {
+            this.emit('error', err, 'OnWatch');
+            this.logger.error(
+                `${this.name}: watch error, pid ${
+                    process.pid} on redis host ${this.redisKey}:`,
+                err
+            );
+        }
+    }
+
+    // istanbul ignore next
+    /**
+     * Clears safe check interval
+     *
+     * @access private
+     */
+    private cleanSafeCheckInterval() {
+        if (this.safeCheckInterval) {
+            clearInterval(this.safeCheckInterval);
+            delete this.safeCheckInterval;
+        }
+    }
+
     /**
      * Setups watch process on delayed messages
      *
@@ -369,27 +463,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             );
         }
 
-        this.watcher.on('pmessage', async (...args: any[]) => {
-            try {
-                const key = args.pop().split(':');
-
-                if (key.pop() !== 'ttl') {
-                    return;
-                }
-                key.pop(); // msg id
-
-                await this.processDelayed(key.join(':'));
-            }
-
-            catch (err) {
-                this.emit('error', err, 'OnWatch');
-                this.logger.error(
-                    `${this.name}: watch error, pid ${
-                        process.pid} on redis host ${this.redisKey}:`,
-                    err
-                );
-            }
-        });
+        this.watcher.on('pmessage', this.onWatchMessage.bind(this));
 
         this.watcher.psubscribe(
             '__keyevent@0__:expired',
@@ -400,49 +474,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         if (this.options.safeDelivery && !this.safeCheckInterval) {
             this.safeCheckInterval = setInterval(async () => {
                 if (!this.writer) {
-                    clearInterval(this.safeCheckInterval);
-                    delete this.safeCheckInterval;
-                    return ;
+                    return this.cleanSafeCheckInterval();
                 }
 
-                const now = Date.now();
-                let cursor: string = '0';
-
-                while (true) {
-                    try {
-                        const data: Array<[string, string[]]> =
-                            <any>await this.writer.scan(
-                                cursor, 'match',
-                                `${this.options.prefix}:*:worker:*`,
-                                'count', '1000'
-                            );
-
-                        cursor = <any>data.shift();
-                        const keys: string[] = <any>data.shift() || [];
-
-                        if (keys.length) {
-                            for (let key of keys) {
-                                const kp: string[] = key.split(':');
-
-                                if (Number(kp.pop()) >= now) {
-                                    const qKey = `${kp.shift()}:${kp.shift()}`;
-                                    await this.writer.rpoplpush(key, qKey);
-                                }
-                            }
-                        }
-
-                        if (cursor === '0') {
-                            return ;
-                        }
-                    }
-
-                    catch (err) {
-                        this.emit('error', err, 'OnSafeDelivery');
-                        clearInterval(this.safeCheckInterval);
-                        delete this.safeCheckInterval;
-                        return ;
-                    }
-                }
+                await this.processWatch();
             }, this.options.safeDeliveryTtl);
         }
 
@@ -637,6 +672,37 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
     }
 
+    // istanbul ignore next
+    /**
+     * Returns watcher lock resolver function
+     *
+     * @access private
+     * @param {Function} resolve
+     * @param {Function} reject
+     * @return {Function}
+     */
+    private watchLockResolver(
+        resolve: Function,
+        reject: Function
+    ): Function {
+        return (async () => {
+            try {
+                const noWatcher = !await this.watcherCount();
+
+                if (await this.isLocked() && noWatcher) {
+                    await this.unlock();
+                    await this.ownWatch();
+                }
+
+                resolve();
+            }
+
+            catch (err) {
+                reject(err);
+            }
+        });
+    }
+
     /**
      * Initializes single watcher connection across all queues with the same
      * prefix.
@@ -656,22 +722,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
                     else {
                         // check for possible dead-lock to resolve
-                        setTimeout(async () => {
-                            try {
-                                const noWatcher = !await this.watcherCount();
-
-                                if (await this.isLocked() && noWatcher) {
-                                    await this.unlock();
-                                    await this.ownWatch();
-                                }
-
-                                resolve();
-                            }
-
-                            catch (err) {
-                                reject(err);
-                            }
-                        }, intrand(1, 50));
+                        setTimeout(
+                            this.watchLockResolver(resolve, reject),
+                            intrand(1, 50)
+                        );
                     }
                 }
 
@@ -686,6 +740,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                         process.pid} on redis host ${this.redisKey}`,
                     err
                 );
+
                 reject(err);
             }
         });
@@ -834,10 +889,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async destroy() {
         this.removeAllListeners();
 
-        if (this.safeCheckInterval) {
-            clearInterval(this.safeCheckInterval);
-            delete this.safeCheckInterval;
-        }
+        this.cleanSafeCheckInterval();
 
         if (this.watcher) {
             this.watcher.removeAllListeners();

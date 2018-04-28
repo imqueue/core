@@ -46,6 +46,16 @@ export const IMQ_LOG_ARGS = !!process.env['IMQ_LOG_ARGS'];
 export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
     <AllowedTimeFormat>process.env['IMQ_LOG_TIME_FORMAT'] || 'microseconds';
 
+export interface DebugInfoOptions {
+    debugTime: boolean;
+    debugArgs: boolean;
+    className: string | symbol,
+    args: any[],
+    methodName: string | symbol,
+    start: number;
+    logger: ILogger;
+}
+
 /**
  * Prints debug information
  *
@@ -57,19 +67,19 @@ export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
  * @param {number} start
  * @param {ILogger} logger
  */
-export function printDebugInfo(
-    debugTime: boolean,
-    debugArgs: boolean,
-    className: string,
-    args: any[],
-    methodName: string | symbol,
-    start: number,
-    /* istanbul ignore next */
-    logger: ILogger = console
-) {
+export function logDebugInfo({
+    debugTime,
+    debugArgs,
+    className,
+    args,
+    methodName,
+    start,
+    logger
+}: DebugInfoOptions) {
     if (debugTime) {
         const time = mt.now() - start;
         let timeStr = '';
+
         // istanbul ignore next
         switch (IMQ_LOG_TIME_FORMAT) {
             case 'milliseconds':
@@ -82,6 +92,7 @@ export function printDebugInfo(
                 timeStr = time + ' μs';
                 break;
         }
+
         logger.log(`${className}.${methodName}() executed in ${timeStr}`);
     }
 
@@ -154,35 +165,29 @@ export function profile(
                 : target.constructor.name; // dynamic
             const start = mt.now();
             const result = original.apply(this, args);
-
-            /* istanbul ignore next */
-            if (result && typeof result.then === 'function') {
-                // async call detected
-                result.then((res: any) => {
-                    printDebugInfo(
-                        debugTime,
-                        debugArgs,
-                        className,
-                        args,
-                        methodName,
-                        start,
-                        this.logger
-                    );
-
-                    return res;
-                });
-                return result;
-            }
-
-            printDebugInfo(
+            const debugOptions: DebugInfoOptions = {
                 debugTime,
                 debugArgs,
                 className,
                 args,
                 methodName,
                 start,
-                this.logger
-            );
+                logger: this.logger
+            };
+
+            /* istanbul ignore next */
+            if (result && typeof result.then === 'function') {
+                // async call detected
+                result.then((res: any) => {
+                    logDebugInfo(debugOptions);
+
+                    return res;
+                });
+
+                return result;
+            }
+
+            logDebugInfo(debugOptions);
 
             return result;
         };

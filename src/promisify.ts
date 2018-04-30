@@ -37,6 +37,47 @@ export function propertiesOf(obj: any): string[] {
     return props;
 }
 
+// istanbul ignore next
+/**
+ * Makes a callback function able to resolve or reject with given
+ * resolve and reject functions
+ *
+ * @param {Function} resolve
+ * @param {Function} reject
+ * @return {Function}
+ */
+function makeCallback(resolve: Function, reject: Function) {
+    return function (err: Error, ...args: any[]) {
+        if (err) {
+            return reject(err);
+        }
+
+        resolve(args.length === 1 ? args[0] : args);
+    }
+}
+
+// istanbul ignore next
+/**
+ * Makes given method promised
+ *
+ * @access private
+ * @param {Function} method
+ * @return {Function} args
+ */
+function makePromised(method: Function) {
+    return function(...args: any[]) {
+        const callback = args[args.length - 1];
+
+        if (typeof callback === 'function') {
+            return method.apply(this, args);
+        }
+
+        return new Promise((resolve, reject) => {
+            method.call(this, ...args, makeCallback(resolve, reject));
+        });
+    }
+}
+
 /**
  * Makes given object methods promise-like
  *
@@ -57,23 +98,6 @@ export function promisify(obj: any, restrict?: string[]) {
             continue;
         }
 
-        obj[prop] = ((method: Function) => function(...callArgs: any[]) {
-            const callback = callArgs[callArgs.length - 1];
-
-            if (typeof callback === 'function') {
-                return method.apply(this, callArgs);
-            }
-
-            return new Promise((resolve, reject) => {
-                method.call(this, ...callArgs,
-                    function (err: Error, ...args: any[]) {
-                        if (err) {
-                            return reject(err);
-                        }
-
-                        resolve(args.length === 1 ? args[0] : args);
-                    });
-            });
-        })(obj[prop]);
+        obj[prop] = makePromised(obj[prop]);
     }
 }

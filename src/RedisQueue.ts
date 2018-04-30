@@ -459,15 +459,18 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @return {Promise<void>}
      */
     private async processKeys(keys: string[], now: number) {
-        if (keys.length) {
-            for (let key of keys) {
-                const kp: string[] = key.split(':');
+        if (!keys.length) {
+            return ;
+        }
 
-                if (Number(kp.pop()) >= now) {
-                    const qKey = `${kp.shift()}:${kp.shift()}`;
-                    await this.writer.rpoplpush(key, qKey);
-                }
+        for (let key of keys) {
+            const kp: string[] = key.split(':');
+
+            if (Number(kp.pop()) < now) {
+                continue;
             }
+
+            await this.writer.rpoplpush(key, `${kp.shift()}:${kp.shift()}`);
         }
     }
 

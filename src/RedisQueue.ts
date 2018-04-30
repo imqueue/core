@@ -432,18 +432,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 );
 
                 cursor = <any>data.shift();
-                const keys: string[] = <any>data.shift() || [];
 
-                if (keys.length) {
-                    for (let key of keys) {
-                        const kp: string[] = key.split(':');
-
-                        if (Number(kp.pop()) >= now) {
-                            const qKey = `${kp.shift()}:${kp.shift()}`;
-                            await this.writer.rpoplpush(key, qKey);
-                        }
-                    }
-                }
+                await this.processKeys(<any>data.shift() || [], now);
 
                 if (cursor === '0') {
                     return ;
@@ -455,6 +445,28 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     'safe queue message delivery problem', err);
 
                 return this.cleanSafeCheckInterval();
+            }
+        }
+    }
+
+    // istanbul ignore next
+    /**
+     * Process given keys from a message queue
+     *
+     * @access private
+     * @param {string[]} keys
+     * @param {number} now
+     * @return {Promise<void>}
+     */
+    private async processKeys(keys: string[], now: number) {
+        if (keys.length) {
+            for (let key of keys) {
+                const kp: string[] = key.split(':');
+
+                if (Number(kp.pop()) >= now) {
+                    const qKey = `${kp.shift()}:${kp.shift()}`;
+                    await this.writer.rpoplpush(key, qKey);
+                }
             }
         }
     }

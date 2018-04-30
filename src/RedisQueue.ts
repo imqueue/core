@@ -559,77 +559,73 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     /**
      * Unreliable but fast way of message handling by the queue
      */
-    private readUnsafe() {
-        process.nextTick(async () => {
-            try {
-                const key = this.key;
+    private async readUnsafe() {
+        try {
+            const key = this.key;
 
-                while (true) {
-                    if (!this.reader) {
+            while (true) {
+                if (!this.reader) {
+                    break;
+                }
+
+                try {
+                    const msg: any = await this.reader.brpop(key, 0);
+                    this.process(msg);
+                } catch (err) {
+                    // istanbul ignore next
+                    if (err.message.match(/Stream connection ended/)) {
                         break;
                     }
 
-                    try {
-                        const msg: any = await this.reader.brpop(key, 0);
-                        this.process(msg);
-                    } catch (err) {
-                        // istanbul ignore next
-                        if (err.message.match(/Stream connection ended/)) {
-                            break;
-                        }
-
-                        // istanbul ignore next
-                        // noinspection ExceptionCaughtLocallyJS
-                        throw err;
-                    }
+                    // istanbul ignore next
+                    // noinspection ExceptionCaughtLocallyJS
+                    throw err;
                 }
             }
+        }
 
-            catch (err) {
-                // istanbul ignore next
-                this.emitError('OnReadUnsafe', 'unsafe reader failed', err);
-            }
-        });
+        catch (err) {
+            // istanbul ignore next
+            this.emitError('OnReadUnsafe', 'unsafe reader failed', err);
+        }
     }
 
     /**
      * Reliable but slow method of message handling by message queue
      */
-    private readSafe() {
-        process.nextTick(async () => {
-            try {
-                const key = this.key;
+    private async readSafe() {
+        try {
+            const key = this.key;
 
-                while (true) {
-                    const expire: number = Date.now() +
-                        Number(this.options.safeDeliveryTtl);
-                    const workerKey = `${key}:worker:${uuid()}:${expire}`;
+            while (true) {
+                const expire: number = Date.now() +
+                    Number(this.options.safeDeliveryTtl);
+                const workerKey = `${key}:worker:${uuid()}:${expire}`;
 
-                    if (!this.reader || !this.writer) {
-                        break;
-                    }
-
-                    try {
-                        await this.reader.brpoplpush(this.key, workerKey, 0);
-                    } catch (err) {
-                        // istanbul ignore next
-                        break;
-                    }
-
-                    const msg: any = await this.writer.lrange(
-                        workerKey, -1, 1
-                    );
-
-                    this.process([key, msg]);
-                    this.writer.del(workerKey);
+                if (!this.reader || !this.writer) {
+                    break;
                 }
-            }
 
-            catch (err) {
-                // istanbul ignore next
-                this.emitError('OnReadSafe', 'safe reader failed', err);
+                try {
+                    await this.reader.brpoplpush(this.key, workerKey, 0);
+                } catch (err) {
+                    // istanbul ignore next
+                    break;
+                }
+
+                const msg: any = await this.writer.lrange(
+                    workerKey, -1, 1
+                );
+
+                this.process([key, msg]);
+                this.writer.del(workerKey);
             }
-        });
+        }
+
+        catch (err) {
+            // istanbul ignore next
+            this.emitError('OnReadSafe', 'safe reader failed', err);
+        }
     }
 
     /**
@@ -652,7 +648,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             ? 'readSafe'
             : 'readUnsafe';
 
-        this[readMethod]();
+        process.nextTick(this[readMethod].bind(this));
 
         return this;
     }

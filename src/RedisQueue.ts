@@ -235,48 +235,116 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 // istanbul ignore next
                 options.host || 'localhost'
             );
-            context[channel].on('ready', async () => {
-                this.logger.info(
-                    '%s: %s channel connected, host %s, pid %s',
-                    context.name, channel, this.redisKey, process.pid
-                );
+            context[channel].on('ready',
+                this.onReadyHandler(options, context, channel, resolve)
+            );
+            context[channel].on('error',
+                this.onErrorHandler(context, channel, reject)
+            );
+            context[channel].on('end',
+                this.onCloseHandler(context, channel)
+            );
+            context[channel].on('reconnecting',
+                this.onReconnectHandler(context, channel)
+            );
+        });
+    }
 
-                await context[channel].client(
-                    'setname',
-                    `${options.prefix}:${context.name}:${channel
+    /**
+     * Builds and returns connection ready state handler
+     *
+     * @access private
+     * @param {IMQOptions} options
+     * @param {any} context
+     * @param {string} channel
+     * @param {Function} resolve
+     * @return {Function}
+     */
+    private onReadyHandler(
+        options: IMQOptions,
+        context: any,
+        channel: string,
+        resolve: Function
+    ): Function {
+        return (async () => {
+            this.logger.info(
+                '%s: %s channel connected, host %s, pid %s',
+                context.name, channel, this.redisKey, process.pid
+            );
+
+            await context[channel].client(
+                'setname',
+                `${options.prefix}:${context.name}:${channel
                     }:pid:${process.pid}:host:${os.hostname()}`
-                );
+            );
 
-                resolve(context[channel]);
-            });
-            // istanbul ignore next
-            context[channel].on('error', (err: Error) => {
-                this.initialized = false;
-                this.logger.error(
-                    `${context.name}: error connecting redis host ${
-                        this.redisKey} on ${
-                        channel}, pid ${process.pid}:`,
-                    err
-                );
-                reject(err);
-            });
-            // istanbul ignore next
-            context[channel].on('end', () => {
-                this.initialized = false;
-                this.logger.warn(
-                    '%s: redis connection %s closed on host %s, pid %s!',
-                    context.name, channel, this.redisKey, process.pid
-                );
-            });
-            // istanbul ignore next
-            context[channel].on('reconnecting', () => {
-                this.initialized = false;
-                this.logger.warn(
-                    '%s: redis connection %s is reconnecting on host %s, ' +
-                    'pid %s...',
-                    context.name, channel, this.redisKey, process.pid
-                );
-            });
+            resolve(context[channel]);
+        });
+    }
+
+    /**
+     * Builds and returns redic connection reconnect handler
+     *
+     * @access private
+     * @param {any} context
+     * @param {string} channel
+     * @return {Function}
+     */
+    private onReconnectHandler(context: any, channel: string): Function {
+        // istanbul ignore next
+        return (() => {
+            this.initialized = false;
+            this.logger.warn(
+                '%s: redis connection %s is reconnecting on host %s, ' +
+                'pid %s...',
+                context.name, channel, this.redisKey, process.pid
+            );
+        });
+    }
+
+    /**
+     * Builds and returns connection error handler
+     *
+     * @access private
+     * @param context
+     * @param {string} channel
+     * @param {Function} reject
+     * @return {Function}
+     */
+    private onErrorHandler(
+        context: any,
+        channel: string,
+        reject: Function
+    ): Function {
+        // istanbul ignore next
+        return ((err: Error) => {
+            this.initialized = false;
+            this.logger.error(
+                `${context.name}: error connecting redis host ${
+                    this.redisKey} on ${
+                    channel}, pid ${process.pid}:`,
+                err
+            );
+            reject(err);
+        });
+    }
+
+    /**
+     * Builds and returns redis connection close handler
+     *
+     * @access private
+     * @param {any} context
+     * @param {string} channel
+     * @return {Function}
+     */
+    private onCloseHandler(context: any, channel: string): Function {
+        // istanbul ignore next
+        return (() => {
+            this.initialized = false;
+            this.logger.warn(
+                '%s: redis connection %s closed on host %s, pid %s!',
+                context.name, channel, this.redisKey, process.pid
+            );
         });
     }
 

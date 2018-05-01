@@ -42,3 +42,5 @@ test/
 *.ts
 !*.d.ts
 tsconfig.json
+
+*.tgz

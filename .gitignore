@@ -36,3 +36,5 @@ Thumbs.db
 package-lock.json
 stats.json
 benchmark-result/
+
+*.tgz

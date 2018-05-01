@@ -4,7 +4,7 @@
 [![codebeat badge](https://codebeat.co/badges/85bb2a18-4ebb-4e48-a2ce-92b7bf438b1a)](https://codebeat.co/projects/github-com-imqueue-imq-master)
 [![Coverage Status](https://coveralls.io/repos/github/imqueue/imq/badge.svg?branch=master)](https://coveralls.io/github/imqueue/imq?branch=master) 
 [![David](https://img.shields.io/david/imqueue/imq.svg)](https://david-dm.org/imqueue/imq)
-[![David](https://img.shields.io/david/dev/expressjs/express.svg)](https://david-dm.org/imqueue/imq?type=dev)
+[![David](https://img.shields.io/david/dev/imqueue/imq.svg)](https://david-dm.org/imqueue/imq?type=dev)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/imqueue/imq/master/LICENSE)
 
 Simple JSON-based messaging queue for inter service communication

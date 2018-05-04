@@ -182,13 +182,13 @@ function buildChartConfig(id: string, stats: any[]) {
     return {
         bindto: `#${id}`,
         data: {
-            columns: [stats]
+            columns: stats
         },
         point: { show: false },
         axis: {
             x: {
                 type: 'category',
-                categories: stats.slice(1).map((v: any, i: number) =>
+                categories: stats[0].slice(1).map((v: any, i: number) =>
                     ((i * 100) / 1000).toFixed(1) + 's'),
                 tick: {
                     centered: true,
@@ -230,7 +230,7 @@ function bytesCount(data: any[], fmt: Intl.NumberFormat, key: string) {
  */
 function saveStats({ metrics,  memusage }: any, data: any[]) {
     const { stats, memStats } = buildStats({ metrics, memusage });
-    const config = buildChartConfig('cpu-usage', stats[0]);
+    const config = buildChartConfig('cpu-usage', stats);
     const memConfig = buildChartConfig('memory-usage', memStats);
     const fmt = new Intl.NumberFormat(
         'en-US', { maximumSignificantDigits: 3 }

@@ -15,6 +15,7 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
+import { EventEmitter } from 'events';
 import {
     buildOptions,
     IMessageQueue,
@@ -22,20 +23,65 @@ import {
     IMQOptions,
     DEFAULT_IMQ_OPTIONS,
     RedisQueue,
-    ILogger
+    ILogger,
 } from '.';
-import { EventEmitter } from 'events';
 
+/**
+ * Class ClusteredRedisQueue
+ * Implements possibility to scale queues horizontally between several
+ * redis instances.
+ */
 export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
-    private imqs: RedisQueue[] = [];
-    private readonly options: IMQOptions;
-    private readonly mqOptions: IMQOptions;
-    private readonly servers: Array<{ host: string, port: number }> = [];
-    private currentQueue = 0;
-    // noinspection TypescriptExplicitMemberType,TypeScriptFieldCanBeMadeReadonly
-    private queueLength = 0;
+    /**
+     * Logger instance associated with this queue instance
+     *
+     * @type {ILogger}
+     */
     public logger: ILogger;
+
+    /**
+     * RedisQueue instances collection
+     *
+     * @type {RedisQueue[]}
+     */
+    private imqs: RedisQueue[] = [];
+
+    /**
+     * Options associated with this queue instance
+     *
+     * @type {IMQOptions}
+     */
+    private readonly options: IMQOptions;
+
+    /**
+     * Part of options without cluster definitions - which are generic for
+     * RedisQueue instances
+     *
+     * @type {IMQOptions]
+     */
+    private readonly mqOptions: IMQOptions;
+
+    /**
+     * Cluster servers option definitions
+     *
+     * @type {{ host: string, port: number }[]}
+     */
+    private readonly servers: Array<{ host: string, port: number }> = [];
+
+    /**
+     * Current queue index (round-robin)
+     *
+     * @type {number}
+     */
+    private currentQueue = 0;
+
+    /**
+     * Total length of RedisQueue instances
+     *
+     * @type {number}
+     */
+    private queueLength = 0;
 
     /**
      * Class constructor
@@ -44,13 +90,13 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @param {string} name
      * @param {Partial<IMQOptions>} options
      */
-    constructor(
+    public constructor(
         public name: string,
-        options?: Partial<IMQOptions>
+        options?: Partial<IMQOptions>,
     ) {
         this.options = buildOptions<IMQOptions>(
             DEFAULT_IMQ_OPTIONS,
-            options
+            options,
         );
 
         // istanbul ignore next
@@ -73,28 +119,6 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         }
 
         this.queueLength = this.imqs.length;
-    }
-
-    /**
-     * Batch imq action processing on all registered imqs at once
-     *
-     * @access private
-     * @param {string} action
-     * @param {string} message
-     * @return {Promise<this>}
-     */
-    private async batch(action: string, message: string) {
-        this.logger.log(message);
-
-        const promises = [];
-
-        for (let imq of this.imqs) {
-            promises.push(imq[action]());
-        }
-
-        await Promise.all(promises);
-
-        return this;
     }
 
     /**
@@ -126,18 +150,16 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @param {string} toQueue - queue name to which message should be sent to
      * @param {IJson} message - message data
      * @param {number} [delay] - if specified, message will be handled in the
-     *                           target queue after specified period of time
-     *                           in milliseconds.
-     * @param {Function} [errorHandler] - callback called only when internal
-     *                                    error occurs during message send
-     *                                    execution.
+     *        target queue after specified period of time in milliseconds.
+     * @param {(err: Error) => void} [errorHandler] - callback called only when
+     *        internal error occurs during message send execution.
      * @returns {Promise<string>} - message identifier
      */
     public async send(
         toQueue: string,
         message: IJson,
         delay?: number,
-        errorHandler?: Function
+        errorHandler?: (err: Error) => void,
     ): Promise<string> {
         if (this.currentQueue >= this.queueLength) {
             this.currentQueue = 0;
@@ -168,15 +190,37 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * Clears queue data in queue host application.
      * Supposed to be an async function.
      *
-     * @returns {Promise<IMessageQueue>}
+     * @returns {Promise<ClusteredRedisQueue>}
      */
     public async clear(): Promise<ClusteredRedisQueue> {
         return await this.batch('clear',
-            'Clearing clustered redis message queue...');;
+            'Clearing clustered redis message queue...');
     }
 
-    // EventEmitter interface
+    /**
+     * Batch imq action processing on all registered imqs at once
+     *
+     * @access private
+     * @param {string} action
+     * @param {string} message
+     * @return {Promise<this>}
+     */
+    private async batch(action: string, message: string) {
+        this.logger.log(message);
 
+        const promises = [];
+
+        for (const imq of this.imqs) {
+            promises.push(imq[action]());
+        }
+
+        await Promise.all(promises);
+
+        return this;
+    }
+
+    /* tslint:disable */
+    // EventEmitter interface
     // istanbul ignore next
     public on(...args: any[]) {
         for (let imq of this.imqs) {
@@ -302,5 +346,6 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     public listenerCount(...args: any[]) {
         return this.imqs[0].listenerCount.apply(this.imqs[0], args);
     }
+    /* tslint:enable */
 
 }

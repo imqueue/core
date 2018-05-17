@@ -37,7 +37,7 @@ export interface ILogger {
      *
      * @param {...any[]} args
      */
-    log(...args: any[]): void,
+    log(...args: any[]): void;
 
     /**
      * Info level function
@@ -66,74 +66,74 @@ export interface ILogger {
  *
  * @type {IMessage}
  */
-export type IMessage = {
+export interface IMessage {
     /**
      * Message unique identifier
      *
      * @type {string}
      */
-    id: string,
+    id: string;
 
     /**
      * Message data. Any JSON-compatible data allowed
      *
      * @type {IJson}
      */
-    message: IJson,
+    message: IJson;
 
     /**
      * Message source queue name
      *
      * @type {string}
      */
-    from: string,
+    from: string;
 
     /**
      * Message delay in milliseconds (for delayed messages). Optional.
      *
      * @type {number}
      */
-    delay?: number
-};
+    delay?: number;
+}
 
 /**
  * Message queue options
  */
-export type IMQOptions = {
+export interface IMQOptions {
     /**
      * Message queue network host
      *
      * @type {string}
      */
-    host?: string,
+    host?: string;
 
     /**
      * Message queue network port
      *
      * @type {number}
      */
-    port?: number,
+    port?: number;
 
     /**
      * Message queue vendor
      *
      * @type {string}
      */
-    vendor?: string,
+    vendor?: string;
 
     /**
      * Message queue global key prefix (namespace)
      *
      * @type {string}
      */
-    prefix?: string,
+    prefix?: string;
 
     /**
      * Logger defined to be used within message queue in runtime
      *
      * @type {ILogger}
      */
-    logger?: ILogger,
+    logger?: ILogger;
 
     /**
      * Watcher check delay period. This is used by a queue watcher
@@ -142,7 +142,7 @@ export type IMQOptions = {
      *
      * @type {number}
      */
-    watcherCheckDelay?: number,
+    watcherCheckDelay?: number;
 
     /**
      * A way to serialize message using compression. Will increase
@@ -151,7 +151,7 @@ export type IMQOptions = {
      *
      * @type {boolean}
      */
-    useGzip?: boolean,
+    useGzip?: boolean;
 
     /**
      * Enables/disables safe message delivery. When safe message delivery
@@ -162,7 +162,7 @@ export type IMQOptions = {
      *
      * @type {boolean}
      */
-    safeDelivery?: boolean,
+    safeDelivery?: boolean;
 
     /**
      * Time-to-live of worker queues (after this time messages are back to
@@ -171,16 +171,16 @@ export type IMQOptions = {
      *
      * @type {number}
      */
-    safeDeliveryTtl?: number,
+    safeDeliveryTtl?: number;
 
     /**
      * Queue cluster instances, if MQ should be clustered
      */
     cluster?: Array<{
         host: string,
-        port: number
-    }>
-};
+        port: number,
+    }>;
+}
 
 export interface IMessageQueueConstructor {
     /**
@@ -269,15 +269,13 @@ export interface IMessageQueue extends EventEmitter {
      * @param {string} toQueue - queue name to which message should be sent to
      * @param {IJson} message - message data
      * @param {number} [delay] - if specified, message will be handled in the
-     *                           target queue after specified period of time
-     *                           in milliseconds.
-     * @param {Function} [errorHandler] - callback called only when internal
-     *                                    error occurs during message send
-     *                                    execution.
+     *        target queue after specified period of time in milliseconds.
+     * @param {(err: Error) => void} [errorHandler] - callback called only when
+     *        internal error occurs during message send execution.
      * @returns {Promise<string>} - message identifier
      */
     send(toQueue: string, message: IJson, delay?: number,
-         errorHandler?: Function): Promise<string>;
+         errorHandler?: (err: Error) => void): Promise<string>;
 
     /**
      * Safely destroys current queue, unregistered all set event

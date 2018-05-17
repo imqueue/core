@@ -46,14 +46,17 @@ export function propertiesOf(obj: any): string[] {
  * @param {Function} reject
  * @return {Function}
  */
-function makeCallback(resolve: Function, reject: Function) {
-    return function (err: Error, ...args: any[]) {
+function makeCallback(
+    resolve: (...args: any[]) => any,
+    reject: (...args: any[]) => any,
+) {
+    return function callback(err: Error, ...args: any[]) {
         if (err) {
             return reject(err);
         }
 
         resolve(args.length === 1 ? args[0] : args);
-    }
+    };
 }
 
 // istanbul ignore next
@@ -64,18 +67,18 @@ function makeCallback(resolve: Function, reject: Function) {
  * @param {Function} method
  * @return {Function} args
  */
-function makePromised(method: Function) {
-    return function(...args: any[]) {
+function makePromised(method: (...args: any[]) => any) {
+    return function asyncMethod(...args: any[]): Promise<any> {
         const callback = args[args.length - 1];
 
         if (typeof callback === 'function') {
             return method.apply(this, args);
         }
 
-        return new Promise((resolve, reject) => {
+        return new Promise<any>((resolve, reject) => {
             method.call(this, ...args, makeCallback(resolve, reject));
         });
-    }
+    };
 }
 
 /**
@@ -86,7 +89,7 @@ function makePromised(method: Function) {
  *                              restricted list of methods
  */
 export function promisify(obj: any, restrict?: string[]) {
-    for (let prop of propertiesOf(obj)) {
+    for (const prop of propertiesOf(obj)) {
         try {
             if (typeof obj[prop] !== 'function' ||
                 (restrict && !~restrict.indexOf(prop.toLowerCase()))

@@ -20,33 +20,33 @@ import * as sinon from 'sinon';
 import { promisify } from '..';
 
 class FirstTestClass {
-    public one(callback?: Function) {
+    public one(callback?: (...args: any[]) => void) {
         setTimeout(() => callback && callback());
     }
 }
 
 class SecondTestClass {
-    public one(callback?: Function) {
+    public one(callback?: (...args: any[]) => void) {
         setTimeout(() => callback && callback());
     }
-    public two(callback?: Function) {
+    public two(callback?: (...args: any[]) => void) {
         setTimeout(() => callback && callback());
     }
-    public three(callback?: Function) {
+    public three(callback?: (...args: any[]) => void) {
         setTimeout(() => callback && callback());
     }
 }
 
 class ThirdTestClass {
     // noinspection JSMethodCanBeStatic
-    public one(callback?: Function) {
+    public one(callback?: (...args: any[]) => void) {
         callback && callback();
     }
 }
 
 class TestError extends Error {}
 class FourthTestClass {
-    public one(callback?: Function) {
+    public one(callback?: (...args: any[]) => void) {
         setTimeout(() => callback && callback(new TestError()));
     }
 }
@@ -70,7 +70,7 @@ describe('promisify()', function() {
     it('should act as callback-based if callback bypassed', () => {
         promisify(ThirdTestClass.prototype);
         const o = new ThirdTestClass();
-        const spy = sinon.spy(()=>{});
+        const spy = sinon.spy(() => {});
         expect(o.one(spy)).to.be.undefined;
         expect(spy.called).to.be.true;
     });
@@ -78,7 +78,10 @@ describe('promisify()', function() {
     it('should throw when promise-like', async () => {
         promisify(FourthTestClass.prototype);
         const o = new FourthTestClass();
-        try { await o.one() }
-        catch (err) { expect(err).to.be.instanceof(TestError) }
+        try {
+            await o.one();
+        } catch (err) {
+            expect(err).to.be.instanceof(TestError);
+        }
     });
 });

@@ -15,9 +15,9 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
+import * as mt from 'microtime';
 import 'reflect-metadata';
 import { ILogger } from '.';
-import * as mt from 'microtime';
 
 export type AllowedTimeFormat = 'microseconds' | 'milliseconds' | 'seconds';
 
@@ -38,20 +38,23 @@ export const IMQ_LOG_TIME = !!process.env['IMQ_LOG_TIME'];
 export const IMQ_LOG_ARGS = !!process.env['IMQ_LOG_ARGS'];
 
 /**
- * Environment variable IMQ_LOG_TIME_FORMAT=['microseconds', 'milliseconds', 'seconds'].
- * Specifies profiled time logging format, by default is 'microseconds'
+ * Environment variable IMQ_LOG_TIME_FORMAT=[
+ *   'microseconds',
+ *   'milliseconds',
+ *   'seconds'
+ * ]. Specifies profiled time logging format, by default is 'microseconds'
  *
  * @type {AllowedTimeFormat | string}
  */
 export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
-    <AllowedTimeFormat>process.env['IMQ_LOG_TIME_FORMAT'] || 'microseconds';
+    process.env['IMQ_LOG_TIME_FORMAT'] as AllowedTimeFormat || 'microseconds';
 
 export interface DebugInfoOptions {
     debugTime: boolean;
     debugArgs: boolean;
-    className: string | symbol,
-    args: any[],
-    methodName: string | symbol,
+    className: string | symbol;
+    args: any[];
+    methodName: string | symbol;
     start: number;
     logger: ILogger;
 }
@@ -74,7 +77,7 @@ export function logDebugInfo({
     args,
     methodName,
     start,
-    logger
+    logger,
 }: DebugInfoOptions) {
     if (debugTime) {
         const time = mt.now() - start;
@@ -99,7 +102,7 @@ export function logDebugInfo({
     if (debugArgs) {
         logger.log(
             `${className}.${methodName}() called with args: ${
-                JSON.stringify(args, null, 2)}`
+                JSON.stringify(args, undefined, 2)}`,
         );
     }
 }
@@ -133,7 +136,7 @@ export function logDebugInfo({
  */
 export function profile(
     enableDebugTime?: boolean,
-    enableDebugArgs?: boolean
+    enableDebugArgs?: boolean,
 ) {
     let debugTime = IMQ_LOG_TIME;
     let debugArgs = IMQ_LOG_ARGS;
@@ -146,10 +149,10 @@ export function profile(
         debugArgs = enableDebugArgs;
     }
 
-    return function(
+    return function wrapper(
         target: any,
         methodName: string | symbol,
-        descriptor: TypedPropertyDescriptor<Function>
+        descriptor: TypedPropertyDescriptor<(...args: any[]) => any>,
     ) {
         /* istanbul ignore next */
         const original = descriptor.value || target[methodName];
@@ -166,13 +169,13 @@ export function profile(
             const start = mt.now();
             const result = original.apply(this, args);
             const debugOptions: DebugInfoOptions = {
-                debugTime,
-                debugArgs,
-                className,
                 args,
+                className,
+                debugArgs,
+                debugTime,
+                logger: this.logger,
                 methodName,
                 start,
-                logger: this.logger
             };
 
             /* istanbul ignore next */
@@ -191,5 +194,5 @@ export function profile(
 
             return result;
         };
-    }
+    };
 }

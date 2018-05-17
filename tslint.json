@@ -12,10 +12,7 @@
       "benchmark-result/**/*"
     ]
   },
-  "extends": [
-    "tslint:recommended",
-    "tslint-no-unused-expression-chai"
-  ],
+  "extends": "tslint:recommended",
   "rules": {
     "no-bitwise": false,
     "await-promise": false,
@@ -52,7 +49,6 @@
     "triple-equals": [true, "allow-undefined-check"],
     "typedef": true,
     "quotemark": [true, "single", "avoid-escape", "avoid-template"],
-    "no-unused-expression-chai": true,
     "ban": [true, ["describe", "only"], ["it", "only"]],
     "interface-name": false,
     "file-header": [true,

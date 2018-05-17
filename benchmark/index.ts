@@ -231,7 +231,7 @@ function bytesCount(data: any[], fmt: Intl.NumberFormat, key: string) {
 function saveStats({ metrics,  memusage }: any, data: any[]) {
     const { stats, memStats } = buildStats({ metrics, memusage });
     const config = buildChartConfig('cpu-usage', stats);
-    const memConfig = buildChartConfig('memory-usage', memStats);
+    const memConfig = buildChartConfig('memory-usage', [memStats]);
     const fmt = new Intl.NumberFormat(
         'en-US', { maximumSignificantDigits: 3 }
     );

@@ -24,7 +24,7 @@ describe('uuid()', function() {
     const steps = 100000;
 
     it('should always match RFC4122 spec', () => {
-        let regex = new RegExp(
+        const regex = new RegExp(
             '^' +
             '[0-9a-f]{8}' +
             '-' +
@@ -36,7 +36,7 @@ describe('uuid()', function() {
             '-' +
             '[0-9a-f]{12}' +
             '$',
-            'i'
+            'i',
         );
 
         for (let i = 0; i < 1000; i++) {
@@ -57,8 +57,8 @@ describe('uuid()', function() {
     it('should generate 100,000 identifiers in less than a second', () => {
         const start = Date.now();
 
-        for (let i = 0, id; i < steps; i++) {
-            id = uuid();
+        for (let i = 0; i < steps; i++) {
+            uuid();
         }
 
         expect(Date.now() - start).to.be.below(1000);

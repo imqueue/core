@@ -24,7 +24,7 @@ for (let i = 0; i < 256; i++) {
     lookupTable[i] = (i < 16 ? '0' : '') + (i).toString(16);
 }
 
-const rand = Math.random;
+const rand = Math.random.bind(Math);
 
 /**
  * Generates and returns Unified Unique Identifier
@@ -32,10 +32,10 @@ const rand = Math.random;
  * @returns {string}
  */
 export function uuid() {
-    let d0 = rand() * 0x100000000 >>> 0;
-    let d1 = rand() * 0x100000000 >>> 0;
-    let d2 = rand() * 0x100000000 >>> 0;
-    let d3 = rand() * 0x100000000 >>> 0;
+    const d0 = rand() * 0x100000000 >>> 0;
+    const d1 = rand() * 0x100000000 >>> 0;
+    const d2 = rand() * 0x100000000 >>> 0;
+    const d3 = rand() * 0x100000000 >>> 0;
 
     return lookupTable[d0 & 0xff] +
         lookupTable[d0 >> 8 & 0xff] +

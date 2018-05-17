@@ -15,6 +15,7 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
+/* tslint:disable */
 import * as redis from 'redis';
 import { promisify } from '.';
 
@@ -44,7 +45,7 @@ export interface IMulti extends redis.Multi {
  * Make redis interfaces promise-like to allow work with
  * them through async/await
  */
-promisify((<any>redis).RedisClient.prototype, commands);
-promisify((<any>redis).Multi.prototype, commands);
+promisify((<any> redis).RedisClient.prototype, commands);
+promisify((<any> redis).Multi.prototype, commands);
 
 export { redis };

@@ -14,11 +14,19 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
+/**
+ * Safely builds full options definition using default options and
+ * partial given options
+ *
+ * @param {T} defaultOptions
+ * @param {Partial<T>} givenOptions
+ * @return {T}
+ */
 // istanbul ignore next
 // noinspection JSUnusedGlobalSymbols
 export function buildOptions<T>(
     defaultOptions: T,
-    givenOptions?: Partial<T>
+    givenOptions?: Partial<T>,
 ): T {
     return Object.assign({}, defaultOptions, givenOptions || {});
 }

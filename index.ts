@@ -19,8 +19,8 @@ import 'reflect-metadata';
 import {
     IMessageQueue,
     IMessageQueueConstructor,
-    IMQOptions
-} from './src'
+    IMQOptions,
+} from './src';
 
 export * from './src';
 
@@ -28,8 +28,13 @@ export * from './src';
  * Message Queue Factory
  */
 export default class IMQ {
+    /**
+     * Base generic queue factory options
+     *
+     * @type {Partial<IMQOptions>}
+     */
     private static options: Partial<IMQOptions> = {
-        vendor: 'Redis' // default vendor
+        vendor: 'Redis', // default vendor
     };
 
     /**
@@ -41,7 +46,7 @@ export default class IMQ {
      */
     public static create(
         name: string,
-        options: Partial<IMQOptions> = {}
+        options: Partial<IMQOptions> = {},
     ): IMessageQueue {
         options = Object.assign({}, IMQ.options, options);
 

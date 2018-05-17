@@ -176,7 +176,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * S
      * @param {IRedisClient} conn
      */
-    // noinspection JSUnusedLocalSymbols
+    // noinspection JSUnusedLocalSymbols,JSUnusedLocalSymbols
     private set writer(conn: IRedisClient) {
         RedisQueue.writers[this.redisKey] = conn;
     }

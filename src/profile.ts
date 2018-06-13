@@ -52,9 +52,9 @@ export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
 export interface DebugInfoOptions {
     debugTime: boolean;
     debugArgs: boolean;
-    className: string | symbol;
+    className: string;
     args: any[];
-    methodName: string | symbol;
+    methodName: string;
     start: number;
     logger: ILogger;
 }
@@ -66,7 +66,7 @@ export interface DebugInfoOptions {
  * @param {boolean} debugArgs
  * @param {string} className
  * @param {any[]} args
- * @param {string | symbol} methodName
+ * @param {string} methodName
  * @param {number} start
  * @param {ILogger} logger
  */
@@ -130,8 +130,8 @@ export function logDebugInfo({
  *
  * @return {(
  *  target: any,
- *  methodName: (string|symbol),
- *  descriptor: TypedPropertyDescriptor<Function>
+ *  methodName: (string),
+ *  descriptor: TypedPropertyDescriptor<(...args: any[]) => any>
  * ) => void}
  */
 export function profile(
@@ -151,7 +151,7 @@ export function profile(
 
     return function wrapper(
         target: any,
-        methodName: string | symbol,
+        methodName: string,
         descriptor: TypedPropertyDescriptor<(...args: any[]) => any>,
     ) {
         /* istanbul ignore next */

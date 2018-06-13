@@ -42,14 +42,14 @@ export function propertiesOf(obj: any): string[] {
  * Makes a callback function able to resolve or reject with given
  * resolve and reject functions
  *
- * @param {Function} resolve
- * @param {Function} reject
- * @return {Function}
+ * @param {(...args: any[]) => any} resolve
+ * @param {(...args: any[]) => any} reject
+ * @return {(...args: any[]) => any}
  */
 function makeCallback(
     resolve: (...args: any[]) => any,
     reject: (...args: any[]) => any,
-) {
+): (...args: any[]) => any {
     return function callback(err: Error, ...args: any[]) {
         if (err) {
             return reject(err);
@@ -64,8 +64,8 @@ function makeCallback(
  * Makes given method promised
  *
  * @access private
- * @param {Function} method
- * @return {Function} args
+ * @param {(...args: any[]) => any} method
+ * @return {(...args: any[]) => Promise<any>}
  */
 function makePromised(method: (...args: any[]) => any) {
     return function asyncMethod(...args: any[]): Promise<any> {

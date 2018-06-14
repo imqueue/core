@@ -5,6 +5,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/imqueue/imq/badge.svg?branch=master)](https://coveralls.io/github/imqueue/imq?branch=master) 
 [![David](https://img.shields.io/david/imqueue/imq.svg)](https://david-dm.org/imqueue/imq)
 [![David](https://img.shields.io/david/dev/imqueue/imq.svg)](https://david-dm.org/imqueue/imq?type=dev)
+[![Known Vulnerabilities](https://snyk.io/test/github/imqueue/imq/badge.svg?targetFile=package.json)](https://snyk.io/test/github/imqueue/imq?targetFile=package.json)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/imqueue/imq/master/LICENSE)
 
 Simple JSON-based messaging queue for inter service communication

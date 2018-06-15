@@ -1,7 +1,7 @@
 # I Message Queue (imq)
 
 [![Build Status](https://travis-ci.org/imqueue/core.svg?branch=master)](https://travis-ci.org/imqueue/core) 
-[![codebeat badge](https://codebeat.co/badges/85bb2a18-4ebb-4e48-a2ce-92b7bf438b1a)](https://codebeat.co/projects/github-com-imqueue-core-master)
+[![codebeat badge](https://codebeat.co/badges/b7685cb5-b290-47de-80e1-bde3e0582355)](https://codebeat.co/projects/github-com-imqueue-core-master)
 [![Coverage Status](https://coveralls.io/repos/github/imqueue/core/badge.svg?branch=master)](https://coveralls.io/github/imqueue/core?branch=master) 
 [![David](https://img.shields.io/david/imqueue/core.svg)](https://david-dm.org/imqueue/core)
 [![David](https://img.shields.io/david/dev/imqueue/core.svg)](https://david-dm.org/imqueue/core?type=dev)

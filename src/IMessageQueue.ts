@@ -198,7 +198,7 @@ export interface IMessageQueueConstructor {
  *
  * @example
  * ~~~typescript
- * import { IMessageQueue, EventEmitter, uuid } from 'imq';
+ * import { IMessageQueue, EventEmitter, uuid } from '@imqueue/core';
  *
  * class SomeMQAdapter implements IMessageQueue extends EventEmitter {
  *      public async start(): Promise<SomeMQAdapter> {

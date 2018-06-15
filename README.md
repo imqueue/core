@@ -59,13 +59,13 @@ Further, more adapters will be added... if needed.
 # Install
 
 ~~~bash
-npm i --save imq
+npm i --save @imqueue/core
 ~~~
 
 # Usage
 
 ~~~typescript
-import IMQ, { IMessageQueue, IJson } from 'imq';
+import IMQ, { IMessageQueue, IJson } from '@imqueue/core';
 
 (async () => {
     const queueOne: IMessageQueue = IMQ.create('QueueOne');
@@ -108,7 +108,7 @@ All workers during benchmark test will have their dedicated CPU affinity
 to make sure collected stats as accurate as possible.
 
 ~~~bash
-git clone git@github.com:Mikhus/imq.git
+git clone git@github.com:Mikhus/core.git
 cd imq
 node benchmark -c 4 -m 10000
 ~~~
@@ -154,11 +154,11 @@ predictable.*
 ## Running Unit Tests
 
 ~~~bash
-git clone git@github.com:imqueue/imq.git
+git clone git@github.com:imqueue/core.git
 cd imq
 npm test
 ~~~
 
 ## License
 
-[ISC](https://rawgit.com/imqueue/imq/master/LICENSE)
+[ISC](https://rawgit.com/imqueue/core/master/LICENSE)

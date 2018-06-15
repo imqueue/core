@@ -1,7 +1,7 @@
 /*!
  * Extends native redis module to be promise-like
  *
- * Copyright (c) 2018, Mykhailo Stadnyk <mikhus@gmail.com>
+ * Copyright (c) 2018, imqueue.com <support@imqueue.com>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above

@@ -1,4 +1,4 @@
-# I Message Queue (imq)
+# I Message Queue (@imqueue/core)
 
 [![Build Status](https://travis-ci.org/imqueue/core.svg?branch=master)](https://travis-ci.org/imqueue/core) 
 [![codebeat badge](https://codebeat.co/badges/b7685cb5-b290-47de-80e1-bde3e0582355)](https://codebeat.co/projects/github-com-imqueue-core-master)

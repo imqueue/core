@@ -112,7 +112,7 @@ export function logDebugInfo({
  *
  * @example
  * ~~~typescript
- * import { profile } from 'imq';
+ * import { profile } from '@imqueue/core';
  *
  * class MyClass {
  *

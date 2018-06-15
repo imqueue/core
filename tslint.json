@@ -52,7 +52,7 @@
     "ban": [true, ["describe", "only"], ["it", "only"]],
     "interface-name": false,
     "file-header": [true,
-      "", "", "Copyright (c) \\d{4}, Mykhailo Stadnyk."
+      "", "", "Copyright (c) \\d{4}, imqueue.com"
     ],
     "max-classes-per-file": false,
     "max-line-length": [true, 80],

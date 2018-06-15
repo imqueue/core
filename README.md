@@ -1,21 +1,21 @@
 # I Message Queue (imq)
 
-[![Build Status](https://travis-ci.org/imqueue/imq.svg?branch=master)](https://travis-ci.org/imqueue/imq) 
-[![codebeat badge](https://codebeat.co/badges/85bb2a18-4ebb-4e48-a2ce-92b7bf438b1a)](https://codebeat.co/projects/github-com-imqueue-imq-master)
-[![Coverage Status](https://coveralls.io/repos/github/imqueue/imq/badge.svg?branch=master)](https://coveralls.io/github/imqueue/imq?branch=master) 
-[![David](https://img.shields.io/david/imqueue/imq.svg)](https://david-dm.org/imqueue/imq)
-[![David](https://img.shields.io/david/dev/imqueue/imq.svg)](https://david-dm.org/imqueue/imq?type=dev)
-[![Known Vulnerabilities](https://snyk.io/test/github/imqueue/imq/badge.svg?targetFile=package.json)](https://snyk.io/test/github/imqueue/imq?targetFile=package.json)
-[![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/imqueue/imq/master/LICENSE)
+[![Build Status](https://travis-ci.org/imqueue/core.svg?branch=master)](https://travis-ci.org/imqueue/core) 
+[![codebeat badge](https://codebeat.co/badges/85bb2a18-4ebb-4e48-a2ce-92b7bf438b1a)](https://codebeat.co/projects/github-com-imqueue-core-master)
+[![Coverage Status](https://coveralls.io/repos/github/imqueue/core/badge.svg?branch=master)](https://coveralls.io/github/imqueue/core?branch=master) 
+[![David](https://img.shields.io/david/imqueue/core.svg)](https://david-dm.org/imqueue/core)
+[![David](https://img.shields.io/david/dev/imqueue/core.svg)](https://david-dm.org/imqueue/core?type=dev)
+[![Known Vulnerabilities](https://snyk.io/test/github/imqueue/core/badge.svg?targetFile=package.json)](https://snyk.io/test/github/imqueue/core?targetFile=package.json)
+[![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/imqueue/core/master/LICENSE)
 
 Simple JSON-based messaging queue for inter service communication
 
 **Related packages:**
 
- - [imq-rpc](https://github.com/imqueue/imq-rpc) - RPC-like client/service
-   implementation over imq.
- - [imq-cli](https://github.com/imqueue/imq-cli) - Command Line Interface
-   for imq and imq-rpc.
+ - [@imqueue/rpc](https://github.com/imqueue/rpc) - RPC-like client/service
+   implementation over @imqueue/core.
+ - [@imqueue/cli](https://github.com/imqueue/cli) - Command Line Interface
+   for imqueue.
 
 # Features
 

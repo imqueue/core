@@ -1,5 +1,5 @@
 {
-  "name": "imq",
+  "name": "@imqueue/core",
   "version": "1.2.20",
   "description": "Simple JSON-based messaging queue for inter service communication",
   "keywords": [
@@ -28,13 +28,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/imqueue/imq.git"
+    "url": "git://github.com/imqueue/core.git"
   },
   "bugs": {
-    "url": "https://github.com/imqueue/imq/issues"
+    "url": "https://github.com/imqueue/core/issues"
   },
   "homepage": "https://imqueue.com/",
-  "author": "Mykhailo Stadnyk <mikhus@gmail.com> (https://github.com/Mikhus)",
+  "author": "imqueue.com <support@imqueue.com> (https://imqueue.com)",
   "license": "ISC",
   "dependencies": {
     "@types/redis": "^2.8.6",

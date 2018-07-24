@@ -197,6 +197,11 @@ export class RedisClientMock extends EventEmitter {
         return true;
     }
 
+    public punsubscribe(...args: any[]): boolean {
+        args.pop()(null, 1);
+        return true;
+    }
+
     // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public evalsha(...args: any[]): boolean {
         args.pop()();

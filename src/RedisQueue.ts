@@ -424,6 +424,36 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     }
 
     /**
+     * Destroys watcher channel
+     *
+     * @access private
+     */
+    @profile()
+    private destroyWatcher() {
+        if (this.watcher) {
+            this.watcher.removeAllListeners();
+            this.watcher.end(false);
+            this.watcher.unref();
+            delete RedisQueue.watchers[this.redisKey];
+        }
+    }
+
+    /**
+     * Destroys writer channel
+     *
+     * @access private
+     */
+    @profile()
+    private destroyWriter() {
+        if (this.writer) {
+            this.writer.removeAllListeners();
+            this.writer.end(false);
+            this.writer.unref();
+            delete RedisQueue.writers[this.redisKey];
+        }
+    }
+
+    /**
      * Gracefully destroys this queue
      *
      * @returns {Promise<void>}
@@ -431,25 +461,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     @profile()
     public async destroy() {
         this.removeAllListeners();
-
         this.cleanSafeCheckInterval();
-
-        if (this.watcher) {
-            this.watcher.removeAllListeners();
-            this.watcher.end(false);
-            this.watcher.unref();
-            delete RedisQueue.watchers[this.redisKey];
-        }
-
+        this.destroyWatcher();
         await this.stop();
         await this.clear();
-
-        if (this.writer) {
-            this.writer.removeAllListeners();
-            this.writer.end(false);
-            this.writer.unref();
-            delete RedisQueue.writers[this.redisKey];
-        }
+        this.destroyWriter();
     }
 
     /**
@@ -535,14 +551,36 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 context.name, channel, this.redisKey, process.pid,
             );
 
-            await context[channel].client(
-                'setname',
-                `${options.prefix}:${context.name}:${channel
-                    }:pid:${process.pid}:host:${os.hostname()}`,
+            await this.setChannelName(
+                context[channel],
+                context.name,
+                options.prefix || '',
+                channel
             );
 
             resolve(context[channel]);
         });
+    }
+
+    /**
+     * Sets channel name
+     *
+     * @param {IRedisClient} channel
+     * @param {string} contextName
+     * @param {string} prefix
+     * @param {string} name
+     */
+    private async setChannelName(
+        channel: IRedisClient,
+        contextName: string,
+        prefix: string,
+        name: string
+    ) {
+        await channel.client(
+            'setname',
+            `${prefix}:${contextName}:${name}:pid:${process.pid}:host:${
+                os.hostname()}`,
+        );
     }
 
     /**
@@ -555,8 +593,15 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     private onReconnectHandler(context: any, channel: string): () => void {
         // istanbul ignore next
-        return (() => {
+        return (async () => {
+            if (channel === 'watcher') {
+                await context[channel].punsubscribe();
+                this.watcher.__ready__ = false;
+                this.cleanSafeCheckInterval();
+            }
+
             this.initialized = false;
+
             this.logger.warn(
                 '%s: redis connection %s is reconnecting on host %s, ' +
                 'pid %s...',

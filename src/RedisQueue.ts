@@ -338,13 +338,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         await this.initWatcher();
-        this.read();
-
-        // istanbul ignore next
-        this.processDelayed(this.key).catch((err) => {
-            this.emitError('OnProcessDelayed', 'error processing delayed queue',
-                err);
-        });
 
         this.initialized = true;
 
@@ -558,6 +551,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 channel
             );
 
+            switch (channel) {
+                case 'reader': this.read(); break;
+                case 'writer': await this.processDelayed(this.key); break;
+                case 'watcher': await this.initWatcher(); break;
+            }
+
             resolve(context[channel]);
         });
     }
@@ -714,11 +713,16 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<void>}
      */
     private async processDelayed(key: string) {
-        if (this.scripts.moveDelayed.checksum) {
-            await this.writer.evalsha(
-                this.scripts.moveDelayed.checksum,
-                2, `${key}:delayed`, key, Date.now(),
-            );
+        try {
+            if (this.scripts.moveDelayed.checksum) {
+                await this.writer.evalsha(
+                    this.scripts.moveDelayed.checksum,
+                    2, `${key}:delayed`, key, Date.now(),
+                );
+            }
+        } catch (err) {
+            this.emitError('OnProcessDelayed', 'error processing delayed queue',
+                err);
         }
     }
 

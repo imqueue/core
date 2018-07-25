@@ -101,6 +101,21 @@ export interface IMessage {
  */
 export interface IMQOptions {
     /**
+     * Turns on/off cleanup of the message queues
+     *
+     * @type {boolean}
+     */
+    cleanup: boolean;
+
+    /**
+     * Defines cleanup pattern for the name of the queue
+     * which should be removed during cleanup processing
+     *
+     * @type {string}
+     */
+    cleanupFilter: string,
+
+    /**
      * Message queue network host
      *
      * @type {string}

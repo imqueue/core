@@ -32,7 +32,13 @@ import {
     uuid,
 } from '.';
 
+const RX_CLIENT_NAME = /name=(\S+)/g;
+const RX_CLIENT_TEST = /:(reader|writer|watcher)/;
+const RX_CLIENT_CLEAN = /:(reader|writer|watcher).*$/;
+
 export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
+    cleanup: false,
+    cleanupFilter: '*',
     host: 'localhost',
     logger: console,
     port: 6379,
@@ -848,7 +854,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         );
 
         // watch for expired unhandled safe queues
-        if (this.options.safeDelivery && !this.safeCheckInterval) {
+        if (!this.safeCheckInterval) {
             this.safeCheckInterval = setInterval(async () => {
                 if (!this.writer) {
                     this.cleanSafeCheckInterval();
@@ -856,11 +862,79 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     return ;
                 }
 
-                await this.processWatch();
+                if (this.options.safeDelivery) {
+                    await this.processWatch();
+                }
+
+                await this.processCleanup();
             }, this.options.safeDeliveryTtl);
         }
 
         this.watcher.__ready__ = true;
+
+        return this;
+    }
+
+    /**
+     * Cleans up orphaned keys from redis
+     *
+     * @access private
+     * @returns {RedisQueue}
+     */
+    private async processCleanup() {
+        try {
+            if (!this.options.cleanup) {
+                return ;
+            }
+
+            const filter: RegExp = new RegExp(
+                this.options.prefix + ':' +
+                (this.options.cleanupFilter || '*').replace(/\*/g, '.*'),
+                'i',
+            );
+            const clients: string = await this.writer.client('list') as any;
+            const connectedKeys = (clients.match(RX_CLIENT_NAME) || [])
+                .filter((name: string) =>
+                    RX_CLIENT_TEST.test(name) && filter.test(name),
+                )
+                .map((name: string) => name
+                    .replace(/^name=/, '')
+                    .replace(RX_CLIENT_CLEAN, ''),
+                )
+                .filter((name: string, i: number, a: string[]) =>
+                    a.indexOf(name) === i,
+                );
+            const keysToRemove: string[] = [];
+            let cursor = '0';
+
+            while (true) {
+                const data: Array<[string, string[]]> =
+                    await this.writer.scan(
+                        cursor, 'match',
+                        `${
+                            this.options.prefix}:${
+                            this.options.cleanupFilter || '*'
+                        }`,
+                        'count', '1000',
+                    ) as any;
+
+                cursor = data.shift() as any;
+                keysToRemove.push(...(data.shift() as any).filter(
+                    (key: string) => key !== this.lockKey &&
+                        !~connectedKeys.indexOf(key),
+                ));
+
+                if (cursor === '0') {
+                    break ;
+                }
+            }
+
+            if (keysToRemove.length) {
+                await this.writer.del(...keysToRemove);
+            }
+        } catch (err) {
+            this.logger.warn('Clean-up error occurred:', err);
+        }
 
         return this;
     }

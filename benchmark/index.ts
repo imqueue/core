@@ -88,9 +88,7 @@ if (ARGV.e) {
         if (MSG_MULTIPLIER) {
             SAMPLE_MESSAGE = new Array(MSG_MULTIPLIER).fill(SAMPLE_MESSAGE);
         }
-    }
-
-    catch (err) {
+    } catch (err) {
         console.warn('Given example message is invalid, ' +
             'proceeding test execution with with standard ' +
             'example message.');

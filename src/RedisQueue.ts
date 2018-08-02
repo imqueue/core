@@ -921,7 +921,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 cursor = data.shift() as any;
                 keysToRemove.push(...(data.shift() as any).filter(
                     (key: string) => key !== this.lockKey &&
-                        !~connectedKeys.indexOf(key),
+                        connectedKeys.every((connectedKey: string) =>
+                            key.indexOf(connectedKey) === -1),
                 ));
 
                 if (cursor === '0') {

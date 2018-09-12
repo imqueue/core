@@ -267,6 +267,7 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
                 <li>RAM: ${ Math.ceil(os.totalmem() / Math.pow(1024, 3)) }GB</li>
                 <li>OS Architecture: ${ os.arch() }</li>
                 <li>OS Platform: ${ os.platform() }</li>
+                <li>Node Version: ${ process.versions.node }</li>
             </ul>
         </li>
         <li>Number of workers: ${fmt.format(maxChildren)}</li>

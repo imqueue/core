@@ -37,13 +37,12 @@
   "author": "imqueue.com <support@imqueue.com> (https://imqueue.com)",
   "license": "ISC",
   "dependencies": {
+    "@imqueue/microtime": "^2.1.11",
     "@types/redis": "^2.8.6",
-    "microtime": "^2.1.7",
     "redis": "^2.8.0"
   },
   "devDependencies": {
     "@types/chai": "^4.1.2",
-    "@types/microtime": "^2.1.0",
     "@types/mocha": "^5.2.5",
     "@types/mock-require": "^2.0.0",
     "@types/node": "^10.9.4",

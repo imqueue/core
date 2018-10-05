@@ -15,7 +15,7 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-import * as mt from '@imqueue/microtime';
+import * as mt from 'microtime';
 import 'reflect-metadata';
 import { ILogger } from '.';
 

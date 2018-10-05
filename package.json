@@ -37,8 +37,9 @@
   "author": "imqueue.com <support@imqueue.com> (https://imqueue.com)",
   "license": "ISC",
   "dependencies": {
-    "@imqueue/microtime": "^2.1.11",
+    "@types/microtime": "^2.1.0",
     "@types/redis": "^2.8.6",
+    "microtime": "^2.1.8",
     "redis": "^2.8.0"
   },
   "devDependencies": {

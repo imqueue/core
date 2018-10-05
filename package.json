@@ -13,8 +13,8 @@
   "scripts": {
     "prepublish": "./node_modules/.bin/tsc",
     "test": "(./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && ./node_modules/.bin/nyc report --reporter=text-lcov | coveralls) && npm run test-coverage",
-    "test-fast": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"require('opn')('file://`pwd`/coverage/index.html');process.exit(0)\"",
-    "test-local": "export COVERALLS_REPO_TOKEN=$IMQ_COVERALLS_TOKEN && npm test && /usr/bin/env node -e \"require('opn')('https://coveralls.io/github/imqueue/imq');process.exit(0)\"",
+    "test-fast": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"require('opn')('file://`pwd`/coverage/index.html', { wait: false })\"",
+    "test-local": "export COVERALLS_REPO_TOKEN=$IMQ_COVERALLS_TOKEN && npm test && /usr/bin/env node -e \"require('opn')('https://coveralls.io/github/imqueue/imq', { wait: false })\"",
     "test-dev": "npm run test && npm run clean-js && npm run clean-typedefs && npm run clean-maps",
     "test-coverage": "cat ./coverage/lcov.info | CODECLIMATE_API_HOST=https://codebeat.co/webhooks/code_coverage CODECLIMATE_REPO_TOKEN=85bb2a18-4ebb-4e48-a2ce-92b7bf438b1a ./node_modules/.bin/codeclimate-test-reporter",
     "clean-typedefs": "find . -name '*.d.ts' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
@@ -24,7 +24,7 @@
     "clean-doc": "rm -rf docs",
     "clean-benchmark": "rm -rf benchmark-result",
     "clean": "npm run clean-tests && npm run clean-typedefs && npm run clean-maps && npm run clean-js && npm run clean-doc && npm run clean-benchmark",
-    "doc": "rm -rf docs && typedoc  --excludePrivate --excludeExternals --hideGenerator --exclude \"**/+(test|node_modules|docs|coverage|benchmark|.nyc_output)/**/*\" --mode file --out ./docs . && /usr/bin/env node -e \"require('opn')('file://`pwd`/docs/index.html');process.exit(0)\""
+    "doc": "rm -rf docs && typedoc  --excludePrivate --excludeExternals --hideGenerator --exclude \"**/+(test|node_modules|docs|coverage|benchmark|.nyc_output)/**/*\" --mode file --out ./docs . && /usr/bin/env node -e \"require('opn')('file://`pwd`/docs/index.html';process.exit(0))\""
   },
   "repository": {
     "type": "git",

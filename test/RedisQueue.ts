@@ -177,6 +177,24 @@ describe('RedisQueue', function() {
                 rqFrom.send('IMQUnitTestsToD', message, delay).catch();
             });});
         });
+
+        it('should trigger an error in case of redis error', (done) => {
+            const lrange = redis.RedisClient.prototype.lrange;
+            redis.RedisClient.prototype.lrange = () => [,,];
+
+            const message: any = { hello: 'safe delivery' };
+            const rq = new RedisQueue('IMQSafe', {
+                logger, safeDelivery: true
+            });
+
+            process.on('unhandledRejection', function(e) {
+                expect(e.message).to.be.equal('Wrong messages count');
+                redis.RedisClient.prototype.lrange = lrange;
+                done();
+            });
+
+            rq.start().then(() => rq.send('IMQSafe', message));
+        });
     });
 
     describe('destroy()', () => {

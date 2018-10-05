@@ -130,7 +130,7 @@ export class RedisClientMock extends EventEmitter {
     ): boolean {
         const q = RedisClientMock.__queues__[key] =
             RedisClientMock.__queues__[key] || [];
-        cb && cb(null, q.splice(start, stop)[0]);
+        cb && cb(null, q.splice(start, stop));
         return true;
     }
 

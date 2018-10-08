@@ -995,9 +995,13 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     break;
                 }
 
-                const msg: any = await this.writer.lrange(
+                const msgArr: any = await this.writer.lrange(
                     workerKey, -1, 1,
                 );
+                if (msgArr.length !== 1) {
+                    throw new Error('Wrong messages count');
+                }
+                const msg = msgArr[0];
 
                 this.process([key, msg]);
                 this.writer.del(workerKey);

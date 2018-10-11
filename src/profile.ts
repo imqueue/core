@@ -100,9 +100,31 @@ export function logDebugInfo({
     }
 
     if (debugArgs) {
+        let argStr: string = '';
+        const cache: any[] = [];
+
+        try {
+            argStr = JSON.stringify(args, (key: string, value: any) => {
+                if (typeof value === 'object' && value !== null) {
+                    if (~cache.indexOf(value)) {
+                        try {
+                            return JSON.parse(JSON.stringify(value));
+                        } catch (error) {
+                            return;
+                        }
+                    }
+
+                    cache.push(value);
+                }
+
+                return value;
+            }, 2);
+        } catch (err) {
+            logger.error(err);
+        }
+
         logger.log(
-            `${className}.${methodName}() called with args: ${
-                JSON.stringify(args, undefined, 2)}`,
+            `${className}.${methodName}() called with args: ${argStr}`,
         );
     }
 }

@@ -195,7 +195,7 @@ export function profile(
                 className,
                 debugArgs,
                 debugTime,
-                logger: this.logger,
+                logger: (this || target).logger,
                 methodName,
                 start,
             };

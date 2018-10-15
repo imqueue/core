@@ -245,7 +245,7 @@ export interface IMessageQueueConstructor {
  */
 export interface IMessageQueue extends EventEmitter {
     /**
-     * Message event. Occurs every time queue got the message.
+     * Message event. Occurs every time queue got a message.
      *
      * @event IMessageQueue#message
      * @type {IJson} message - message data
@@ -254,7 +254,7 @@ export interface IMessageQueue extends EventEmitter {
      */
 
     /**
-     * Message event. Occurs every time queue got the message.
+     * Error event. Occurs every time queue caught an error.
      *
      * @event IMessageQueue#error
      * @type {Error} err - error caught by message queue

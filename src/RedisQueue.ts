@@ -179,7 +179,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
     /**
      * Writer connection setter.
-     * S
+     *
      * @param {IRedisClient} conn
      */
     // noinspection JSUnusedLocalSymbols,JSUnusedLocalSymbols

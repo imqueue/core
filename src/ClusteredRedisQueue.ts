@@ -107,14 +107,14 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
                 'configuration is missing!');
         }
 
-        this.mqOptions = Object.assign({}, this.options);
+        this.mqOptions = { ...this.options };
         // istanbul ignore next
         this.servers = this.mqOptions.cluster || [];
 
         delete this.mqOptions.cluster;
 
         for (let i = 0, s = this.servers.length; i < s; i++) {
-            const opts = Object.assign({}, this.mqOptions, this.servers[i]);
+            const opts = { ...this.mqOptions, ...this.servers[i] };
             this.imqs.push(new RedisQueue(this.name, opts));
         }
 

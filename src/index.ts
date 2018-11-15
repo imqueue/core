@@ -28,7 +28,7 @@ export function buildOptions<T>(
     defaultOptions: T,
     givenOptions?: Partial<T>,
 ): T {
-    return Object.assign({}, defaultOptions, givenOptions || {});
+    return Object.assign({}, defaultOptions, givenOptions);
 }
 
 export * from './profile';

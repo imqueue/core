@@ -74,19 +74,20 @@ const numCpus = CPUS.length;
 const CPU_NAMES = ['Redis Process, CPU Used, %'];
 const STEPS = Number(ARGV.m) || 10000;
 const MSG_DELAY = Number(ARGV.d) || 0;
-const USE_GZIP: boolean = ARGV.z;
+const USE_GZIP: boolean = !!ARGV.z;
 const MSG_MULTIPLIER = Number(ARGV.t) || 0;
-const SAFE_DELIVERY: boolean = ARGV.s;
+const SAFE_DELIVERY: boolean = !!ARGV.s;
 const REDIS_PORT: number = Number(ARGV.p) || 6379;
 
 let SAMPLE_MESSAGE: IJson;
 
 if (ARGV.e) {
     try {
-        SAMPLE_MESSAGE = JSON.parse(fs.readFileSync(ARGV.e).toString());
+        SAMPLE_MESSAGE = JSON.parse(fs.readFileSync(ARGV.e+'').toString());
 
         if (MSG_MULTIPLIER) {
-            SAMPLE_MESSAGE = new Array(MSG_MULTIPLIER).fill(SAMPLE_MESSAGE);
+            SAMPLE_MESSAGE = new Array(MSG_MULTIPLIER)
+                .fill(SAMPLE_MESSAGE) as IJson;
         }
     } catch (err) {
         console.warn('Given example message is invalid, ' +

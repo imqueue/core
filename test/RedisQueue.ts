@@ -188,7 +188,7 @@ describe('RedisQueue', function() {
             });
 
             process.on('unhandledRejection', function(e) {
-                expect(e.message).to.be.equal('Wrong messages count');
+                expect((e as any).message).to.be.equal('Wrong messages count');
                 redis.RedisClient.prototype.lrange = lrange;
                 done();
             });

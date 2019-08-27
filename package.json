@@ -55,7 +55,7 @@
     "mocha": "^6.2.0",
     "mocha-lcov-reporter": "^1.3.0",
     "mock-require": "^3.0.3",
-    "nodeaffinity": "^0.1.0",
+    "nodeaffinity": "^1.0.0",
     "nyc": "^14.1.1",
     "open": "^6.4.0",
     "reflect-metadata": "^0.1.13",

@@ -18,8 +18,8 @@
 import { execSync as exec } from 'child_process';
 import * as os from 'os';
 
-export function setAffinity(mask: number) {
+export function setAffinity(cpu: number) {
    if (os.platform() === 'linux') {
-       exec(`taskset -p ${mask} ${process.pid}`);
+       exec(`taskset -c ${cpu} -p ${process.pid}`);
    }
 }

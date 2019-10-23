@@ -23,6 +23,7 @@ import * as yargs from 'yargs';
 import { run } from './redis-test';
 import { resolve }  from 'path';
 import { uuid, IJson } from '..';
+import { setAffinity } from './affinity';
 
 /**
  * Command line args
@@ -63,8 +64,6 @@ const ARGV = yargs
 
     .boolean(['h', 'z', 's'])
     .argv;
-
-const na = require('nodeaffinity');
 
 let maxChildren = Number(ARGV.c) || 1;
 
@@ -332,7 +331,7 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
 // main program:
 
 if (cluster.isMaster) {
-    na.setAffinity(1);
+    setAffinity(1);
 
     const statsWorker = cluster.fork();
     statsWorker.send('stats');
@@ -372,9 +371,9 @@ else {
     process.on('message', async (msg: string) => {
         if (/^imq/.test(msg)) {
             const index = parseInt(String(msg.split(/\s+/).pop()), 10);
-            const mask = numCpus <= 2 ? 1 : Math.pow(2, index + 2);
+            const core = numCpus <= 2 ? 1 : index + 2;
 
-            na.setAffinity(mask);
+            setAffinity(core);
 
             try {
                 const data = await run(
@@ -396,19 +395,19 @@ else {
         }
 
         else if (msg === 'stats') {
-            na.setAffinity(1);
+            setAffinity(1);
 
             const redisProcess = exec('ps ax|grep redis-server')
                 .toString('utf8')
                 .split(/\r?\n/)[0];
-            const mask = numCpus < 2 ? 1 : 2;
+            const core = numCpus > 1 ? 1 : 0;
 
-            if (os.platform() === 'linux' &&
+            if (core && os.platform() === 'linux' &&
                 /redis-server/.test(redisProcess) &&
                 !/grep/.test(redisProcess)
             ) {
                 const redisPid = parseInt(redisProcess.split(/\s+/)[0], 10);
-                redisPid && exec(`taskset -p ${mask} ${redisPid}`);
+                redisPid && exec(`taskset -c ${core} -p ${redisPid}`);
             }
 
             metricsInterval = setInterval(() => {

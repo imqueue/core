@@ -81,7 +81,7 @@ export interface DebugInfoOptions {
     /**
      * Log level to use for the call
      */
-    logLevel: LogLevel;
+    logLevel?: LogLevel;
 }
 
 /**

@@ -34,7 +34,9 @@ class ProfiledClassTimed {
     // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
-    @profile(true)
+    @profile({
+        enableDebugTime: true,
+    })
     public decoratedMethod() {}
 }
 
@@ -42,7 +44,10 @@ class ProfiledClassArgued {
     // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
-    @profile(false, true)
+    @profile({
+        enableDebugTime: false,
+        enableDebugArgs: true,
+    })
     public decoratedMethod() {}
 }
 
@@ -50,7 +55,10 @@ class ProfiledClassTimedAndArgued {
     // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
-    @profile(true, true)
+    @profile({
+        enableDebugTime: true,
+        enableDebugArgs: true,
+    })
     public decoratedMethod() {}
 }
 

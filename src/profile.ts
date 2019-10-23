@@ -50,13 +50,38 @@ export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
     process.env['IMQ_LOG_TIME_FORMAT'] as AllowedTimeFormat || 'microseconds';
 
 export interface DebugInfoOptions {
+    /**
+     * Turns on/off time debugging
+     */
     debugTime: boolean;
+    /**
+     * Turns on/off args debugging
+     */
     debugArgs: boolean;
+    /**
+     * Class name
+     */
     className: string;
+    /**
+     * Call arguments
+     */
     args: any[];
+    /**
+     * Method name
+     */
     methodName: string;
+    /**
+     * Execution start timestamp
+     */
     start: number;
+    /**
+     * Logger implementation
+     */
     logger: ILogger;
+    /**
+     * Log level to use for the call
+     */
+    logLevel: LogLevel;
 }
 
 /**
@@ -69,6 +94,7 @@ export interface DebugInfoOptions {
  * @param {string} methodName
  * @param {number} start
  * @param {ILogger} logger
+ * @param {LogLevel} logLevel
  */
 export function logDebugInfo({
     debugTime,
@@ -78,7 +104,10 @@ export function logDebugInfo({
     methodName,
     start,
     logger,
+    logLevel,
 }: DebugInfoOptions) {
+    const log = logger[logLevel];
+
     if (debugTime) {
         const time = mt.now() - start;
         let timeStr = '';
@@ -96,7 +125,7 @@ export function logDebugInfo({
                 break;
         }
 
-        logger.log(`${className}.${methodName}() executed in ${timeStr}`);
+        log(`${className}.${methodName}() executed in ${timeStr}`);
     }
 
     if (debugArgs) {
@@ -123,11 +152,37 @@ export function logDebugInfo({
             logger.error(err);
         }
 
-        logger.log(
-            `${className}.${methodName}() called with args: ${argStr}`,
-        );
+        log(`${className}.${methodName}() called with args: ${argStr}`);
     }
 }
+
+export enum LogLevel {
+    // noinspection JSUnusedGlobalSymbols
+    LOG = 'log',
+    INFO = 'info',
+    WARN = 'warn',
+    ERROR = 'error',
+}
+
+export interface ProfileDecoratorOptions {
+    /**
+     * Turns on/off execution time debugging
+     */
+    enableDebugTime?: boolean;
+    /**
+     * Turns on/off arguments debugging
+     */
+    enableDebugArgs?: boolean;
+    /**
+     * Defines log/level for logger
+     * By default is log
+     */
+    logLevel: LogLevel;
+}
+
+const DEFAULT_OPTIONS: ProfileDecoratorOptions = {
+    logLevel: LogLevel.LOG,
+};
 
 /**
  * Implements '@profile' decorator.
@@ -156,10 +211,10 @@ export function logDebugInfo({
  *  descriptor: TypedPropertyDescriptor<(...args: any[]) => any>
  * ) => void}
  */
-export function profile(
-    enableDebugTime?: boolean,
-    enableDebugArgs?: boolean,
-) {
+export function profile(options?: ProfileDecoratorOptions) {
+    options = Object.assign({}, DEFAULT_OPTIONS, options);
+
+    const { enableDebugTime, enableDebugArgs, logLevel } = options;
     let debugTime = IMQ_LOG_TIME;
     let debugArgs = IMQ_LOG_ARGS;
 
@@ -195,6 +250,7 @@ export function profile(
                 className,
                 debugArgs,
                 debugTime,
+                logLevel,
                 logger: (this || target).logger,
                 methodName,
                 start,

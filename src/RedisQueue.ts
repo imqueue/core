@@ -102,6 +102,79 @@ export function unpack(data: string): any {
  */
 export class RedisQueue extends EventEmitter implements IMessageQueue {
 
+    [name: string]: any;
+
+    // noinspection JSMethodCanBeStatic
+    /**
+     * Writer connection associated with this queue instance
+     *
+     * @type {IRedisClient}
+     */
+    private get writer(): IRedisClient {
+        return RedisQueue.writers[this.redisKey];
+    }
+
+    // noinspection JSUnusedLocalSymbols
+    /**
+     * Writer connection setter.
+     *
+     * @param {IRedisClient} conn
+     */
+    // noinspection JSUnusedLocalSymbols,JSUnusedLocalSymbols
+    private set writer(conn: IRedisClient) {
+        RedisQueue.writers[this.redisKey] = conn;
+    }
+
+    /**
+     * Watcher connection instance associated with this queue instance
+     *
+     * @type {IRedisClient}
+     */
+    private get watcher(): IRedisClient {
+        return RedisQueue.watchers[this.redisKey];
+    }
+
+    // noinspection JSUnusedLocalSymbols
+    /**
+     * Watcher setter, sets the watcher connection property for this
+     * queue instance
+     *
+     * @param {IRedisClient} conn
+     */
+    // noinspection JSUnusedLocalSymbols
+    private set watcher(conn: IRedisClient) {
+        RedisQueue.watchers[this.redisKey] = conn;
+    }
+
+    /**
+     * Logger instance associated with current queue instance
+     * @type {ILogger}
+     */
+    private get logger(): ILogger {
+        // istanbul ignore next
+        return this.options.logger || console;
+    }
+
+    /**
+     * Return a lock key for watcher connection
+     *
+     * @access private
+     * @returns {string}
+     */
+    private get lockKey(): string {
+        return `${this.options.prefix}:watch:lock`;
+    }
+
+    /**
+     * Returns current queue key
+     *
+     * @access private
+     * @returns {string}
+     */
+    private get key(): string {
+        return `${this.options.prefix}:${this.name}`;
+    }
+
     /**
      * Writer connections collection
      *
@@ -115,8 +188,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @type {{}}
      */
     private static watchers: { [key: string]: IRedisClient } = {};
-
-    [name: string]: any;
 
     /**
      * @event message (message: IJson, id: string, from: string)
@@ -167,60 +238,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     private readonly redisKey: string;
 
-    // noinspection JSMethodCanBeStatic
-    /**
-     * Writer connection associated with this queue instance
-     *
-     * @type {IRedisClient}
-     */
-    private get writer(): IRedisClient {
-        return RedisQueue.writers[this.redisKey];
-    }
-
-    /**
-     * Writer connection setter.
-     *
-     * @param {IRedisClient} conn
-     */
-    // noinspection JSUnusedLocalSymbols,JSUnusedLocalSymbols
-    private set writer(conn: IRedisClient) {
-        RedisQueue.writers[this.redisKey] = conn;
-    }
-
-    /**
-     * Watcher connection instance associated with this queue instance
-     *
-     * @type {IRedisClient}
-     */
-    private get watcher(): IRedisClient {
-        return RedisQueue.watchers[this.redisKey];
-    }
-
-    /**
-     * Watcher setter, sets the watcher connection property for this
-     * queue instance
-     *
-     * @param {IRedisClient} conn
-     */
-    // noinspection JSUnusedLocalSymbols
-    private set watcher(conn: IRedisClient) {
-        RedisQueue.watchers[this.redisKey] = conn;
-    }
-
-    /**
-     * Logger instance associated with current queue instance
-     * @type {ILogger}
-     */
-    private get logger(): ILogger {
-        // istanbul ignore next
-        return this.options.logger || console;
-    }
-
     /**
      * LUA scripts for redis
      *
      * @type {{moveDelayed: {code: string}}}
      */
+    // tslint:disable-next-line:completed-docs
     private scripts: { [name: string]: { code: string, checksum?: string } } = {
         moveDelayed: {
             code:
@@ -240,26 +263,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 'return count',
         },
     };
-
-    /**
-     * Return a lock key for watcher connection
-     *
-     * @access private
-     * @returns {string}
-     */
-    private get lockKey(): string {
-        return `${this.options.prefix}:watch:lock`;
-    }
-
-    /**
-     * Returns current queue key
-     *
-     * @access private
-     * @returns {string}
-     */
-    private get key(): string {
-        return `${this.options.prefix}:${this.name}`;
-    }
 
     /**
      * Serializes given data object into string
@@ -359,7 +362,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {(err: Error) => void} [errorHandler]
      * @returns {Promise<RedisQueue>}
      */
-    @profile()
     public async send(
         toQueue: string,
         message: IJson,
@@ -423,36 +425,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     }
 
     /**
-     * Destroys watcher channel
-     *
-     * @access private
-     */
-    @profile()
-    private destroyWatcher() {
-        if (this.watcher) {
-            this.watcher.removeAllListeners();
-            this.watcher.end(false);
-            this.watcher.unref();
-            delete RedisQueue.watchers[this.redisKey];
-        }
-    }
-
-    /**
-     * Destroys writer channel
-     *
-     * @access private
-     */
-    @profile()
-    private destroyWriter() {
-        if (this.writer) {
-            this.writer.removeAllListeners();
-            this.writer.end(false);
-            this.writer.unref();
-            delete RedisQueue.writers[this.redisKey];
-        }
-    }
-
-    /**
      * Gracefully destroys this queue
      *
      * @returns {Promise<void>}
@@ -484,6 +456,36 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         ]);
 
         return this;
+    }
+
+    /**
+     * Destroys watcher channel
+     *
+     * @access private
+     */
+    @profile()
+    private destroyWatcher() {
+        if (this.watcher) {
+            this.watcher.removeAllListeners();
+            this.watcher.end(false);
+            this.watcher.unref();
+            delete RedisQueue.watchers[this.redisKey];
+        }
+    }
+
+    /**
+     * Destroys writer channel
+     *
+     * @access private
+     */
+    @profile()
+    private destroyWriter() {
+        if (this.writer) {
+            this.writer.removeAllListeners();
+            this.writer.end(false);
+            this.writer.unref();
+            delete RedisQueue.writers[this.redisKey];
+        }
     }
 
     /**
@@ -554,7 +556,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 context[channel],
                 context.name,
                 options.prefix || '',
-                channel
+                channel,
             );
 
             switch (channel) {
@@ -567,6 +569,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         });
     }
 
+    // noinspection JSMethodCanBeStatic
     /**
      * Sets channel name
      *
@@ -579,7 +582,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         channel: IRedisClient,
         contextName: string,
         prefix: string,
-        name: string
+        name: string,
     ) {
         await channel.client(
             'setname',
@@ -671,7 +674,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {[any , any]} msg
      * @returns {RedisQueue}
      */
-    @profile()
     private process(msg: [any, any]): RedisQueue {
         const [queue, data] = msg;
 
@@ -803,7 +805,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     private async onWatchMessage(...args: any[]) {
         try {
-            const key = args.pop().split(':');
+            const key = (args.pop() || '').split(':');
 
             if (key.pop() !== 'ttl') {
                 return;
@@ -855,19 +857,22 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         // watch for expired unhandled safe queues
         if (!this.safeCheckInterval) {
-            this.safeCheckInterval = setInterval(async () => {
-                if (!this.writer) {
-                    this.cleanSafeCheckInterval();
+            // tslint:disable-next-line:triple-equals no-null-keyword
+            if (this.options.safeDeliveryTtl != null) {
+                this.safeCheckInterval = setInterval(async () => {
+                    if (!this.writer) {
+                        this.cleanSafeCheckInterval();
 
-                    return ;
-                }
+                        return;
+                    }
 
-                if (this.options.safeDelivery) {
-                    await this.processWatch();
-                }
+                    if (this.options.safeDelivery) {
+                        await this.processWatch();
+                    }
 
-                await this.processCleanup();
-            }, this.options.safeDeliveryTtl);
+                    await this.processCleanup();
+                }, this.options.safeDeliveryTtl);
+            }
         }
 
         this.watcher.__ready__ = true;
@@ -940,6 +945,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         return this;
     }
 
+    // noinspection JSUnusedLocalSymbols
     /**
      * Unreliable but fast way of message handling by the queue
      */
@@ -972,6 +978,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
     }
 
+    // noinspection JSUnusedLocalSymbols
     /**
      * Reliable but slow method of message handling by message queue
      */
@@ -999,6 +1006,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     workerKey, -1, 1,
                 );
                 if (msgArr.length !== 1) {
+                    // noinspection ExceptionCaughtLocallyJS
                     throw new Error('Wrong messages count');
                 }
                 const msg = msgArr[0];
@@ -1095,7 +1103,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const owned = await this.lock();
 
         if (owned) {
-            Object.keys(this.scripts).forEach(async (script: string) => {
+            for (const script: string of Object.keys(this.scripts)) {
                 try {
                     const checksum = this.scripts[script].checksum = sha1(
                         this.scripts[script].code);
@@ -1111,7 +1119,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 } catch (err) {
                     this.emitError('OnScriptLoad', 'script load error', err);
                 }
-            });
+            }
 
             this.watchOwner = true;
             await this.connect('watcher', this.options);

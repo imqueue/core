@@ -81,7 +81,7 @@ export interface DebugInfoOptions {
     /**
      * Log level to use for the call
      */
-    logLevel?: LogLevel;
+    logLevel: LogLevel;
 }
 
 /**
@@ -177,7 +177,7 @@ export interface ProfileDecoratorOptions {
      * Defines log/level for logger
      * By default is log
      */
-    logLevel: LogLevel;
+    logLevel?: LogLevel;
 }
 
 const DEFAULT_OPTIONS: ProfileDecoratorOptions = {
@@ -250,7 +250,7 @@ export function profile(options?: ProfileDecoratorOptions) {
                 className,
                 debugArgs,
                 debugTime,
-                logLevel,
+                logLevel as LogLevel,
                 logger: (this || target).logger,
                 methodName,
                 start,

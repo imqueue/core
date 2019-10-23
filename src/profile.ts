@@ -250,7 +250,7 @@ export function profile(options?: ProfileDecoratorOptions) {
                 className,
                 debugArgs,
                 debugTime,
-                logLevel as LogLevel,
+                logLevel,
                 logger: (this || target).logger,
                 methodName,
                 start,

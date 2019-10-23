@@ -1103,7 +1103,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const owned = await this.lock();
 
         if (owned) {
-            for (const script: string of Object.keys(this.scripts)) {
+            for (const script of Object.keys(this.scripts)) {
                 try {
                     const checksum = this.scripts[script].checksum = sha1(
                         this.scripts[script].code);

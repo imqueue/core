@@ -26,6 +26,7 @@
 export function propertiesOf(obj: any): string[] {
     const props: string[] = [];
 
+    // noinspection JSAssignmentUsedAsCondition
     do {
         Object.getOwnPropertyNames(obj).forEach((prop) => {
             if (!~props.indexOf(prop)) {

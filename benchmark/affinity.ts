@@ -20,6 +20,6 @@ import * as os from 'os';
 
 export function setAffinity(cpu: number) {
    if (os.platform() === 'linux') {
-       exec(`taskset -c ${cpu} -p ${process.pid}`);
+       exec(`taskset -cp ${cpu} ${process.pid}`);
    }
 }

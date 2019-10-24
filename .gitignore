@@ -33,7 +33,6 @@ debug*
 Thumbs.db
 *.swp
 
-package-lock.json
 stats.json
 benchmark-result/
 

@@ -19,6 +19,54 @@ import * as mt from 'microtime';
 import 'reflect-metadata';
 import { ILogger } from '.';
 
+export enum LogLevel {
+    // noinspection JSUnusedGlobalSymbols
+    LOG = 'log',
+    INFO = 'info',
+    WARN = 'warn',
+    ERROR = 'error',
+}
+
+export interface ProfileDecoratorOptions {
+    /**
+     * Turns on/off execution time debugging
+     */
+    enableDebugTime?: boolean;
+    /**
+     * Turns on/off arguments debugging
+     */
+    enableDebugArgs?: boolean;
+    /**
+     * Defines log/level for logger
+     * By default is log
+     */
+    logLevel?: LogLevel;
+}
+
+/**
+ * Checks if log level is set to proper value or returns default one
+ *
+ * @param {*} level
+ * @return {LogLevel}
+ */
+export function verifyLogLevel(level: any): LogLevel {
+    switch (level) {
+        case LogLevel.LOG:
+        case LogLevel.INFO:
+        case LogLevel.WARN:
+        case LogLevel.ERROR:
+            return level;
+        default:
+            return LogLevel.INFO;
+    }
+}
+
+export const IMQ_LOG_LEVEL = verifyLogLevel(process.env.IMQ_LOG_LEVEL);
+
+const DEFAULT_OPTIONS: ProfileDecoratorOptions = {
+    logLevel: IMQ_LOG_LEVEL,
+};
+
 export type AllowedTimeFormat = 'microseconds' | 'milliseconds' | 'seconds';
 
 /**
@@ -27,7 +75,7 @@ export type AllowedTimeFormat = 'microseconds' | 'milliseconds' | 'seconds';
  *
  * @type {boolean}
  */
-export const IMQ_LOG_TIME = !!process.env['IMQ_LOG_TIME'];
+export const IMQ_LOG_TIME = !!process.env.IMQ_LOG_TIME;
 
 /**
  * Environment variable IMQ_LOG_ARGS=[1, 0] - enables/disables profiled
@@ -35,7 +83,7 @@ export const IMQ_LOG_TIME = !!process.env['IMQ_LOG_TIME'];
  *
  * @type {boolean}
  */
-export const IMQ_LOG_ARGS = !!process.env['IMQ_LOG_ARGS'];
+export const IMQ_LOG_ARGS = !!process.env.IMQ_LOG_ARGS;
 
 /**
  * Environment variable IMQ_LOG_TIME_FORMAT=[
@@ -47,7 +95,7 @@ export const IMQ_LOG_ARGS = !!process.env['IMQ_LOG_ARGS'];
  * @type {AllowedTimeFormat | string}
  */
 export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
-    process.env['IMQ_LOG_TIME_FORMAT'] as AllowedTimeFormat || 'microseconds';
+    process.env.IMQ_LOG_TIME_FORMAT as AllowedTimeFormat || 'microseconds';
 
 export interface DebugInfoOptions {
     /**
@@ -156,34 +204,6 @@ export function logDebugInfo({
     }
 }
 
-export enum LogLevel {
-    // noinspection JSUnusedGlobalSymbols
-    LOG = 'log',
-    INFO = 'info',
-    WARN = 'warn',
-    ERROR = 'error',
-}
-
-export interface ProfileDecoratorOptions {
-    /**
-     * Turns on/off execution time debugging
-     */
-    enableDebugTime?: boolean;
-    /**
-     * Turns on/off arguments debugging
-     */
-    enableDebugArgs?: boolean;
-    /**
-     * Defines log/level for logger
-     * By default is log
-     */
-    logLevel?: LogLevel;
-}
-
-const DEFAULT_OPTIONS: ProfileDecoratorOptions = {
-    logLevel: LogLevel.LOG,
-};
-
 /**
  * Implements '@profile' decorator.
  *
@@ -250,7 +270,7 @@ export function profile(options?: ProfileDecoratorOptions) {
                 className,
                 debugArgs,
                 debugTime,
-                logLevel: logLevel as LogLevel,
+                logLevel: logLevel ? verifyLogLevel(logLevel) : IMQ_LOG_LEVEL,
                 logger: (this || target).logger,
                 methodName,
                 start,

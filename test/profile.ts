@@ -17,7 +17,7 @@
  */
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { profile, ILogger } from '..';
+import { profile, ILogger, IMQ_LOG_LEVEL } from '..';
 import { logger } from './mocks';
 
 class ProfiledClass {
@@ -62,17 +62,17 @@ class ProfiledClassTimedAndArgued {
     public decoratedMethod() {}
 }
 
+
+
 describe('profile()', function() {
+    let log: any;
+
     beforeEach(() => {
-        for (let prop of Object.keys(logger)) {
-            logger[prop] = sinon.spy(logger, prop);
-        }
+        log = sinon.spy(logger, IMQ_LOG_LEVEL)
     });
 
     afterEach(() => {
-        for (let prop of Object.keys(logger)) {
-            logger[prop].restore();
-        }
+        log.restore();
     });
 
     it('should be a function', () => {
@@ -90,16 +90,16 @@ describe('profile()', function() {
 
     it('should log time if enabled', () => {
         new ProfiledClassTimed().decoratedMethod();
-        expect(logger.log.calledOnce).to.be.true;
+        expect(log.calledOnce).to.be.true;
     });
 
     it('should log args if enabled', () => {
         new ProfiledClassArgued().decoratedMethod();
-        expect(logger.log.calledOnce).to.be.true;
+        expect(log.calledOnce).to.be.true;
     });
 
     it('should log time and args if both enabled', () => {
         new ProfiledClassTimedAndArgued().decoratedMethod();
-        expect(logger.log.calledTwice).to.be.true;
+        expect(log.calledTwice).to.be.true;
     });
 });

@@ -154,7 +154,8 @@ export function logDebugInfo({
     logger,
     logLevel,
 }: DebugInfoOptions) {
-    const log = logger[logLevel];
+    const log = logger && typeof logger[logLevel] === 'function'
+        ? logger[logLevel].bind(logger) : undefined;
 
     if (debugTime) {
         const time = mt.now() - start;
@@ -173,7 +174,9 @@ export function logDebugInfo({
                 break;
         }
 
-        log(`${className}.${methodName}() executed in ${timeStr}`);
+        if (log) {
+            log(`${className}.${methodName}() executed in ${timeStr}`);
+        }
     }
 
     if (debugArgs) {
@@ -200,7 +203,9 @@ export function logDebugInfo({
             logger.error(err);
         }
 
-        log(`${className}.${methodName}() called with args: ${argStr}`);
+        if (log) {
+            log(`${className}.${methodName}() called with args: ${argStr}`);
+        }
     }
 }
 

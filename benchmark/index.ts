@@ -324,7 +324,7 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
     console.log('Benchmark stats saved!');
     console.log(`Opening file://${htmlFile}`);
 
-    require('opn')(`file://${htmlFile}`);
+    require('open')(`file://${htmlFile}`);
     process.exit(0);
 }
 
@@ -407,7 +407,7 @@ else {
                 !/grep/.test(redisProcess)
             ) {
                 const redisPid = parseInt(redisProcess.split(/\s+/)[0], 10);
-                redisPid && exec(`taskset -c ${core} -p ${redisPid}`);
+                redisPid && exec(`taskset -cp ${core} ${redisPid}`);
             }
 
             metricsInterval = setInterval(() => {

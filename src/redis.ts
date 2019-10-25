@@ -21,7 +21,7 @@ import { promisify } from '.';
 
 const commands: string[] = [...new Set<string>(
     require('redis-commands').list.map((name: string) => name.toLowerCase())
-)].filter((name: string) => name !== 'stream');
+)].filter((name: string) => !~['stream', 'multi'].indexOf(name));
 
 /**
  * Extends default RedisClient type to allow dynamic properties access on it

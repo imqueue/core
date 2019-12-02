@@ -15,7 +15,6 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-import * as mt from 'microtime';
 import 'reflect-metadata';
 import { ILogger } from '.';
 
@@ -121,7 +120,7 @@ export interface DebugInfoOptions {
     /**
      * Execution start timestamp
      */
-    start: number;
+    start: any;
     /**
      * Logger implementation
      */
@@ -158,8 +157,12 @@ export function logDebugInfo({
         ? logger[logLevel].bind(logger) : undefined;
 
     if (debugTime) {
-        const time = mt.now() - start;
-        let timeStr = '';
+        // noinspection TypeScriptUnresolvedFunction
+        const time = parseInt(
+            ((process.hrtime as any).bigint() - start) as any,
+            10,
+        ) / 1000;
+        let timeStr: string;
 
         // istanbul ignore next
         switch (IMQ_LOG_TIME_FORMAT) {
@@ -268,7 +271,8 @@ export function profile(options?: ProfileDecoratorOptions) {
             const className = typeof target === 'function' && target.name
                 ? target.name              // static
                 : target.constructor.name; // dynamic
-            const start = mt.now();
+            // noinspection TypeScriptUnresolvedFunction
+            const start = (process.hrtime as any).bigint();
             const result = original.apply(this, args);
             const debugOptions: DebugInfoOptions = {
                 args,

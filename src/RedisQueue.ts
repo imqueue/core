@@ -387,7 +387,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             throw new TypeError('Writer is not connected!');
         }
 
-        await this.writer.publish(this.name, JSON.stringify(data));
+        await this.writer.publish(
+            `${this.options.prefix}:${this.name}`,
+            JSON.stringify(data),
+        );
     }
 
     /**

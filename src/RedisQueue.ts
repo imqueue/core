@@ -350,9 +350,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
         await chan.subscribe(fcn);
 
-        chan.on(fcn, (t, c, message: string) =>
-            handler && handler(JSON.parse(message)),
-        );
+        chan.on('message', (ch: string, message: string) => {
+            if (ch === fcn && typeof handler === 'function') {
+                handler(JSON.parse(message));
+            }
+        });
     }
 
     /**

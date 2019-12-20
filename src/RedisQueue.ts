@@ -208,6 +208,21 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private reader: IRedisClient;
 
     /**
+     * Channel connection associated with this queue instance
+     * Specially designed for client subscriptions to server emitted events
+     *
+     * @type {IRedisClient}
+     */
+    private channel: IRedisClient;
+
+    /**
+     * Channel name for subscriptions
+     *
+     * @type {string}
+     */
+    private chanelName: string;
+
+    /**
      * Init state for this queue instance
      *
      * @type {boolean}
@@ -300,6 +315,55 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         this.unpack = this.options.useGzip ? unpack : JSON.parse;
         /* tslint:enable */
         this.redisKey = `${this.options.host}:${this.options.port}`;
+    }
+
+    /**
+     * Creates subscription channel over redis and sets up channel
+     * data read handler
+     *
+     * @param {string} channel
+     * @param {(data: IJson) => any} handler
+     * @return {Promise<void>}
+     */
+    @profile()
+    public async subscribe(
+        channel: string,
+        handler: (data: IJson) => any,
+    ): Promise<void> {
+        if (!channel) {
+            throw new TypeError(
+                `${channel}: No subscription channel name provided!`,
+            );
+        }
+
+        if (this.chanelName && this.chanelName !== channel) {
+            throw new TypeError(
+                `Invalid channel name provided: expected "${
+                    this.chanelName}", but "${channel}" given instead!`,
+            );
+        } else if (!this.chanelName) {
+            this.chanelName = channel;
+        }
+
+        await this.connect('channel', this.options);
+        await this.channel.psubscribe(this.chanelName);
+
+        this.channel.on(this.chanelName, (t, c, message: string) =>
+            handler && handler(JSON.parse(message)),
+        );
+    }
+
+    /**
+     * Publishes a message thi this queue channel for subscribed clients
+     *
+     * @param {IJson} data
+     */
+    public async publish(data: IJson): Promise<void> {
+        if (!this.writer) {
+            throw new TypeError('Writer is not connected!');
+        }
+
+        await this.writer.publish(this.name, JSON.stringify(data));
     }
 
     /**
@@ -495,14 +559,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {"reader" | "writer" | "watcher"} channel
      * @param {IMQOptions} options
      * @param {any} context
-     * @returns {Promise<any>}
+     * @returns {Promise<IRedisClient>}
      */
     @profile()
     private async connect(
-        channel: 'reader' | 'writer' | 'watcher',
+        channel: 'reader' | 'writer' | 'watcher' | 'channel',
         options: IMQOptions,
         context: any = this,
-    ) {
+    ): Promise<IRedisClient> {
         // istanbul ignore next
         if (context[channel]) {
             return context[channel];
@@ -542,7 +606,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      */
     private onReadyHandler(
         options: IMQOptions,
-        context: any,
+        context: RedisQueue,
         channel: string,
         resolve: (...args: any[]) => void,
     ): () => Promise<void> {

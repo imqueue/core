@@ -293,6 +293,23 @@ export interface IMessageQueue extends EventEmitter {
          errorHandler?: (err: Error) => void): Promise<string>;
 
     /**
+     * Creates or uses subscription channel with the given name and sets
+     * message handler on data receive
+     *
+     * @param {string} channel - channel name
+     * @param {(data: IJson) => any} handler
+     */
+    subscribe(channel: string, handler: (data: IJson) => any): Promise<void>;
+
+    /**
+     * Publishes data to current queue channel
+     *
+     * @param {IJson} data - data to publish as channel message
+     * @return {Promise<void>}
+     */
+    publish(data: IJson): Promise<void>;
+
+    /**
      * Safely destroys current queue, unregistered all set event
      * listeners and connections.
      * Supposed to be an async function.

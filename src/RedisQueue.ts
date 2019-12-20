@@ -213,7 +213,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @type {IRedisClient}
      */
-    private channel: IRedisClient;
+    private channel?: IRedisClient;
 
     /**
      * Channel name for subscriptions
@@ -345,10 +345,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             this.chanelName = channel;
         }
 
-        await this.connect('channel', this.options);
-        await this.channel.psubscribe(this.chanelName);
+        const fcn = `${this.options.prefix}:${this.chanelName}`;
+        const chan = await this.connect('channel', this.options);
 
-        this.channel.on(this.chanelName, (t, c, message: string) =>
+        await chan.psubscribe(fcn);
+
+        chan.on(fcn, (t, c, message: string) =>
             handler && handler(JSON.parse(message)),
         );
     }
@@ -361,7 +363,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async unsubscribe(): Promise<void> {
         if (this.channel) {
             if (this.chanelName) {
-                this.channel.punsubscribe(this.chanelName);
+                this.channel.punsubscribe(
+                    `${this.options.prefix}:${this.chanelName}`,
+                );
             }
 
             this.channel.removeAllListeners();
@@ -370,6 +374,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         this.chanelName = undefined;
+        this.channel = undefined;
     }
 
     /**

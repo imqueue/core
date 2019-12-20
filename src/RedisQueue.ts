@@ -348,7 +348,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const fcn = `${this.options.prefix}:${this.chanelName}`;
         const chan = await this.connect('channel', this.options);
 
-        await chan.psubscribe(fcn);
+        await chan.subscribe(fcn);
 
         chan.on(fcn, (t, c, message: string) =>
             handler && handler(JSON.parse(message)),
@@ -363,7 +363,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async unsubscribe(): Promise<void> {
         if (this.channel) {
             if (this.chanelName) {
-                this.channel.punsubscribe(
+                this.channel.unsubscribe(
                     `${this.options.prefix}:${this.chanelName}`,
                 );
             }

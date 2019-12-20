@@ -302,6 +302,13 @@ export interface IMessageQueue extends EventEmitter {
     subscribe(channel: string, handler: (data: IJson) => any): Promise<void>;
 
     /**
+     * Closes subscription channel
+     *
+     * @return {Promise<void>}
+     */
+    unsubscribe(): Promise<void>;
+
+    /**
      * Publishes data to current queue channel
      *
      * @param {IJson} data - data to publish as channel message

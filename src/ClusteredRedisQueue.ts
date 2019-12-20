@@ -372,5 +372,16 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
         await Promise.all(promises);
     }
+
+    // istanbul ignore next
+    public async unsubscribe(): Promise<void> {
+        const promises = [] as Array<Promise<void>>;
+
+        for (let imq of this.imqs) {
+            promises.push(imq.unsubscribe());
+        }
+
+        await Promise.all(promises);
+    }
     /* tslint:enable */
 }

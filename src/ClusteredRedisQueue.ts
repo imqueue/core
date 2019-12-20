@@ -67,6 +67,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      *
      * @type {{ host: string, port: number }[]}
      */
+    // tslint:disable-next-line:completed-docs
     private readonly servers: Array<{ host: string, port: number }> = [];
 
     /**
@@ -346,6 +347,30 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     public listenerCount(...args: any[]) {
         return this.imqs[0].listenerCount.apply(this.imqs[0], args);
     }
-    /* tslint:enable */
 
+    // istanbul ignore next
+    public async publish(data: IJson): Promise<void> {
+        const promises = [] as Array<Promise<void>>;
+
+        for (let imq of this.imqs) {
+            promises.push(imq.publish(data));
+        }
+
+        await Promise.all(promises);
+    }
+
+    // istanbul ignore next
+    public async subscribe(
+        channel: string,
+        handler: (data: IJson) => any,
+    ): Promise<void> {
+        const promises = [] as Array<Promise<void>>;
+
+        for (let imq of this.imqs) {
+            promises.push(imq.subscribe(channel, handler));
+        }
+
+        await Promise.all(promises);
+    }
+    /* tslint:enable */
 }

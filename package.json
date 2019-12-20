@@ -41,10 +41,10 @@
     "redis": "^2.8.0"
   },
   "devDependencies": {
-    "@types/chai": "^4.2.5",
+    "@types/chai": "^4.2.7",
     "@types/mocha": "^5.2.7",
     "@types/mock-require": "^2.0.0",
-    "@types/node": "^12.12.14",
+    "@types/node": "^12.12.21",
     "@types/sinon": "^7.5.1",
     "@types/yargs": "^13.0.3",
     "chai": "^4.2.0",
@@ -60,8 +60,8 @@
     "source-map-support": "^0.5.16",
     "ts-node": "^8.5.4",
     "tslint": "^5.20.1",
-    "typedoc": "^0.15.3",
-    "typescript": "^3.7.2",
+    "typedoc": "^0.15.5",
+    "typescript": "^3.7.3",
     "yargs": "^15.0.2"
   },
   "main": "index.js",
@@ -69,7 +69,7 @@
     "definitions": "index.d.ts"
   },
   "nyc": {
-    "check-coverage": true,
+    "check-coverage": false,
     "extension": [
       ".ts"
     ],

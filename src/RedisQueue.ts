@@ -220,7 +220,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @type {string}
      */
-    private chanelName: string;
+    private chanelName?: string;
 
     /**
      * Init state for this queue instance
@@ -351,6 +351,25 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         this.channel.on(this.chanelName, (t, c, message: string) =>
             handler && handler(JSON.parse(message)),
         );
+    }
+
+    /**
+     * Closes subscription channel
+     *
+     * @return {Promise<void>}
+     */
+    public async unsubscribe(): Promise<void> {
+        if (this.channel) {
+            if (this.chanelName) {
+                this.channel.punsubscribe(this.chanelName);
+            }
+
+            this.channel.removeAllListeners();
+            this.channel.end(false);
+            this.channel.unref();
+        }
+
+        this.chanelName = undefined;
     }
 
     /**

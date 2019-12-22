@@ -325,7 +325,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {(data: IJson) => any} handler
      * @return {Promise<void>}
      */
-    @profile()
     public async subscribe(
         channel: string,
         handler: (data: IJson) => any,
@@ -400,7 +399,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @returns {Promise<RedisQueue>}
      */
-    @profile()
     public async start(): Promise<RedisQueue> {
         if (!this.name) {
             throw new TypeError(`${this.name}: No queue name provided!`);
@@ -590,7 +588,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {any} context
      * @returns {Promise<IRedisClient>}
      */
-    @profile()
     private async connect(
         channel: 'reader' | 'writer' | 'watcher' | 'channel',
         options: IMQOptions,

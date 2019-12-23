@@ -213,14 +213,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @type {IRedisClient}
      */
-    private channel?: IRedisClient;
+    private subscription?: IRedisClient;
 
     /**
      * Channel name for subscriptions
      *
      * @type {string}
      */
-    private chanelName?: string;
+    private subscriptionName?: string;
 
     /**
      * Init state for this queue instance
@@ -335,17 +335,17 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             );
         }
 
-        if (this.chanelName && this.chanelName !== channel) {
+        if (this.subscriptionName && this.subscriptionName !== channel) {
             throw new TypeError(
                 `Invalid channel name provided: expected "${
-                    this.chanelName}", but "${channel}" given instead!`,
+                    this.subscriptionName}", but "${channel}" given instead!`,
             );
-        } else if (!this.chanelName) {
-            this.chanelName = channel;
+        } else if (!this.subscriptionName) {
+            this.subscriptionName = channel;
         }
 
-        const fcn = `${this.options.prefix}:${this.chanelName}`;
-        const chan = await this.connect('channel', this.options);
+        const fcn = `${this.options.prefix}:${this.subscriptionName}`;
+        const chan = await this.connect('subscription', this.options);
 
         await chan.subscribe(fcn);
 
@@ -362,24 +362,25 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @return {Promise<void>}
      */
     public async unsubscribe(): Promise<void> {
-        if (this.channel) {
-            if (this.chanelName) {
-                this.channel.unsubscribe(
-                    `${this.options.prefix}:${this.chanelName}`,
+        if (this.subscription) {
+            if (this.subscriptionName) {
+                this.subscription.unsubscribe(
+                    `${this.options.prefix}:${this.subscriptionName}`,
                 );
             }
 
-            this.channel.removeAllListeners();
-            this.channel.end(false);
-            this.channel.unref();
+            this.subscription.removeAllListeners();
+            this.subscription.end(false);
+            this.subscription.unref();
         }
 
-        this.chanelName = undefined;
-        this.channel = undefined;
+        this.subscriptionName = undefined;
+        this.subscription = undefined;
     }
 
     /**
-     * Publishes a message thi this queue channel for subscribed clients
+     * Publishes a message to this queue subscription channel for currently
+     * subscribed clients.
      *
      * @param {IJson} data
      */
@@ -583,13 +584,13 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Establishes given connection channel by its' name
      *
      * @access private
-     * @param {"reader" | "writer" | "watcher"} channel
+     * @param {"reader"|"writer"|"watcher"|"subscription"} channel
      * @param {IMQOptions} options
      * @param {any} context
      * @returns {Promise<IRedisClient>}
      */
     private async connect(
-        channel: 'reader' | 'writer' | 'watcher' | 'channel',
+        channel: 'reader' | 'writer' | 'watcher' | 'subscription',
         options: IMQOptions,
         context: any = this,
     ): Promise<IRedisClient> {

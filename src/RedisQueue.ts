@@ -429,7 +429,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     await this.unlock();
                 }
 
-                process.exit(0);
+                setTimeout(() => process.exit(0), 1000);
             };
 
             process.on('SIGTERM', free);

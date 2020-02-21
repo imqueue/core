@@ -22,7 +22,7 @@ import { gzipSync as gzip, gunzipSync as gunzip } from 'zlib';
 import {
     buildOptions,
     IRedisClient,
-    IJson,
+    JsonObject,
     IMessageQueue,
     IMQOptions,
     IMessage,
@@ -190,7 +190,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private static watchers: { [key: string]: IRedisClient } = {};
 
     /**
-     * @event message (message: IJson, id: string, from: string)
+     * @event message (message: JsonObject, id: string, from: string)
      */
 
     /**
@@ -322,12 +322,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * data read handler
      *
      * @param {string} channel
-     * @param {(data: IJson) => any} handler
+     * @param {(data: JsonObject) => any} handler
      * @return {Promise<void>}
      */
     public async subscribe(
         channel: string,
-        handler: (data: IJson) => any,
+        handler: (data: JsonObject) => any,
     ): Promise<void> {
         if (!channel) {
             throw new TypeError(
@@ -382,9 +382,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Publishes a message to this queue subscription channel for currently
      * subscribed clients.
      *
-     * @param {IJson} data
+     * @param {JsonObject} data
      */
-    public async publish(data: IJson): Promise<void> {
+    public async publish(data: JsonObject): Promise<void> {
         if (!this.writer) {
             throw new TypeError('Writer is not connected!');
         }
@@ -449,14 +449,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Sends given message to a given queue (by name)
      *
      * @param {string} toQueue
-     * @param {IJson} message
+     * @param {JsonObject} message
      * @param {number} [delay]
      * @param {(err: Error) => void} [errorHandler]
      * @returns {Promise<RedisQueue>}
      */
     public async send(
         toQueue: string,
-        message: IJson,
+        message: JsonObject,
         delay?: number,
         errorHandler?: (err: Error) => void,
     ): Promise<string> {

@@ -19,7 +19,7 @@ import { EventEmitter } from 'events';
 import {
     buildOptions,
     IMessageQueue,
-    IJson,
+    JsonObject,
     IMQOptions,
     DEFAULT_IMQ_OPTIONS,
     RedisQueue,
@@ -149,7 +149,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * Supposed to be an async function.
      *
      * @param {string} toQueue - queue name to which message should be sent to
-     * @param {IJson} message - message data
+     * @param {JsonObject} message - message data
      * @param {number} [delay] - if specified, message will be handled in the
      *        target queue after specified period of time in milliseconds.
      * @param {(err: Error) => void} [errorHandler] - callback called only when
@@ -158,7 +158,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      */
     public async send(
         toQueue: string,
-        message: IJson,
+        message: JsonObject,
         delay?: number,
         errorHandler?: (err: Error) => void,
     ): Promise<string> {
@@ -349,7 +349,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     }
 
     // istanbul ignore next
-    public async publish(data: IJson): Promise<void> {
+    public async publish(data: JsonObject): Promise<void> {
         const promises = [] as Array<Promise<void>>;
 
         for (let imq of this.imqs) {
@@ -362,7 +362,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     // istanbul ignore next
     public async subscribe(
         channel: string,
-        handler: (data: IJson) => any,
+        handler: (data: JsonObject) => any,
     ): Promise<void> {
         const promises = [] as Array<Promise<void>>;
 

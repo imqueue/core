@@ -22,7 +22,7 @@ import * as fs from 'fs';
 import * as yargs from 'yargs';
 import { run } from './redis-test';
 import { resolve }  from 'path';
-import { uuid, IJson } from '..';
+import { uuid, IJson, JsonArray, JsonObject, AnyJson } from '..';
 import { setAffinity } from './affinity';
 
 /**
@@ -78,15 +78,15 @@ const MSG_MULTIPLIER = Number(ARGV.t) || 0;
 const SAFE_DELIVERY: boolean = !!ARGV.s;
 const REDIS_PORT: number = Number(ARGV.p) || 6379;
 
-let SAMPLE_MESSAGE: IJson;
+let SAMPLE_MESSAGE: AnyJson;
 
 if (ARGV.e) {
     try {
-        SAMPLE_MESSAGE = JSON.parse(fs.readFileSync(ARGV.e+'').toString());
+        SAMPLE_MESSAGE = JSON.parse(fs.readFileSync(ARGV.e + '').toString());
 
         if (MSG_MULTIPLIER) {
             SAMPLE_MESSAGE = new Array(MSG_MULTIPLIER)
-                .fill(SAMPLE_MESSAGE) as IJson;
+                .fill(SAMPLE_MESSAGE);
         }
     } catch (err) {
         console.warn('Given example message is invalid, ' +
@@ -187,7 +187,8 @@ function buildChartConfig(id: string, stats: any[]) {
             x: {
                 type: 'category',
                 categories: stats[0].slice(1).map((v: any, i: number) =>
-                    ((i * 100) / 1000).toFixed(1) + 's'),
+                    ((i * 100) / 1000).toFixed(1) + 's' as any
+                ),
                 tick: {
                     centered: true,
                     fit: false,

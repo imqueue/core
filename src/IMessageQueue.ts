@@ -19,14 +19,30 @@ import { EventEmitter } from 'events';
 export { EventEmitter } from 'events';
 
 /**
- * JSON-compatible type definition
- *
- * @type {any}
+ * Represents any JSON-serializable value
  */
-export interface IJson {
-    [name: string]: number | string | boolean | null | IJson | any |
-        number[] | string[] | boolean[] | null[] | IJson[] | any[];
+export type AnyJson =  boolean | number | string | null | undefined |
+    JsonArray | JsonObject;
+
+/**
+ * Represents JSON serializable object
+ */
+export interface JsonObject {
+    [key: string]: AnyJson;
 }
+
+/**
+ * Represents JSON-serializable array
+ */
+export interface JsonArray extends Array<AnyJson> {}
+
+/**
+ * Alias for JsonObject, legacy, outdated, deprecated, try to avoid using.
+ * Stands here for backward-compatibility only
+ *
+ * @deprecated
+ */
+export type IJson = JsonObject;
 
 /**
  * Logger interface
@@ -77,9 +93,9 @@ export interface IMessage {
     /**
      * Message data. Any JSON-compatible data allowed
      *
-     * @type {IJson}
+     * @type {JsonObject}
      */
-    message: IJson;
+    message: JsonObject;
 
     /**
      * Message source queue name
@@ -226,7 +242,7 @@ export interface IMessageQueueConstructor {
  *      }
  *      public async send(
  *          toQueue: string,
- *          message: IJson,
+ *          message: JsonObject,
  *          delay?: number
  *      ): Promise<string> {
  *          const messageId = uuid();
@@ -248,7 +264,7 @@ export interface IMessageQueue extends EventEmitter {
      * Message event. Occurs every time queue got a message.
      *
      * @event IMessageQueue#message
-     * @type {IJson} message - message data
+     * @type {JsonObject} message - message data
      * @type {string} id - message identifier
      * @type {string} from - source queue produced the message
      */
@@ -282,14 +298,14 @@ export interface IMessageQueue extends EventEmitter {
      * Supposed to be an async function.
      *
      * @param {string} toQueue - queue name to which message should be sent to
-     * @param {IJson} message - message data
+     * @param {JsonObject} message - message data
      * @param {number} [delay] - if specified, message will be handled in the
      *        target queue after specified period of time in milliseconds.
      * @param {(err: Error) => void} [errorHandler] - callback called only when
      *        internal error occurs during message send execution.
      * @returns {Promise<string>} - message identifier
      */
-    send(toQueue: string, message: IJson, delay?: number,
+    send(toQueue: string, message: JsonObject, delay?: number,
          errorHandler?: (err: Error) => void): Promise<string>;
 
     /**
@@ -297,9 +313,12 @@ export interface IMessageQueue extends EventEmitter {
      * message handler on data receive
      *
      * @param {string} channel - channel name
-     * @param {(data: IJson) => any} handler
+     * @param {(data: JsonObject) => any} handler
      */
-    subscribe(channel: string, handler: (data: IJson) => any): Promise<void>;
+    subscribe(
+        channel: string,
+        handler: (data: JsonObject) => any,
+    ): Promise<void>;
 
     /**
      * Closes subscription channel
@@ -311,10 +330,10 @@ export interface IMessageQueue extends EventEmitter {
     /**
      * Publishes data to current queue channel
      *
-     * @param {IJson} data - data to publish as channel message
+     * @param {JsonObject} data - data to publish as channel message
      * @return {Promise<void>}
      */
-    publish(data: IJson): Promise<void>;
+    publish(data: JsonObject): Promise<void>;
 
     /**
      * Safely destroys current queue, unregistered all set event

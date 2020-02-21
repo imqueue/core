@@ -15,12 +15,18 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-import IMQ, { IMQOptions, IJson, uuid, pack } from '../index';
+import IMQ, {
+    IMQOptions,
+    IJson,
+    uuid,
+    pack,
+    JsonObject, AnyJson,
+} from '../index';
 
 /**
  * Sample message used within tests
  */
-const JSON_EXAMPLE: IJson = {
+const JSON_EXAMPLE: JsonObject = {
     "Glossary": {
         "Title": "Example Glossary",
         "GlossDiv": {
@@ -99,7 +105,7 @@ export async function run(
     msgDelay: number = 0,
     useGzip: boolean = false,
     safeDelivery: boolean = false,
-    jsonExample: IJson = JSON_EXAMPLE
+    jsonExample: AnyJson = JSON_EXAMPLE
 ) {
     const bytesLen = bytes(
         (useGzip ? pack : JSON.stringify)(jsonExample),
@@ -140,7 +146,7 @@ export async function run(
         const start = Date.now();
 
         for (let i = 0; i < steps; i++) {
-            mq.send(queueName, jsonExample, msgDelay).catch();
+            mq.send(queueName, jsonExample as JsonObject, msgDelay).catch();
         }
 
         const interval = setInterval(async () => {

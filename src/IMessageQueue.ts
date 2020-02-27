@@ -206,23 +206,21 @@ export interface IMQOptions {
 
     /**
      * Queue cluster instances, if MQ should be clustered
+     *
+     * @type {{host: string, port: number }[]}
      */
-    cluster?: Array<{
+    cluster?: {
+        // tslint:disable-next-line:completed-docs
         host: string,
+        // tslint:disable-next-line:completed-docs
         port: number,
-    }>;
+    }[];
 }
 
-export interface IMessageQueueConstructor {
-    /**
-     * Class constructor
-     *
-     * @param {string} name
-     * @param {Partial<IMQOptions>} [options]
-     * @returns {IMessageQueue}
-     */
-    new (name: string, options?: Partial<IMQOptions>): IMessageQueue;
-}
+export type IMessageQueueConstructor = new (
+    name: string,
+    options?: Partial<IMQOptions>,
+) => IMessageQueue;
 
 /**
  * Generic messaging queue implementation interface

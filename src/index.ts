@@ -14,6 +14,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
+// noinspection JSUnusedGlobalSymbols
 /**
  * Safely builds full options definition using default options and
  * partial given options
@@ -23,7 +24,6 @@
  * @return {T}
  */
 // istanbul ignore next
-// noinspection JSUnusedGlobalSymbols
 export function buildOptions<T>(
     defaultOptions: T,
     givenOptions?: Partial<T>,

@@ -68,7 +68,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @type {{ host: string, port: number }[]}
      */
     // tslint:disable-next-line:completed-docs
-    private readonly servers: Array<{ host: string, port: number }> = [];
+    private readonly servers: { host: string, port: number }[] = [];
 
     /**
      * Current queue index (round-robin)
@@ -77,6 +77,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      */
     private currentQueue = 0;
 
+    // noinspection TypeScriptFieldCanBeMadeReadonly
     /**
      * Total length of RedisQueue instances
      *

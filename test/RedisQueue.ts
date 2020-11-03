@@ -180,6 +180,7 @@ describe('RedisQueue', function() {
 
         it('should trigger an error in case of redis error', (done) => {
             const lrange = redis.RedisClient.prototype.lrange;
+            let wasDone = false;
             redis.RedisClient.prototype.lrange = () => [,,];
 
             const message: any = { hello: 'safe delivery' };
@@ -190,7 +191,8 @@ describe('RedisQueue', function() {
             process.on('unhandledRejection', function(e) {
                 expect((e as any).message).to.be.equal('Wrong messages count');
                 redis.RedisClient.prototype.lrange = lrange;
-                done();
+                !wasDone && done();
+                wasDone = true;
             });
 
             rq.start().then(() => rq.send('IMQSafe', message));

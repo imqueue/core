@@ -134,7 +134,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @type {IRedisClient}
      */
-    private reader: IRedisClient;
+    private reader?: IRedisClient;
 
     /**
      * Channel connection associated with this queue instance

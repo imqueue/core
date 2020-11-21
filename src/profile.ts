@@ -74,7 +74,7 @@ export type AllowedTimeFormat = 'microseconds' | 'milliseconds' | 'seconds';
  *
  * @type {boolean}
  */
-export const IMQ_LOG_TIME = !!process.env.IMQ_LOG_TIME;
+export const IMQ_LOG_TIME = !!+(process.env.IMQ_LOG_TIME || 0);
 
 /**
  * Environment variable IMQ_LOG_ARGS=[1, 0] - enables/disables profiled
@@ -82,7 +82,7 @@ export const IMQ_LOG_TIME = !!process.env.IMQ_LOG_TIME;
  *
  * @type {boolean}
  */
-export const IMQ_LOG_ARGS = !!process.env.IMQ_LOG_ARGS;
+export const IMQ_LOG_ARGS = !!+(process.env.IMQ_LOG_ARGS || 0);
 
 /**
  * Environment variable IMQ_LOG_TIME_FORMAT=[

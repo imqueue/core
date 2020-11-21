@@ -49,6 +49,12 @@ export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     watcherCheckDelay: 5000,
 };
 
+export enum IMQMode {
+    BOTH,
+    WORKER,
+    PUBLISHER,
+}
+
 /**
  * Returns SHA1 hash sum of the given string
  *
@@ -228,10 +234,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @constructor
      * @param {string} name
      * @param {IMQOptions} [options]
+     * @param {IMQMode} [mode]
      */
     public constructor(
         public name: string,
         options?: Partial<IMQOptions>,
+        private readonly mode: IMQMode = IMQMode.BOTH,
     ) {
         super();
 
@@ -341,7 +349,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const connPromises = [];
 
         // istanbul ignore next
-        if (!this.reader) {
+        if (!this.reader && this.isWorker()) {
             connPromises.push(this.connect('reader', this.options));
         }
 
@@ -389,6 +397,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         delay?: number,
         errorHandler?: (err: Error) => void,
     ): Promise<string> {
+        if (!this.isPublisher()) {
+            throw new TypeError('IMQ: Unable to publish in WORKER only mode!');
+        }
+
         // istanbul ignore next
         if (!this.writer) {
             await this.start();
@@ -477,6 +489,24 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         ]);
 
         return this;
+    }
+
+    /**
+     * Returns true if publisher mode is enabled on this queue, false otherwise.
+     *
+     * @return {boolean}
+     */
+    public isPublisher() {
+        return this.mode === IMQMode.BOTH || this.mode === IMQMode.PUBLISHER;
+    }
+
+    /**
+     * Returns true if worker mode is enabled on this queue, false otherwise.
+     *
+     * @return {boolean}
+     */
+    public isWorker() {
+        return this.mode === IMQMode.BOTH || this.mode === IMQMode.WORKER;
     }
 
     // noinspection JSMethodCanBeStatic

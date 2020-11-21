@@ -18,12 +18,13 @@
 import { EventEmitter } from 'events';
 import {
     buildOptions,
-    IMessageQueue,
-    JsonObject,
-    IMQOptions,
     DEFAULT_IMQ_OPTIONS,
-    RedisQueue,
     ILogger,
+    IMessageQueue,
+    IMQMode,
+    IMQOptions,
+    JsonObject,
+    RedisQueue,
 } from '.';
 
 /**
@@ -91,10 +92,12 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @constructor
      * @param {string} name
      * @param {Partial<IMQOptions>} options
+     * @param {IMQMode} mode
      */
     public constructor(
         public name: string,
         options?: Partial<IMQOptions>,
+        mode: IMQMode = IMQMode.BOTH,
     ) {
         this.options = buildOptions<IMQOptions>(
             DEFAULT_IMQ_OPTIONS,

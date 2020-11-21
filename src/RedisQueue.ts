@@ -26,6 +26,7 @@ import {
     IMessageQueue,
     IMQOptions,
     IMessage,
+    IMQMode,
     ILogger,
     redis,
     profile,
@@ -48,12 +49,6 @@ export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     useGzip: false,
     watcherCheckDelay: 5000,
 };
-
-export enum IMQMode {
-    BOTH,
-    WORKER,
-    PUBLISHER,
-}
 
 /**
  * Returns SHA1 hash sum of the given string

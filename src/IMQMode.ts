@@ -13,28 +13,8 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-// noinspection JSUnusedGlobalSymbols
-/**
- * Safely builds full options definition using default options and
- * partial given options
- *
- * @param {T} defaultOptions
- * @param {Partial<T>} givenOptions
- * @return {T}
- */
-// istanbul ignore next
-export function buildOptions<T>(
-    defaultOptions: T,
-    givenOptions?: Partial<T>,
-): T {
-    return Object.assign({}, defaultOptions, givenOptions);
+export enum IMQMode {
+    BOTH,
+    WORKER,
+    PUBLISHER,
 }
-
-export * from './IMQMode';
-export * from './profile';
-export * from './uuid';
-export * from './promisify';
-export * from './redis';
-export * from './IMessageQueue';
-export * from './RedisQueue';
-export * from './ClusteredRedisQueue';

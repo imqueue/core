@@ -3,8 +3,6 @@
 [![Build Status](https://travis-ci.org/imqueue/core.svg?branch=master)](https://travis-ci.org/imqueue/core) 
 [![codebeat badge](https://codebeat.co/badges/b7685cb5-b290-47de-80e1-bde3e0582355)](https://codebeat.co/projects/github-com-imqueue-core-master)
 [![Coverage Status](https://coveralls.io/repos/github/imqueue/core/badge.svg?branch=master)](https://coveralls.io/github/imqueue/core?branch=master) 
-[![David](https://img.shields.io/david/imqueue/core.svg)](https://david-dm.org/imqueue/core)
-[![David](https://img.shields.io/david/dev/imqueue/core.svg)](https://david-dm.org/imqueue/core?type=dev)
 [![Known Vulnerabilities](https://snyk.io/test/github/imqueue/core/badge.svg?targetFile=package.json)](https://snyk.io/test/github/imqueue/core?targetFile=package.json)
 [![License](https://img.shields.io/badge/license-ISC-blue.svg)](https://rawgit.com/imqueue/core/master/LICENSE)
 

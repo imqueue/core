@@ -19,6 +19,7 @@ import 'reflect-metadata';
 import {
     IMessageQueue,
     IMessageQueueConstructor,
+    IMQMode,
     IMQOptions,
 } from './src';
 
@@ -42,11 +43,13 @@ export default class IMQ {
      *
      * @param {string} name
      * @param {IMQOptions} options
+     * @param {IMQMode} mode
      * @return {IMessageQueue}
      */
     public static create(
         name: string,
         options: Partial<IMQOptions> = {},
+        mode: IMQMode = IMQMode.BOTH,
     ): IMessageQueue {
         options = Object.assign({}, IMQ.options, options);
 
@@ -59,6 +62,6 @@ export default class IMQ {
         const Adapter: IMessageQueueConstructor =
             require(`${__dirname}/src/${ClassName}.js`)[ClassName];
 
-        return new Adapter(name, options);
+        return new Adapter(name, options, mode);
     }
 }

@@ -16,6 +16,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import { EventEmitter } from 'events';
+import { IMQMode } from './IMQMode';
 export { EventEmitter } from 'events';
 
 /**
@@ -220,6 +221,7 @@ export interface IMQOptions {
 export type IMessageQueueConstructor = new (
     name: string,
     options?: Partial<IMQOptions>,
+    mode?: IMQMode,
 ) => IMessageQueue;
 
 /**

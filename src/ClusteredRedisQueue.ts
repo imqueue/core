@@ -353,11 +353,11 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     }
 
     // istanbul ignore next
-    public async publish(data: JsonObject): Promise<void> {
+    public async publish(data: JsonObject, toName?: string): Promise<void> {
         const promises = [] as Array<Promise<void>>;
 
         for (let imq of this.imqs) {
-            promises.push(imq.publish(data));
+            promises.push(imq.publish(data, toName));
         }
 
         await Promise.all(promises);

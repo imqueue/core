@@ -330,10 +330,16 @@ export interface IMessageQueue extends EventEmitter {
     /**
      * Publishes data to current queue channel
      *
+     * If toName specified will publish to pubsub with different name. This
+     * can be used to implement broadcasting some messages to other subscribers
+     * on other pubsub channels. Different name should be in the same namespace
+     * (same imq prefix)
+     *
      * @param {JsonObject} data - data to publish as channel message
+     * @param {string} [toName] - different name of the pubsub to publish to
      * @return {Promise<void>}
      */
-    publish(data: JsonObject): Promise<void>;
+    publish(data: JsonObject, toName?: string): Promise<void>;
 
     /**
      * Safely destroys current queue, unregistered all set event

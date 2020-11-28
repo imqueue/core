@@ -314,15 +314,20 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Publishes a message to this queue subscription channel for currently
      * subscribed clients.
      *
+     * If toName specified will publish to pubsub with different name. This
+     * can be used to implement broadcasting some messages to other subscribers
+     * on other pubsub channels.
+     *
+     * @param {string} [toName]
      * @param {JsonObject} data
      */
-    public async publish(data: JsonObject): Promise<void> {
+    public async publish(data: JsonObject, toName?: string): Promise<void> {
         if (!this.writer) {
             throw new TypeError('Writer is not connected!');
         }
 
         await this.writer.publish(
-            `${this.options.prefix}:${this.name}`,
+            `${this.options.prefix}:${toName || this.name}`,
             JSON.stringify(data),
         );
     }

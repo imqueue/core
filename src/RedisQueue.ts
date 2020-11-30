@@ -50,6 +50,8 @@ export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     watcherCheckDelay: 5000,
 };
 
+export const IMQ_SHUTDOWN_TIMEOUT = +(process.env.IMQ_SHUTDOWN_TIMEOUT || 1000);
+
 /**
  * Returns SHA1 hash sum of the given string
  *
@@ -362,15 +364,23 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         if (!this.signalsInitialized) {
             // istanbul ignore next
             const free = async () => {
-                if (this.watchOwner) {
-                    await this.unlock();
-                }
+                let exitCode = 0;
 
-                setTimeout(() => process.exit(0), 1000);
+                setTimeout(() => process.exit(exitCode), IMQ_SHUTDOWN_TIMEOUT);
+
+                try {
+                    if (this.watchOwner) {
+                        await this.unlock();
+                    }
+                } catch (err) {
+                    this.logger.error(err);
+                    exitCode = 1;
+                }
             };
 
             process.on('SIGTERM', free);
             process.on('SIGINT', free);
+            process.on('SIGABRT', free);
 
             this.signalsInitialized = true;
         }

@@ -29,7 +29,7 @@ import { setAffinity } from './affinity';
  * Command line args
  * @type {yargs.Arguments}
  */
-const ARGV = yargs
+const ARGV: any = yargs
     .help('h')
     .alias('h', 'help')
 

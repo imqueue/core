@@ -264,7 +264,7 @@ export function profile(options?: ProfileDecoratorOptions) {
 
         descriptor.value = function(...args: any[]) {
             if (!(debugTime || debugArgs)) {
-                return original.apply(this, args);
+                return original.apply(this || target, args);
             }
 
             /* istanbul ignore next */
@@ -273,7 +273,7 @@ export function profile(options?: ProfileDecoratorOptions) {
                 : target.constructor.name; // dynamic
             // noinspection TypeScriptUnresolvedFunction
             const start = (process.hrtime as any).bigint();
-            const result = original.apply(this, args);
+            const result = original.apply(this || target, args);
             const debugOptions: DebugInfoOptions = {
                 args,
                 className,

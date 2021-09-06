@@ -16,7 +16,6 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import { execSync as exec } from 'child_process';
-import cluster from 'cluster';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as yargs from 'yargs';
@@ -24,6 +23,8 @@ import { run } from './redis-test';
 import { resolve }  from 'path';
 import { uuid, AnyJson } from '..';
 import { setAffinity } from './affinity';
+
+const cluster: any = require('cluster');
 
 /**
  * Command line args
@@ -340,7 +341,7 @@ if (cluster.isMaster) {
     let done: number = 0;
     const data: any[] = [];
 
-    statsWorker.on('message', (msg) => {
+    statsWorker.on('message', (msg: any) => {
         if (/^metrics:/.test(msg)) {
             saveStats(JSON.parse(msg.split('metrics:').pop() || ''), data);
             process.exit(0);

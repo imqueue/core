@@ -16,13 +16,13 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import { execSync as exec } from 'child_process';
-import * as cluster from 'cluster';
+import cluster from 'cluster';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as yargs from 'yargs';
 import { run } from './redis-test';
 import { resolve }  from 'path';
-import { uuid, IJson, JsonArray, JsonObject, AnyJson } from '..';
+import { uuid, AnyJson } from '..';
 import { setAffinity } from './affinity';
 
 /**

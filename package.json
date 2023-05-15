@@ -1,6 +1,6 @@
 {
   "name": "@imqueue/core",
-  "version": "1.11.10",
+  "version": "1.12.0",
   "description": "Simple JSON-based messaging queue for inter service communication",
   "keywords": [
     "message-queue",

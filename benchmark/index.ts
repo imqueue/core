@@ -326,7 +326,7 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
     console.log('Benchmark stats saved!');
     console.log(`Opening file://${htmlFile}`);
 
-    require('open')(`file://${htmlFile}`);
+    import('open').then(open => open.default(`file://${htmlFile}`));
     process.exit(0);
 }
 

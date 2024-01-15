@@ -292,6 +292,8 @@ export function profile(options?: ProfileDecoratorOptions) {
                     logDebugInfo(debugOptions);
 
                     return res;
+                }).catch(() => {
+                    logDebugInfo(debugOptions);
                 });
 
                 return result;

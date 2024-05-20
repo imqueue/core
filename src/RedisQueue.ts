@@ -684,12 +684,16 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 context.name, channel, this.redisKey, process.pid,
             );
 
-            await this.setChannelName(
-                context[channel],
-                context.name,
-                options.prefix || '',
-                channel,
-            );
+            try {
+                await this.setChannelName(
+                    context[channel],
+                    context.name,
+                    options.prefix || '',
+                    channel,
+                );
+            } catch (err) {
+                this.logger.warn('Error setting channel name:', err);
+            }
 
             switch (channel) {
                 case 'reader': this.read(); break;

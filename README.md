@@ -154,6 +154,7 @@ predictable.*
 ~~~bash
 git clone git@github.com:imqueue/core.git
 cd imq
+npm run pretest
 npm test
 ~~~
 

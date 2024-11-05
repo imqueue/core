@@ -11,12 +11,14 @@
     "json-message"
   ],
   "scripts": {
+    "prepare-cc-reporter": "[ -f ./cc-test-reporter ] || curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter && chmod +x ./cc-test-reporter",
+    "pretest": "npm run prepare-cc-reporter",
     "prepare": "./node_modules/.bin/tsc",
     "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && ./node_modules/.bin/nyc report --reporter=text-lcov && npm run test-coverage",
     "test-fast": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"import('open').then(open => open.default('file://`pwd`/coverage/index.html', { wait: false }))\"",
     "test-local": "export COVERALLS_REPO_TOKEN=$IMQ_COVERALLS_TOKEN && npm test && /usr/bin/env node -e \"import('open').then(open => open.default('https://coveralls.io/github/imqueue/imq', { wait: false }))\"",
     "test-dev": "npm run test && npm run clean-js && npm run clean-typedefs && npm run clean-maps",
-    "test-coverage": "./cc-test-reporter format-coverage -t lcov -o coverage/codeclimate.json && ./cc-test-reporter upload-coverage -i coverage/codeclimate.json",
+    "test-coverage": "./cc-test-reporter format-coverage -t lcov -o coverage/codeclimate.json && ./cc-test-reporter upload-coverage -i coverage/codeclimate.json -r 85bb2a18-4ebb-4e48-a2ce-92b7bf438b1a",
     "clean-typedefs": "find . -name '*.d.ts' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
     "clean-maps": "find . -name '*.js.map' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
     "clean-js": "find . -name '*.js' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",

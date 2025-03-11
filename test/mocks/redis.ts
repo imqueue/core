@@ -69,7 +69,11 @@ export class RedisClientMock extends EventEmitter {
                 result = 1;
             }
         }
-        args.pop()(null, result);
+        const cb = args.pop()
+        const isCb = typeof cb === 'function';
+
+        isCb && cb(null, result);
+
         return true;
     }
 
@@ -80,7 +84,8 @@ export class RedisClientMock extends EventEmitter {
             self.__queues__[key] = [];
         }
         self.__queues__[key].push(value);
-        cb(null, 1);
+        const isCb = typeof cb === 'function';
+        isCb && cb(null, 1);
         return true;
     }
 
@@ -148,38 +153,48 @@ export class RedisClientMock extends EventEmitter {
     }
 
     // noinspection JSMethodCanBeStatic
-    public script(...args: any[]): boolean {
+    public script(...args: any[]): unknown {
         const cmd = args.shift();
-        const script = args.shift();
-        let hash: any = '';
-        if (cmd === 'load') {
-            hash = sha1(script);
-            RedisClientMock.__scripts[hash] = script;
+        const scriptOrHash = args.shift();
+        const cb = args.pop();
+        const isCb = typeof cb === 'function';
+
+        if (cmd === 'LOAD') {
+            const hash = sha1(scriptOrHash);
+            RedisClientMock.__scripts[hash] = scriptOrHash;
+            isCb && cb(null, hash);
+            return hash;
         }
-        if (cmd === 'exists') {
-            hash = RedisClientMock.__scripts[hash] !== undefined;
+        if (cmd === 'EXISTS') {
+            const hash = RedisClientMock.__scripts[scriptOrHash] !== undefined;
+
+            isCb && cb(null, hash);
+
+            return [Number(hash)];
         }
-        args.pop()(null, hash);
-        return true;
+
+        return ;
     }
 
     // noinspection JSUnusedGlobalSymbols
     public client(...args: any[]): boolean {
         const self = RedisClientMock;
-        const cb = args.pop();
         const cmd = args.shift();
+        const cb = args.pop();
         const name = args.shift();
-        if (cmd === 'list') {
-            return cb(null, Object.keys(self.__clientList)
+        const isCb = typeof cb === 'function';
+
+        if (cmd === 'LIST') {
+            return isCb && cb(null, Object.keys(self.__clientList)
                 .map((name: string, id: number) => `id=${id} name=${name}`)
                 .join('\n'));
         }
-        else if (cmd === 'setname') {
+        else if (cmd === 'SETNAME') {
             this.__name = name;
             self.__clientList[name] = true;
         }
 
-        cb(null, true);
+        isCb && cb(null, true);
         return true;
     }
 
@@ -239,7 +254,7 @@ export class RedisClientMock extends EventEmitter {
     }
 
     // noinspection JSUnusedGlobalSymbols
-    public unref(): boolean {
+    public disconnect(): boolean {
         delete RedisClientMock.__clientList[this.__name];
         if (this.__rt) {
             clearTimeout(this.__rt);
@@ -254,15 +269,9 @@ export class RedisClientMock extends EventEmitter {
     }
 }
 
-/**
- * @implements {IMulti}
- */
-export class RedisMultiMock extends EventEmitter {}
-
-mock('redis', {
-    createClient() { return new RedisClientMock() },
-    RedisClient: RedisClientMock,
-    Multi: RedisMultiMock
+mock('ioredis', {
+    default: RedisClientMock,
+    Redis: RedisClientMock,
 });
 
 export * from 'ioredis';

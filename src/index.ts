@@ -18,6 +18,7 @@
  * Safely builds full options definition using default options and
  * partial given options
  *
+ * @template T
  * @param {T} defaultOptions
  * @param {Partial<T>} givenOptions
  * @return {T}

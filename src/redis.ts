@@ -16,36 +16,16 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 /* tslint:disable */
-import * as redis from 'redis';
-import { promisify } from '.';
-
-const commands: string[] = [...new Set<string>(
-    require('redis-commands').list.map((name: string) => name.toLowerCase())
-)].filter((name: string) => !~['stream', 'multi'].indexOf(name));
+import Redis from 'ioredis';
 
 /**
- * Extends default RedisClient type to allow dynamic properties access on it
+ * Extends default Redis  type to allow dynamic properties access on it
  *
  * @type {IRedisClient}
  */
-export interface IRedisClient extends redis.RedisClient {
-    [name: string]: any;
+export interface IRedisClient extends Redis {
+    __ready__?: boolean;
 }
 
-/**
- * Extends default Multi type to allow dynamic properties access on it
- *
- * @type {IMulti}
- */
-export interface IMulti extends redis.Multi {
-    [name: string]: any;
-}
-
-/**
- * Make redis interfaces promise-like to allow work with
- * them through async/await
- */
-promisify((<any> redis).RedisClient.prototype, commands);
-promisify((<any> redis).Multi.prototype, commands);
-
-export { redis };
+export { Redis };
+export default Redis;

@@ -239,7 +239,11 @@ export function logDebugInfo({
  *  descriptor: TypedPropertyDescriptor<(...args: any[]) => any>
  * ) => void}
  */
-export function profile(options?: ProfileDecoratorOptions) {
+export function profile(options?: ProfileDecoratorOptions): (
+    target: any,
+    methodName: string,
+    descriptor: TypedPropertyDescriptor<(...args: any[]) => any>,
+) => void {
     options = Object.assign({}, DEFAULT_OPTIONS, options);
 
     const { enableDebugTime, enableDebugArgs, logLevel } = options;

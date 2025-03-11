@@ -31,7 +31,7 @@ const rand = Math.random.bind(Math);
  *
  * @returns {string}
  */
-export function uuid() {
+export function uuid(): string {
     const d0 = rand() * 0x100000000 >>> 0;
     const d1 = rand() * 0x100000000 >>> 0;
     const d2 = rand() * 0x100000000 >>> 0;

@@ -17,6 +17,7 @@
  */
 import { EventEmitter } from 'events';
 import { IMQMode } from './IMQMode';
+
 export { EventEmitter } from 'events';
 
 /**
@@ -147,6 +148,20 @@ export interface IMQOptions {
     port?: number;
 
     /**
+     * Message queue username host
+     *
+     * @type {string}
+     */
+    username?: string;
+
+    /**
+     * Message queue password port
+     *
+     * @type {string}
+     */
+    password?: string;
+
+    /**
      * Message queue vendor
      *
      * @type {string}
@@ -208,13 +223,22 @@ export interface IMQOptions {
     /**
      * Queue cluster instances, if MQ should be clustered
      *
-     * @type {{host: string, port: number }[]}
+     * @type {{
+     *  host: string;
+     *  port: number;
+     *  username: string;
+     *  password: string;
+     * }[]}
      */
     cluster?: {
         // tslint:disable-next-line:completed-docs
         host: string,
         // tslint:disable-next-line:completed-docs
         port: number,
+        // tslint:disable-next-line:completed-docs
+        username?: string;
+        // tslint:disable-next-line:completed-docs
+        password?: string;
     }[];
 }
 

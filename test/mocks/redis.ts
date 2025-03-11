@@ -18,7 +18,6 @@
 import * as mock from 'mock-require';
 import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
-import { IMulti, IRedisClient } from '../..';
 
 function sha1(str: string) {
     let sha: crypto.Hash = crypto.createHash('sha1');
@@ -266,4 +265,4 @@ mock('redis', {
     Multi: RedisMultiMock
 });
 
-export * from 'redis';
+export * from 'ioredis';

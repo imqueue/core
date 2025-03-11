@@ -18,7 +18,7 @@
 import { logger } from './mocks';
 import { expect } from 'chai';
 import { RedisQueue, uuid } from '../src';
-import * as redis from 'redis';
+import Redis from 'ioredis';
 
 process.setMaxListeners(100);
 
@@ -58,7 +58,7 @@ describe('RedisQueue', function() {
             try {
                 const rq: any = new RedisQueue(uuid(), { logger });
                 await rq.start();
-                expect(rq.reader).to.be.instanceof(redis.RedisClient);
+                expect(rq.reader).to.be.instanceof(Redis);
                 await rq.destroy();
             }
 
@@ -68,7 +68,7 @@ describe('RedisQueue', function() {
         it('should create shared writer connection', async () => {
             const rq: any = new RedisQueue(uuid(), { logger });
             await rq.start();
-            expect(rq.writer).to.be.instanceof(redis.RedisClient);
+            expect(rq.writer).to.be.instanceof(Redis);
             await rq.destroy();
         });
 
@@ -88,7 +88,7 @@ describe('RedisQueue', function() {
             await rq.start();
             await rq.stop();
             await rq.start();
-            expect(rq.reader).to.be.instanceof(redis.RedisClient);
+            expect(rq.reader).to.be.instanceof(Redis);
             await rq.destroy();
         });
 
@@ -109,7 +109,7 @@ describe('RedisQueue', function() {
             const name = uuid();
             const rq: any =  new RedisQueue(name, { logger });
             await rq.start();
-            expect(rq.reader).to.be.instanceof(redis.RedisClient);
+            expect(rq.reader).to.be.instanceof(Redis);
             await rq.stop();
             expect(rq.reader).not.to.be.ok;
             await rq.destroy();
@@ -179,9 +179,10 @@ describe('RedisQueue', function() {
         });
 
         it('should trigger an error in case of redis error', (done) => {
-            const lrange = redis.RedisClient.prototype.lrange;
+            const lrange = Redis.prototype.lrange;
             let wasDone = false;
-            redis.RedisClient.prototype.lrange = () => [,,];
+            Redis.prototype.lrange = async (): Promise<string[]> =>
+                [undefined, undefined] as unknown as string[];
 
             const message: any = { hello: 'safe delivery' };
             const rq = new RedisQueue('IMQSafe', {
@@ -190,7 +191,7 @@ describe('RedisQueue', function() {
 
             process.on('unhandledRejection', function(e) {
                 expect((e as any).message).to.be.equal('Wrong messages count');
-                redis.RedisClient.prototype.lrange = lrange;
+                Redis.prototype.lrange = lrange;
                 !wasDone && done();
                 wasDone = true;
             });

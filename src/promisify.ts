@@ -88,8 +88,9 @@ function makePromised(method: (...args: any[]) => any) {
  * @param {any} obj - source object to modify
  * @param {string[]} restrict - stick promise-like behavior to a given
  *                              restricted list of methods
+ * @return {void}
  */
-export function promisify(obj: any, restrict?: string[]) {
+export function promisify(obj: any, restrict?: string[]): void {
     for (const prop of propertiesOf(obj)) {
         try {
             if (typeof obj[prop] !== 'function' ||

@@ -59,7 +59,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * Part of options without cluster definitions - which are generic for
      * RedisQueue instances
      *
-     * @type {IMQOptions]
+     * @type {IMQOptions}
      */
     private readonly mqOptions: IMQOptions;
 
@@ -76,7 +76,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      *
      * @type {number}
      */
-    private currentQueue = 0;
+    private currentQueue: number = 0;
 
     // noinspection TypeScriptFieldCanBeMadeReadonly
     /**
@@ -84,7 +84,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      *
      * @type {number}
      */
-    private queueLength = 0;
+    private queueLength: number = 0;
 
     /**
      * Class constructor
@@ -92,7 +92,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @constructor
      * @param {string} name
      * @param {Partial<IMQOptions>} options
-     * @param {IMQMode} mode
+     * @param {IMQMode} [mode]
      */
     public constructor(
         public name: string,
@@ -210,7 +210,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @param {string} message
      * @return {Promise<this>}
      */
-    private async batch(action: string, message: string) {
+    private async batch(action: string, message: string): Promise<this> {
         this.logger.log(message);
 
         const promises = [];

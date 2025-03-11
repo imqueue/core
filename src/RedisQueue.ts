@@ -28,21 +28,21 @@ import {
     IMessage,
     IMQMode,
     ILogger,
-    redis,
     profile,
     uuid,
 } from '.';
+import Redis from './redis';
 
 const RX_CLIENT_NAME = /name=(\S+)/g;
 const RX_CLIENT_TEST = /:(reader|writer|watcher)/;
 const RX_CLIENT_CLEAN = /:(reader|writer|watcher).*$/;
 
 export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
+    host: 'localhost',
+    port: 6379,
     cleanup: false,
     cleanupFilter: '*',
-    host: 'localhost',
     logger: console,
-    port: 6379,
     prefix: 'imq',
     safeDelivery: false,
     safeDeliveryTtl: 5000,
@@ -58,7 +58,7 @@ export const IMQ_SHUTDOWN_TIMEOUT = +(process.env.IMQ_SHUTDOWN_TIMEOUT || 1000);
  * @param {string} str
  * @returns {string}
  */
-export function sha1(str: string) {
+export function sha1(str: string): string {
     const sha: crypto.Hash = crypto.createHash('sha1');
 
     sha.update(str);
@@ -73,7 +73,7 @@ export function sha1(str: string) {
  * @param {number} max
  * @returns {number}
  */
-export function intrand(min: number, max: number) {
+export function intrand(min: number, max: number): number {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
@@ -166,7 +166,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @type {boolean}
      */
-    private watchOwner = false;
+    private watchOwner: boolean = false;
 
     /**
      * Signals initialization state
@@ -304,8 +304,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             }
 
             this.subscription.removeAllListeners();
-            this.subscription.end(false);
-            this.subscription.unref();
+            this.subscription.disconnect(false);
+            this.subscription.quit();
         }
 
         this.subscriptionName = undefined;
@@ -316,9 +316,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Publishes a message to this queue subscription channel for currently
      * subscribed clients.
      *
-     * If toName specified will publish to pubsub with different name. This
+     * If toName specified will publish to PubSub with different name. This
      * can be used to implement broadcasting some messages to other subscribers
-     * on other pubsub channels.
+     * on other PubSub channels.
      *
      * @param {string} [toName]
      * @param {JsonObject} data
@@ -457,8 +457,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     public async stop(): Promise<RedisQueue> {
         if (this.reader) {
             this.reader.removeAllListeners();
-            this.reader.end(false);
-            this.reader.unref();
+            this.reader.disconnect(false);
+            this.reader.quit();
+
             delete this.reader;
         }
 
@@ -473,7 +474,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<void>}
      */
     @profile()
-    public async destroy() {
+    public async destroy(): Promise<void> {
         this.removeAllListeners();
         this.cleanSafeCheckInterval();
         this.destroyWatcher();
@@ -506,7 +507,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @return {boolean}
      */
-    public isPublisher() {
+    public isPublisher(): boolean {
         return this.mode === IMQMode.BOTH || this.mode === IMQMode.PUBLISHER;
     }
 
@@ -515,7 +516,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      *
      * @return {boolean}
      */
-    public isWorker() {
+    public isWorker(): boolean {
         return this.mode === IMQMode.BOTH || this.mode === IMQMode.WORKER;
     }
 
@@ -599,8 +600,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private destroyWatcher() {
         if (this.watcher) {
             this.watcher.removeAllListeners();
-            this.watcher.end(false);
-            this.watcher.unref();
+            this.watcher.disconnect(false);
+            this.watcher.quit();
             delete RedisQueue.watchers[this.redisKey];
         }
     }
@@ -614,14 +615,14 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
     private destroyWriter() {
         if (this.writer) {
             this.writer.removeAllListeners();
-            this.writer.end(false);
-            this.writer.unref();
+            this.writer.disconnect(false);
+            this.writer.quit();
             delete RedisQueue.writers[this.redisKey];
         }
     }
 
     /**
-     * Establishes given connection channel by its' name
+     * Establishes given connection channel by its name
      *
      * @access private
      * @param {"reader"|"writer"|"watcher"|"subscription"} channel
@@ -640,15 +641,38 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         return new Promise((resolve, reject) => {
-            context[channel] = redis.createClient(
+            context[channel] = new Redis({
                 // istanbul ignore next
-                options.port || 6379,
+                port: options.port || 6379,
                 // istanbul ignore next
-                options.host || 'localhost',
-            ) as IRedisClient;
+                host: options.host || 'localhost',
+                // istanbul ignore next
+                username: options.username,
+                // istanbul ignore next
+                password: options.password,
+                connectionName: this.getChannelName(
+                    context.name,
+                    options.prefix || '',
+                    channel,
+                ),
+                retryStrategy: times => {
+                    if (times > 3) {
+                        this.logger.error(
+                            `${context.name}: error reconnecting redis host ${
+                                this.redisKey} on ${
+                                channel}, pid ${process.pid}`,
+                        );
+
+                        return null;
+                    }
+
+                    return 200;
+
+                },
+            });
             context[channel].__imq = true;
             context[channel].on('ready',
-                this.onReadyHandler(options, context, channel, resolve),
+                this.onReadyHandler(context, channel, resolve),
             );
             context[channel].on('error',
                 this.onErrorHandler(context, channel, reject),
@@ -666,14 +690,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Builds and returns connection ready state handler
      *
      * @access private
-     * @param {IMQOptions} options
      * @param {any} context
      * @param {string} channel
      * @param {(...args: any[]) => void} resolve
      * @return {() => Promise<void>}
      */
     private onReadyHandler(
-        options: IMQOptions,
         context: RedisQueue,
         channel: string,
         resolve: (...args: any[]) => void,
@@ -683,17 +705,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 '%s: %s channel connected, host %s, pid %s',
                 context.name, channel, this.redisKey, process.pid,
             );
-
-            try {
-                await this.setChannelName(
-                    context[channel],
-                    context.name,
-                    options.prefix || '',
-                    channel,
-                );
-            } catch (err) {
-                this.logger.warn('Error setting channel name:', err);
-            }
 
             switch (channel) {
                 case 'reader': this.read(); break;
@@ -707,24 +718,21 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
     // noinspection JSMethodCanBeStatic
     /**
-     * Sets channel name
+     * Generates channel name
      *
-     * @param {IRedisClient} channel
      * @param {string} contextName
      * @param {string} prefix
      * @param {string} name
+     * @return {string}
      */
-    private async setChannelName(
-        channel: IRedisClient,
+    private getChannelName(
         contextName: string,
         prefix: string,
         name: string,
-    ) {
-        await channel.client(
-            'setname',
-            `${prefix}:${contextName}:${name}:pid:${process.pid}:host:${
-                os.hostname()}`,
-        );
+    ): string {
+        const uniqueSuffix = `pid:${process.pid}:host:${ os.hostname()}`;
+
+        return`${prefix}:${contextName}:${name}:${uniqueSuffix}`;
     }
 
     /**
@@ -807,7 +815,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Processes given redis-queue message
      *
      * @access private
-     * @param {[any , any]} msg
+     * @param {[any, any]} msg
      * @returns {RedisQueue}
      */
     private process(msg: [any, any]): RedisQueue {
@@ -843,9 +851,11 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             `\\bname=${this.options.prefix}:[\\S]+?:watcher:`,
         );
 
-        return (await this.writer.client('list') as any || '')
+        const list = await this.writer.client('LIST') as string;
+
+        return (list || '')
             .split(/\r?\n/)
-            .filter((client: string) => rx.test(client))
+            .filter(client => rx.test(client))
             .length;
     }
 
@@ -856,7 +866,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {string} key
      * @returns {Promise<void>}
      */
-    private async processDelayed(key: string) {
+    private async processDelayed(key: string): Promise<void> {
         try {
             if (this.scripts.moveDelayed.checksum) {
                 await this.writer.evalsha(
@@ -875,23 +885,27 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Watch routine
      *
      * @access private
-     * @return {Promise<any>}
+     * @return {Promise<void>}
      */
-    private async processWatch(): Promise<any> {
+    private async processWatch(): Promise<void> {
         const now = Date.now();
         let cursor: string = '0';
 
         while (true) {
             try {
-                const data: [string, string[]][] =
-                    await this.writer.scan(
-                        cursor, 'match',
-                        `${this.options.prefix}:*:worker:*`,
-                        'count', '1000',
-                    ) as any;
+                const data = await this.writer.scan(
+                    cursor,
+                    'MATCH',
+                    `${this.options.prefix}:*:worker:*`,
+                    'COUNT',
+                    '1000',
+                );
 
-                cursor = data.shift() as any;
-                await this.processKeys(data.shift() as any || [], now);
+                cursor = data.shift() as string;
+
+                const keys = data.shift() as string[] || [];
+
+                await this.processKeys(keys, now);
 
                 if (cursor === '0') {
                     return ;
@@ -915,7 +929,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {number} now
      * @return {Promise<void>}
      */
-    private async processKeys(keys: string[], now: number) {
+    private async processKeys(keys: string[], now: number): Promise<void> {
         if (!keys.length) {
             return ;
         }
@@ -939,7 +953,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @param {...any[]} args
      * @return {Promise<void>}
      */
-    private async onWatchMessage(...args: any[]) {
+    private async onWatchMessage(...args: any[]): Promise<void> {
         try {
             const key = (args.pop() || '').split(':');
 
@@ -975,13 +989,13 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {RedisQueue}
      */
     // istanbul ignore next
-    private watch() {
+    private watch(): RedisQueue {
         if (!this.watcher || this.watcher.__ready__) {
             return this;
         }
 
         try {
-            this.writer.config('set', 'notify-keyspace-events', 'Ex');
+            this.writer.config('SET', 'notify-keyspace-events', 'Ex');
         } catch (err) {
             this.emitError('OnConfig', 'events config error', err);
         }
@@ -1020,12 +1034,12 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * Cleans up orphaned keys from redis
      *
      * @access private
-     * @returns {RedisQueue}
+     * @returns {Promise<RedisQueue | undefined>}
      */
-    private async processCleanup() {
+    private async processCleanup(): Promise<RedisQueue | undefined> {
         try {
             if (!this.options.cleanup) {
-                return ;
+                return;
             }
 
             const filter: RegExp = new RegExp(
@@ -1033,7 +1047,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 (this.options.cleanupFilter || '*').replace(/\*/g, '.*'),
                 'i',
             );
-            const clients: string = await this.writer.client('list') as any;
+            const clients = await this.writer.client('LIST') as string;
             const connectedKeys = (clients.match(RX_CLIENT_NAME) || [])
                 .filter((name: string) =>
                     RX_CLIENT_TEST.test(name) && filter.test(name),
@@ -1049,22 +1063,30 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
             let cursor = '0';
 
             while (true) {
-                const data: [string, string[]][] =
-                    await this.writer.scan(
-                        cursor, 'match',
-                        `${
-                            this.options.prefix}:${
-                            this.options.cleanupFilter || '*'
-                        }`,
-                        'count', '1000',
-                    ) as any;
+                const data = await this.writer.scan(
+                    cursor,
+                    'MATCH',
+                    `${
+                        this.options.prefix}:${
+                        this.options.cleanupFilter || '*'
+                    }`,
+                    'COUNT',
+                    '1000',
+                );
 
-                cursor = data.shift() as any;
-                keysToRemove.push(...(data.shift() as any).filter(
-                    (key: string) => key !== this.lockKey &&
-                        connectedKeys.every((connectedKey: string) =>
-                            key.indexOf(connectedKey) === -1),
-                ));
+                cursor = data.shift() as string;
+
+                const keys = data.shift() as string[] || [];
+
+                keysToRemove.push(
+                    ...keys.filter(
+                        key => key !== this.lockKey &&
+                            connectedKeys.every(
+                                connectedKey =>
+                                    key.indexOf(connectedKey) === -1,
+                            ),
+                    ),
+                );
 
                 if (cursor === '0') {
                     break ;
@@ -1188,7 +1210,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<boolean>}
      */
     private async isLocked(): Promise<boolean> {
-        return !!Number(await this.writer.exists(this.lockKey));
+        return Boolean(Number(await this.writer.exists(this.lockKey)));
     }
 
     /**
@@ -1198,7 +1220,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<boolean>}
      */
     private async lock(): Promise<boolean> {
-        return !!Number(await this.writer.setnx(this.lockKey, ''));
+        return Boolean(Number(await this.writer.setnx(this.lockKey, '')));
     }
 
     /**
@@ -1208,7 +1230,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<boolean>}
      */
     private async unlock(): Promise<boolean> {
-        return !!Number(await this.writer.del(this.lockKey));
+        return Boolean(Number(await this.writer.del(this.lockKey)));
     }
 
     // istanbul ignore next
@@ -1235,7 +1257,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<void>}
      */
     // istanbul ignore next
-    private async ownWatch() {
+    private async ownWatch(): Promise<void> {
         const owned = await this.lock();
 
         if (owned) {
@@ -1243,12 +1265,15 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                 try {
                     const checksum = this.scripts[script].checksum = sha1(
                         this.scripts[script].code);
-                    const loaded = ((await this.writer.script('exists',
+                    const scriptExists = await this.writer.script(
+                        'EXISTS',
                         checksum,
-                    )) as any || []).shift();
+                    ) as string[];
+                    const loaded = (scriptExists as string[] || []).shift();
 
                     if (!loaded) {
-                        await this.writer.script('load',
+                        await this.writer.script(
+                            'LOAD',
                             this.scripts[script].code,
                         );
                     }
@@ -1299,7 +1324,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
      * @returns {Promise<void>}
      */
     // istanbul ignore next
-    private async initWatcher() {
+    private async initWatcher(): Promise<void> {
         return new Promise<void>(async (resolve, reject) => {
             try {
                 if (!await this.watcherCount()) {
@@ -1308,7 +1333,7 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     if (this.watchOwner && this.watcher) {
                         resolve();
                     } else {
-                        // check for possible dead-lock to resolve
+                        // check for possible deadlock to resolve
                         setTimeout(
                             this.watchLockResolver(resolve, reject),
                             intrand(1, 50),

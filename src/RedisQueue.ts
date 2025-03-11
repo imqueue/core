@@ -1268,8 +1268,8 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
                     const scriptExists = await this.writer.script(
                         'EXISTS',
                         checksum,
-                    ) as string[];
-                    const loaded = (scriptExists as string[] || []).shift();
+                    ) as number[];
+                    const loaded = (scriptExists || []).shift();
 
                     if (!loaded) {
                         await this.writer.script(

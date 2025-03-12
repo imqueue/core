@@ -142,7 +142,7 @@ describe('RedisQueue', function() {
             // for the moment. dumb test but better than nothing :(
             const message: any = { hello: 'safe delivery' };
             const rq = new RedisQueue('IMQSafe', {
-                logger, safeDelivery: true
+                logger, safeDelivery: true,
             });
 
             rq.on('message', (msg) => {

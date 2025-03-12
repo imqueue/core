@@ -386,7 +386,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         }
 
         await this.initWatcher();
-
         this.initialized = true;
 
         return this;
@@ -850,7 +849,6 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         const rx = new RegExp(
             `\\bname=${this.options.prefix}:[\\S]+?:watcher:`,
         );
-
         const list = await this.writer.client('LIST') as string;
 
         return (list || '')
@@ -1263,8 +1261,10 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
         if (owned) {
             for (const script of Object.keys(this.scripts)) {
                 try {
-                    const checksum = this.scripts[script].checksum = sha1(
-                        this.scripts[script].code);
+                    const checksum = sha1(this.scripts[script].code);
+
+                    this.scripts[script].checksum = checksum;
+
                     const scriptExists = await this.writer.script(
                         'EXISTS',
                         checksum,

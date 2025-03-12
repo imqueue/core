@@ -37,7 +37,7 @@
   "author": "imqueue.com <support@imqueue.com> (https://imqueue.com)",
   "license": "ISC",
   "dependencies": {
-    "ioredis": "^5.5.0"
+    "ioredis": "^5.6.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",

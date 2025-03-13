@@ -669,6 +669,9 @@ export class RedisQueue extends EventEmitter implements IMessageQueue {
 
                 },
             });
+
+            context[channel].setMaxListeners(10000);
+
             context[channel].__imq = true;
             context[channel].on('ready',
                 this.onReadyHandler(context, channel, resolve),

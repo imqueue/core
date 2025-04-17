@@ -114,10 +114,77 @@ export interface IMessage {
     delay?: number;
 }
 
+export interface IMessageQueueConnection extends IMessageQueueAuthConnection {
+        /**
+     * Message queue network host
+     *
+     * @type {string}
+     */
+    host: string;
+
+    /**
+     * Message queue network port
+     *
+     * @type {number}
+     */
+    port: number;
+}
+
+export interface IMessageQueueAuthConnection {
+    /**
+     * Message queue username
+     *
+     * @type {string}
+     */
+    username?: string;
+
+    /**
+     * Message queue password
+     *
+     * @type {string}
+     */
+    password?: string;
+}
+
+export interface IDynamicCluster extends IMessageQueueAuthConnection {
+    /**
+     * Message queue flag that signals whether the dynamic cluster
+     * feature is enabled
+     *
+     * @default false
+     * @type {boolean}
+     */
+    enabled?: boolean;
+
+    /**
+     * Message queue broadcast port
+     *
+     * @default 63000
+     * @type {number}
+     */
+    broadcastPort?: number;
+
+    /**
+     * Message queue broadcast address
+     *
+     * @default limitedBroadcastAddress
+     * @type {number}
+     */
+    broadcastAddress?: string;
+
+    /**
+     * Message queue limited broadcast address
+     *
+     * @default 255.255.255.255
+     * @type {string}
+     */
+    limitedBroadcastAddress?: string;
+}
+
 /**
  * Message queue options
  */
-export interface IMQOptions {
+export interface IMQOptions extends Partial<IMessageQueueConnection> {
     /**
      * Turns on/off cleanup of the message queues
      *
@@ -132,34 +199,6 @@ export interface IMQOptions {
      * @type {string}
      */
     cleanupFilter: string,
-
-    /**
-     * Message queue network host
-     *
-     * @type {string}
-     */
-    host?: string;
-
-    /**
-     * Message queue network port
-     *
-     * @type {number}
-     */
-    port?: number;
-
-    /**
-     * Message queue username host
-     *
-     * @type {string}
-     */
-    username?: string;
-
-    /**
-     * Message queue password port
-     *
-     * @type {string}
-     */
-    password?: string;
 
     /**
      * Message queue vendor
@@ -223,23 +262,19 @@ export interface IMQOptions {
     /**
      * Queue cluster instances, if MQ should be clustered
      *
-     * @type {{
-     *  host: string;
-     *  port: number;
-     *  username: string;
-     *  password: string;
-     * }[]}
+     * @type {IMessageQueueConnection[]}
      */
-    cluster?: {
-        // tslint:disable-next-line:completed-docs
-        host: string,
-        // tslint:disable-next-line:completed-docs
-        port: number,
-        // tslint:disable-next-line:completed-docs
-        username?: string;
-        // tslint:disable-next-line:completed-docs
-        password?: string;
-    }[];
+    cluster?: IMessageQueueConnection[];
+
+    /**
+     * Queue dynamic cluster instances if MQ is configured for clustering.
+     * Implements instance detection within the cluster, which can be
+     * auto-scaled. See Redis implementation @imqueue/redis-broker-promoter to
+     * support this feature in
+     *
+     * @type {IDynamicCluster}
+     */
+    dynamicCluster?: IDynamicCluster;
 }
 
 export type IMessageQueueConstructor = new (

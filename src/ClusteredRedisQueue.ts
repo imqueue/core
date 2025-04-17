@@ -17,15 +17,39 @@
  */
 import { EventEmitter } from 'events';
 import {
-    buildOptions,
+    DEFAULT_IMQ_DYNAMIC_CLUSTER_OPTIONS,
     DEFAULT_IMQ_OPTIONS,
+    buildOptions,
+    IDynamicCluster,
     ILogger,
     IMessageQueue,
+    IMessageQueueConnection,
     IMQMode,
     IMQOptions,
     JsonObject,
     RedisQueue,
 } from '.';
+import * as dgram from 'dgram';
+import { selectNetworkInterface } from './selectNetworkInterface';
+
+enum DynamicClusterMessageType {
+    Up = 'up',
+    Down = 'down',
+}
+
+interface DynamicClusterMessage {
+    name: string;
+    id: string;
+    type: DynamicClusterMessageType;
+    host: string;
+    port: number;
+    timeout: number;
+}
+
+interface ClusterServer extends IMessageQueueConnection {
+    id?: string;
+    imq?: RedisQueue;
+}
 
 /**
  * Class ClusteredRedisQueue
@@ -66,10 +90,10 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     /**
      * Cluster servers option definitions
      *
-     * @type {{ host: string, port: number }[]}
+     * @type {IMessageQueueConnection[]}
      */
     // tslint:disable-next-line:completed-docs
-    private readonly servers: { host: string, port: number }[] = [];
+    private servers: ClusterServer[] = [];
 
     /**
      * Current queue index (round-robin)
@@ -99,31 +123,29 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         options?: Partial<IMQOptions>,
         mode: IMQMode = IMQMode.BOTH,
     ) {
-        this.options = buildOptions<IMQOptions>(
-            DEFAULT_IMQ_OPTIONS,
-            options,
-        );
+        this.options = buildOptions<IMQOptions>(DEFAULT_IMQ_OPTIONS, options);
 
         // istanbul ignore next
         this.logger = this.options.logger || console;
 
-        if (!this.options.cluster) {
+        if (!this.options.cluster && !this.options.dynamicCluster?.enabled) {
             throw new TypeError('ClusteredRedisQueue: cluster ' +
                 'configuration is missing!');
         }
 
+        if (this.options.dynamicCluster?.enabled) {
+            this.initializeDC(this.options.dynamicCluster);
+        }
+
         this.mqOptions = { ...this.options };
-        // istanbul ignore next
-        this.servers = this.mqOptions.cluster || [];
+
+        const cluster = [...(this.mqOptions.cluster || [])];
 
         delete this.mqOptions.cluster;
 
-        for (let i = 0, s = this.servers.length; i < s; i++) {
-            const opts = { ...this.mqOptions, ...this.servers[i] };
-            this.imqs.push(new RedisQueue(this.name, opts));
+        if (cluster.length) {
+            this.addServers(cluster);
         }
-
-        this.queueLength = this.imqs.length;
     }
 
     /**
@@ -387,5 +409,138 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
         await Promise.all(promises);
     }
-    /* tslint:enable */
+
+    private addServers(
+        servers: ClusterServer[],
+        initializeQueues = false,
+    ): void {
+        for (let i = 0, s = servers.length; i < s; i++) {
+            const opts = { ...this.mqOptions, ...servers[i] };
+            const imq = new RedisQueue(this.name, opts);
+
+            servers[i].imq = imq;
+            this.imqs.push(imq);
+
+            if (initializeQueues) {
+                //TODO: initialize newly added queues
+            }
+        }
+
+        this.servers.push(...servers);
+        this.queueLength = this.imqs.length;
+    }
+
+    private removeServer(server: ClusterServer): void {
+        const remove = this.findServer(server);
+
+        if (!remove) {
+            return;
+        }
+
+        this.servers = this.servers.filter(
+            existing => ClusteredRedisQueue.matchServers(
+                existing,
+                server,
+            ),
+        );
+
+        if (remove.imq) {
+            this.imqs = this.imqs.filter(imq => remove.imq === imq);
+            remove.imq.destroy();
+        }
+
+        this.queueLength = this.imqs.length;
+    }
+
+    private serverAdded(server: ClusterServer): boolean {
+        if (!this.servers.length) {
+            return false
+        }
+
+        return Boolean(this.findServer(server));
+    }
+
+    private findServer(server: ClusterServer): ClusterServer | undefined {
+        return this.servers.find(
+            existing => ClusteredRedisQueue.matchServers(
+                existing,
+                server,
+            ),
+        );
+    }
+
+    private static matchServers(
+        target: ClusterServer,
+        source: ClusterServer,
+    ): boolean {
+        if (target.id === source.id) {
+            return true;
+        }
+
+        if (!target.id && !source.id) {
+            return target.host === source.host
+                && target.port === source.port;
+        }
+
+        return false;
+    }
+
+    private initializeDC(options: IDynamicCluster = {}): void {
+        const initialOptions: IDynamicCluster = {
+            ...DEFAULT_IMQ_DYNAMIC_CLUSTER_OPTIONS,
+            ...options,
+        };
+
+        this.listenToDC(this.processDCMessage, initialOptions);
+    }
+
+    private processDCMessage(message: DynamicClusterMessage): void {
+        const added = this.serverAdded(message);
+
+        if (added && message.type === DynamicClusterMessageType.Down) {
+            return this.removeServer(message);
+        }
+
+        if (!added && message.type === DynamicClusterMessageType.Up) {
+            return this.addServers([message]);
+        }
+    }
+
+    private listenToDC(
+        listener: (message: DynamicClusterMessage) => void,
+        options: IDynamicCluster,
+    ): void {
+        const socket = dgram.createSocket('udp4');
+
+        socket
+            .on(
+                'message',
+                message => listener(this.parseDCMessage(message)),
+            )
+            .bind(
+                options.broadcastPort,
+                selectNetworkInterface(options),
+            )
+        ;
+    }
+
+    private parseDCMessage(msg: Buffer): DynamicClusterMessage {
+        const [
+            name,
+            id,
+            type,
+            address = '',
+            timeout = '0',
+        ] = msg.toString().split('\t');
+        const [host, port] = address.split(':');
+
+        return {
+            name,
+            id,
+            type: type.toLowerCase() as DynamicClusterMessageType,
+            host,
+            port: parseInt(port),
+            timeout: parseFloat(timeout),
+        };
+    }
 }

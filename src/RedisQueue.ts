@@ -29,7 +29,7 @@ import {
     IMQMode,
     ILogger,
     profile,
-    uuid,
+    uuid, IDynamicCluster,
 } from '.';
 import Redis from './redis';
 
@@ -48,6 +48,12 @@ export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     safeDeliveryTtl: 5000,
     useGzip: false,
     watcherCheckDelay: 5000,
+};
+
+export const DEFAULT_IMQ_DYNAMIC_CLUSTER_OPTIONS = {
+    enabled: false,
+    broadcastPort: 63000,
+    broadcastAddress: '255.255.255.255',
 };
 
 export const IMQ_SHUTDOWN_TIMEOUT = +(process.env.IMQ_SHUTDOWN_TIMEOUT || 1000);

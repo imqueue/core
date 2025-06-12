@@ -17,10 +17,8 @@
  */
 import { EventEmitter } from 'events';
 import {
-    DEFAULT_IMQ_DYNAMIC_CLUSTER_OPTIONS,
     DEFAULT_IMQ_OPTIONS,
     buildOptions,
-    IDynamicCluster,
     ILogger,
     IMessageQueue,
     IMessageQueueConnection,
@@ -28,35 +26,30 @@ import {
     IMQOptions,
     JsonObject,
     RedisQueue,
+    EventMap,
+    IServerInput,
 } from '.';
-import * as dgram from 'dgram';
-import { selectNetworkInterface } from './selectNetworkInterface';
-
-enum DynamicClusterMessageType {
-    Up = 'up',
-    Down = 'down',
-}
-
-interface DynamicClusterMessage {
-    name: string;
-    id: string;
-    type: DynamicClusterMessageType;
-    host: string;
-    port: number;
-    timeout: number;
-}
+import { copyEventEmitter } from './utils';
 
 interface ClusterServer extends IMessageQueueConnection {
-    id?: string;
     imq?: RedisQueue;
+}
+
+interface ClusterState {
+    started: boolean;
+    subscriptions: {
+        channel: string;
+        handler: (data: JsonObject) => any;
+    }[];
 }
 
 /**
  * Class ClusteredRedisQueue
- * Implements possibility to scale queues horizontally between several
+ *  Implements the possibility to scale queues horizontally between several
  * redis instances.
  */
-export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
+export class ClusteredRedisQueue implements IMessageQueue,
+    EventEmitter<EventMap> {
 
     /**
      * Logger instance associated with this queue instance
@@ -111,6 +104,27 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     private queueLength: number = 0;
 
     /**
+     * Template EventEmitter instance used to replicate queue EventEmitters when
+     * dynamically modifying the cluster
+     * @type {EventEmitter}
+     * @private
+     */
+    private readonly templateEmitter: EventEmitter;
+
+    /**
+     * Cluster EventEmitter instance used to notify about changes of
+     * cluster servers
+     * @type {EventEmitter}
+     * @private
+     */
+    private readonly clusterEmitter: EventEmitter;
+
+    private state: ClusterState = {
+        started: false,
+        subscriptions: [],
+    };
+
+    /**
      * Class constructor
      *
      * @constructor
@@ -123,28 +137,36 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         options?: Partial<IMQOptions>,
         mode: IMQMode = IMQMode.BOTH,
     ) {
+        this.templateEmitter = new EventEmitter();
+        this.clusterEmitter = new EventEmitter();
         this.options = buildOptions<IMQOptions>(DEFAULT_IMQ_OPTIONS, options);
 
         // istanbul ignore next
         this.logger = this.options.logger || console;
 
-        if (!this.options.cluster && !this.options.dynamicCluster?.enabled) {
+        if (!this.options.cluster && !this.options.clusterManagers?.length) {
             throw new TypeError('ClusteredRedisQueue: cluster ' +
                 'configuration is missing!');
         }
 
-        if (this.options.dynamicCluster?.enabled) {
-            this.initializeDC(this.options.dynamicCluster);
-        }
-
         this.mqOptions = { ...this.options };
 
-        const cluster = [...(this.mqOptions.cluster || [])];
+        const cluster = [...this.mqOptions.cluster || []];
 
         delete this.mqOptions.cluster;
 
-        if (cluster.length) {
-            this.addServers(cluster);
+        for (const server of cluster) {
+            this.addServerWithQueueInitializing(server, false);
+        }
+
+        if (this.options.clusterManagers?.length) {
+            for (const manager of this.options.clusterManagers) {
+                manager.init({
+                    add: this.addServer.bind(this),
+                    remove: this.removeServer.bind(this),
+                    exists: this.findServer.bind(this),
+                });
+            }
         }
     }
 
@@ -155,17 +177,21 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async start(): Promise<ClusteredRedisQueue> {
+        this.state.started = true;
+
         return await this.batch('start',
             'Starting clustered redis message queue...');
     }
 
     /**
-     * Stops the queue (should stop handle queue messages).
+     * Stops the queue (should stop handling queue messages).
      * Supposed to be an async function.
      *
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async stop(): Promise<ClusteredRedisQueue> {
+        this.state.started = false;
+
         return await this.batch('stop',
             'Stopping clustered redis message queue...');
     }
@@ -176,8 +202,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      *
      * @param {string} toQueue - queue name to which message should be sent to
      * @param {JsonObject} message - message data
-     * @param {number} [delay] - if specified, message will be handled in the
-     *        target queue after specified period of time in milliseconds.
+     * @param {number} [delay] - if specified, a message will be handled in the
+     *        target queue after a specified period of time in milliseconds.
      * @param {(err: Error) => void} [errorHandler] - callback called only when
      *        internal error occurs during message send execution.
      * @returns {Promise<string>} - message identifier
@@ -188,6 +214,20 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         delay?: number,
         errorHandler?: (err: Error) => void,
     ): Promise<string> {
+        if (!this.queueLength) {
+            return await new Promise(resolve => this.clusterEmitter.once(
+                'initialized',
+                async ({ imq }) => {
+                    resolve(await imq.send(
+                        toQueue,
+                        message,
+                        delay,
+                        errorHandler,
+                    ));
+                },
+            ));
+        }
+
         if (this.currentQueue >= this.queueLength) {
             this.currentQueue = 0;
         }
@@ -208,6 +248,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
      * @returns {Promise<void>}
      */
     public async destroy(): Promise<void> {
+        this.state.started = false;
+
         await this.batch('destroy',
             'Destroying clustered redis message queue...');
     }
@@ -250,7 +292,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     // EventEmitter interface
     // istanbul ignore next
     public on(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.on.apply(imq, args);
         }
 
@@ -260,7 +302,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     // istanbul ignore next
     // noinspection JSUnusedGlobalSymbols
     public off(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.off.apply(imq, args);
         }
 
@@ -269,7 +311,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public once(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.once.apply(imq, args);
         }
 
@@ -278,7 +320,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public addListener(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.addListener.apply(imq, args);
         }
 
@@ -287,7 +329,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public removeListener(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.removeListener.apply(imq, args);
         }
 
@@ -296,7 +338,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public removeAllListeners(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.removeAllListeners.apply(imq, args);
         }
 
@@ -305,7 +347,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public prependListener(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.prependListener.apply(imq, args);
         }
 
@@ -314,7 +356,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public prependOnceListener(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.prependOnceListener.apply(imq, args);
         }
 
@@ -323,7 +365,7 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public setMaxListeners(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.setMaxListeners.apply(imq, args);
         }
 
@@ -333,7 +375,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     // istanbul ignore next
     public listeners(...args: any[]) {
         let listeners: any[] = [];
-        for (let imq of this.imqs) {
+
+        for (const imq of this.eventEmitters()) {
             listeners = listeners.concat(imq.listeners.apply(imq, args));
         }
 
@@ -343,8 +386,11 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     // istanbul ignore next
     public rawListeners(...args: any[]) {
         let rawListeners: any[] = [];
-        for (let imq of this.imqs) {
-            rawListeners = rawListeners.concat(imq.rawListeners.apply(imq, args));
+
+        for (const imq of this.eventEmitters()) {
+            rawListeners = rawListeners.concat(
+                imq.rawListeners.apply(imq, args),
+            );
         }
 
         return rawListeners;
@@ -352,12 +398,12 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public getMaxListeners() {
-        return this.imqs[0].getMaxListeners();
+        return this.templateEmitter.getMaxListeners();
     }
 
     // istanbul ignore next
     public emit(...args: any[]) {
-        for (let imq of this.imqs) {
+        for (const imq of this.eventEmitters()) {
             imq.emit.apply(imq, args);
         }
 
@@ -366,19 +412,19 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public eventNames(...args: any[]) {
-        return this.imqs[0].eventNames.apply(this.imqs[0], args);
+        return this.templateEmitter.eventNames.apply(this.imqs[0], args);
     }
 
     // istanbul ignore next
     public listenerCount(...args: any[]) {
-        return this.imqs[0].listenerCount.apply(this.imqs[0], args);
+        return this.templateEmitter.listenerCount.apply(this.imqs[0], args);
     }
 
     // istanbul ignore next
     public async publish(data: JsonObject, toName?: string): Promise<void> {
-        const promises = [] as Array<Promise<void>>;
+        const promises: Array<Promise<void>> = [];
 
-        for (let imq of this.imqs) {
+        for (const imq of this.imqs) {
             promises.push(imq.publish(data, toName));
         }
 
@@ -390,9 +436,11 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         channel: string,
         handler: (data: JsonObject) => any,
     ): Promise<void> {
-        const promises = [] as Array<Promise<void>>;
+        this.state.subscriptions.push({ channel, handler });
 
-        for (let imq of this.imqs) {
+        const promises: Array<Promise<void>> = [];
+
+        for (const imq of this.imqs) {
             promises.push(imq.subscribe(channel, handler));
         }
 
@@ -401,66 +449,107 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
 
     // istanbul ignore next
     public async unsubscribe(): Promise<void> {
-        const promises = [] as Array<Promise<void>>;
+        this.state.subscriptions = [];
 
-        for (let imq of this.imqs) {
+        const promises: Array<Promise<void>> = [];
+
+        for (const imq of this.imqs) {
             promises.push(imq.unsubscribe());
         }
 
         await Promise.all(promises);
     }
 
-    private addServers(
-        servers: ClusterServer[],
-        initializeQueues = false,
-    ): void {
-        for (let i = 0, s = servers.length; i < s; i++) {
-            const opts = { ...this.mqOptions, ...servers[i] };
-            const imq = new RedisQueue(this.name, opts);
-
-            servers[i].imq = imq;
-            this.imqs.push(imq);
-
-            if (initializeQueues) {
-                //TODO: initialize newly added queues
-            }
-        }
-
-        this.servers.push(...servers);
-        this.queueLength = this.imqs.length;
+    /**
+     * Adds new servers to the cluster
+     *
+     * @param {IServerInput} server
+     * @returns {void}
+     */
+    protected addServer(server: IServerInput): void {
+        return this.addServerWithQueueInitializing(server, true);
     }
 
-    private removeServer(server: ClusterServer): void {
+    /**
+     * Removes server from the cluster
+     *
+     * @param {IServerInput} server
+     * @returns {void}
+     */
+    protected removeServer(server: IServerInput): void {
         const remove = this.findServer(server);
 
         if (!remove) {
             return;
         }
 
+        if (remove.imq) {
+            this.imqs = this.imqs.filter(imq => remove.imq !== imq);
+            remove.imq.destroy().catch();
+        }
+
+        this.clusterEmitter.emit('remove', {
+            server: remove,
+            imq: remove.imq,
+        });
+
+        this.queueLength = this.imqs.length;
         this.servers = this.servers.filter(
             existing => ClusteredRedisQueue.matchServers(
                 existing,
                 server,
             ),
         );
+    }
 
-        if (remove.imq) {
-            this.imqs = this.imqs.filter(imq => remove.imq === imq);
-            remove.imq.destroy();
+    private addServerWithQueueInitializing(
+        server: ClusterServer,
+        initializeQueue: boolean = true,
+    ): void {
+        const newServer: ClusterServer = {
+            id: server.id,
+            host: server.host,
+            port: server.port,
+        };
+        const opts = { ...this.mqOptions, ...newServer };
+        const imq = new RedisQueue(this.name, opts);
+
+        if (initializeQueue) {
+            this.initializeQueue(imq)
+                .then(() => {
+                    this.clusterEmitter.emit('initialized', {
+                        server: newServer,
+                        imq,
+                    });
+                })
+                .catch();
         }
 
+        newServer.imq = imq;
+
+        this.imqs.push(imq);
+        this.servers.push(newServer);
+        this.clusterEmitter.emit('add', { server: newServer, imq });
         this.queueLength = this.imqs.length;
     }
 
-    private serverAdded(server: ClusterServer): boolean {
-        if (!this.servers.length) {
-            return false
-        }
-
-        return Boolean(this.findServer(server));
+    private eventEmitters(): EventEmitter[] {
+        return [...this.imqs, this.templateEmitter];
     }
 
-    private findServer(server: ClusterServer): ClusterServer | undefined {
+    private async initializeQueue(imq: RedisQueue): Promise<void> {
+        copyEventEmitter(this.templateEmitter, imq);
+
+        if (this.state.started) {
+           await imq.start();
+        }
+
+        for (const subscription of this.state.subscriptions) {
+            await imq.subscribe(subscription.channel, subscription.handler);
+        }
+    }
+
+    private findServer(server: IServerInput): ClusterServer | undefined {
         return this.servers.find(
             existing => ClusteredRedisQueue.matchServers(
                 existing,
@@ -470,8 +559,8 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
     }
 
     private static matchServers(
-        target: ClusterServer,
-        source: ClusterServer,
+        source: IServerInput,
+        target: IServerInput,
     ): boolean {
         if (target.id === source.id) {
             return true;
@@ -483,64 +572,5 @@ export class ClusteredRedisQueue implements IMessageQueue, EventEmitter {
         }
 
         return false;
-    }
-
-    private initializeDC(options: IDynamicCluster = {}): void {
-        const initialOptions: IDynamicCluster = {
-            ...DEFAULT_IMQ_DYNAMIC_CLUSTER_OPTIONS,
-            ...options,
-        };
-
-        this.listenToDC(this.processDCMessage, initialOptions);
-    }
-
-    private processDCMessage(message: DynamicClusterMessage): void {
-        const added = this.serverAdded(message);
-
-        if (added && message.type === DynamicClusterMessageType.Down) {
-            return this.removeServer(message);
-        }
-
-        if (!added && message.type === DynamicClusterMessageType.Up) {
-            return this.addServers([message]);
-        }
-    }
-
-    private listenToDC(
-        listener: (message: DynamicClusterMessage) => void,
-        options: IDynamicCluster,
-    ): void {
-        const socket = dgram.createSocket('udp4');
-
-        socket
-            .on(
-                'message',
-                message => listener(this.parseDCMessage(message)),
-            )
-            .bind(
-                options.broadcastPort,
-                selectNetworkInterface(options),
-            )
-        ;
-    }
-
-    private parseDCMessage(msg: Buffer): DynamicClusterMessage {
-        const [
-            name,
-            id,
-            type,
-            address = '',
-            timeout = '0',
-        ] = msg.toString().split('\t');
-        const [host, port] = address.split(':');
-
-        return {
-            name,
-            id,
-            type: type.toLowerCase() as DynamicClusterMessageType,
-            host,
-            port: parseInt(port),
-            timeout: parseFloat(timeout),
-        };
     }
 }

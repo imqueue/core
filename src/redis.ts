@@ -25,6 +25,31 @@ import Redis from 'ioredis';
  */
 export interface IRedisClient extends Redis {
     __ready__?: boolean;
+    __imq?: boolean;
+}
+
+export function makeRedisSafe(redis: IRedisClient): IRedisClient {
+    return new Proxy(redis, {
+        get(target, property, receiver) {
+            const original = Reflect.get(target, property, receiver);
+
+            if (typeof original === 'function') {
+                return async (...args: unknown[]) => {
+                    try {
+                        if (target.status !== 'ready') {
+                            return null;
+                        }
+
+                        return await original.apply(target, args);
+                    } catch (err: unknown) {
+                        return null;
+                    }
+                };
+            }
+
+            return original;
+        },
+    });
 }
 
 export { Redis };

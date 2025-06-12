@@ -17,6 +17,7 @@
  */
 import { EventEmitter } from 'events';
 import { IMQMode } from './IMQMode';
+import { ClusterManager } from './ClusterManager';
 
 export { EventEmitter } from 'events';
 
@@ -114,8 +115,38 @@ export interface IMessage {
     delay?: number;
 }
 
+export interface IServerInput {
+    /**
+     * Message queue network unique identifier, optional property
+     *
+     * @type {string | undefined}
+     */
+    id?: string;
+
+    /**
+     * Message queue network host
+     *
+     * @type {string}
+     */
+    host: string;
+
+    /**
+     * Message queue network port
+     *
+     * @type {number}
+     */
+    port: number;
+}
+
 export interface IMessageQueueConnection extends IMessageQueueAuthConnection {
-        /**
+    /**
+     * Message queue network unique identifier, optional property
+     *
+     * @type {string | undefined}
+     */
+    id?: string;
+
+    /**
      * Message queue network host
      *
      * @type {string}
@@ -144,41 +175,6 @@ export interface IMessageQueueAuthConnection {
      * @type {string}
      */
     password?: string;
-}
-
-export interface IDynamicCluster extends IMessageQueueAuthConnection {
-    /**
-     * Message queue flag that signals whether the dynamic cluster
-     * feature is enabled
-     *
-     * @default false
-     * @type {boolean}
-     */
-    enabled?: boolean;
-
-    /**
-     * Message queue broadcast port
-     *
-     * @default 63000
-     * @type {number}
-     */
-    broadcastPort?: number;
-
-    /**
-     * Message queue broadcast address
-     *
-     * @default limitedBroadcastAddress
-     * @type {number}
-     */
-    broadcastAddress?: string;
-
-    /**
-     * Message queue limited broadcast address
-     *
-     * @default 255.255.255.255
-     * @type {string}
-     */
-    limitedBroadcastAddress?: string;
 }
 
 /**
@@ -267,14 +263,17 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     cluster?: IMessageQueueConnection[];
 
     /**
-     * Queue dynamic cluster instances if MQ is configured for clustering.
-     * Implements instance detection within the cluster, which can be
-     * auto-scaled. See Redis implementation @imqueue/redis-broker-promoter to
-     * support this feature in
+     * Array of cluster managers used to handle cluster operations.
+     * Any manager implements specific cluster server detection.
      *
-     * @type {IDynamicCluster}
+     * @type {ClusterManager[]}
      */
-    dynamicCluster?: IDynamicCluster;
+    clusterManagers?: ClusterManager[];
+}
+
+export interface EventMap {
+    message: [data: any, id: string, from: string],
+    error: [error: Error, eventName: string],
 }
 
 export type IMessageQueueConstructor = new (
@@ -318,7 +317,7 @@ export type IMessageQueueConstructor = new (
  * }
  * ~~~
  */
-export interface IMessageQueue extends EventEmitter {
+export interface IMessageQueue extends EventEmitter<EventMap> {
     /**
      * Message event. Occurs every time queue got a message.
      *

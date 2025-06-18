@@ -17,10 +17,12 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 import { EventEmitter } from 'events';
+import * as util from 'util';
 
 export function copyEventEmitter(
     source: EventEmitter & {
         _maxListeners?: number;
+        _events?: Record<string | symbol, any>;
     },
     target: EventEmitter,
 ): void {
@@ -32,10 +34,7 @@ export function copyEventEmitter(
         const listeners = source.rawListeners(event) as any[];
 
         for (const originalListener of listeners) {
-            const isOnce = originalListener?.name === 'onceWrapper'
-                || originalListener?.toString().includes('onceWrapper');
-
-            if (isOnce) {
+            if (util.inspect(originalListener).includes('onceWrapper')) {
                 const realListener = originalListener?.listener
                     || originalListener;
 

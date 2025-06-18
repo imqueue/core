@@ -1,5 +1,7 @@
 /*!
- * Copyright (c) 2025, imqueue.com <support@imqueue.com>
+ * IMQ Unit Test Mocks: redis
+ *
+ * Copyright (c) 2018, imqueue.com <support@imqueue.com>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,4 +15,27 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-export * from './copyEventEmitter';
+import mock = require('mock-require');
+import { EventEmitter } from 'events';
+
+class Socket extends EventEmitter {
+    public bindArgs: any[];
+
+    constructor() {
+        super();
+
+        return this;
+    }
+
+    public bind(...args: any[]): Socket {
+        this.bindArgs = args;
+
+        return this;
+    }
+}
+
+export const createSocket = () => {
+    return new Socket();
+};
+
+mock('dgram', { createSocket });

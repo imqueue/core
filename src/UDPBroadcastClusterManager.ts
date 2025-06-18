@@ -19,9 +19,8 @@ import {
     IMessageQueueConnection,
 } from './IMessageQueue';
 import { ICluster, ClusterManager } from './ClusterManager';
-import * as dgram from 'dgram';
-import { Socket } from 'node:dgram';
-import * as os from 'node:os';
+import { Socket, createSocket } from 'dgram';
+import { networkInterfaces } from 'os';
 
 enum BroadcastedMessageType {
     Up = 'up',
@@ -153,7 +152,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
         options: UDPBroadcastClusterManagerOptions,
     ): void {
         if (!UDPBroadcastClusterManager.socket) {
-            const socket = dgram.createSocket('udp4');
+            const socket = createSocket('udp4');
             const address = UDPBroadcastClusterManager.selectNetworkInterface(
                 options,
             );
@@ -196,7 +195,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
         message: BroadcastedMessage,
         aliveTimeoutCorrection?: number,
     ): void {
-        const server = cluster.exists<ClusterServer>(message);
+        const server = cluster.find<ClusterServer>(message);
 
         if (server && message.type === BroadcastedMessageType.Down) {
             clearTimeout(server.timer);
@@ -207,7 +206,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
         if (!server && message.type === BroadcastedMessageType.Up) {
             cluster.add(message);
 
-            const added = cluster.exists<ClusterServer>(message);
+            const added = cluster.find<ClusterServer>(message);
 
             if (added) {
                 UDPBroadcastClusterManager.serverAliveWait(
@@ -265,7 +264,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
     }
 
     private static parseBroadcastedMessage(
-        input: Buffer
+        input: Buffer,
     ): BroadcastedMessage {
         const [
             name,
@@ -303,7 +302,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
         const timeout = (server.timeout || 0) + correction;
 
         server.timer = setTimeout(() => {
-            const existing = cluster.exists<ClusterServer>(server);
+            const existing = cluster.find<ClusterServer>(server);
 
             if (!existing) {
                 return;
@@ -329,7 +328,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
             | 'internalNetworkInterface'
         >,
     ): string {
-        const networkInterfaces = os.networkInterfaces();
+        const interfaces = networkInterfaces();
         const limitedBroadcastAddress = options.limitedBroadcastAddress;
         const broadcastAddress = options.broadcastAddress
             || limitedBroadcastAddress;
@@ -346,12 +345,12 @@ export class UDPBroadcastClusterManager extends ClusterManager {
             return defaultAddress;
         }
 
-        for (const key in networkInterfaces) {
-            if (!networkInterfaces[key]) {
+        for (const key in interfaces) {
+            if (!interfaces[key]) {
                 continue;
             }
 
-            for (const net of networkInterfaces[key]) {
+            for (const net of interfaces[key]) {
                 if (internal && !net.internal) {
                     continue;
                 }

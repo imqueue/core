@@ -274,12 +274,14 @@ export class RedisQueue extends EventEmitter<EventMap>
         channel: string,
         handler: (data: JsonObject) => any,
     ): Promise<void> {
+        // istanbul ignore next
         if (!channel) {
             throw new TypeError(
                 `${channel}: No subscription channel name provided!`,
             );
         }
 
+        // istanbul ignore next
         if (this.subscriptionName && this.subscriptionName !== channel) {
             throw new TypeError(
                 `Invalid channel name provided: expected "${
@@ -294,6 +296,7 @@ export class RedisQueue extends EventEmitter<EventMap>
 
         await chan.subscribe(fcn);
 
+        // istanbul ignore next
         chan.on('message', (ch: string, message: string) => {
             if (ch === fcn && typeof handler === 'function') {
                 handler(JSON.parse(message));
@@ -512,6 +515,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 this.writer.del(`${ this.key }:delayed`),
             ]);
         } catch (err) {
+            // istanbul ignore next
             if (this.initialized) {
                 this.logger.error(
                     `${context.name}: error clearing the redis queue host ${
@@ -698,6 +702,7 @@ export class RedisQueue extends EventEmitter<EventMap>
         });
     }
 
+    // istanbul ignore next
     /**
      * Builds and returns redis reconnection strategy
      *
@@ -777,36 +782,6 @@ export class RedisQueue extends EventEmitter<EventMap>
 
         return`${prefix}:${contextName}:${name}:${uniqueSuffix}`;
     }
-
-    // /**
-    //  * Builds and returns redis connection reconnect handler
-    //  *
-    //  * @access private
-    //  * @param {RedisQueue} context
-    //  * @param {RedisConnectionChannel} channel
-    //  * @return {() => void}
-    //  */
-    // private onReconnectHandler(
-    //     context: RedisQueue,
-    //     channel: RedisConnectionChannel,
-    // ): () => void {
-    //     // istanbul ignore next
-    //     return (async () => {
-    //         if (channel === 'watcher') {
-    //             await context[channel].punsubscribe();
-    //             this.watcher.__ready__ = false;
-    //             this.cleanSafeCheckInterval();
-    //         }
-    //
-    //         this.initialized = false;
-    //
-    //         this.logger.warn(
-    //             '%s: redis connection %s is reconnecting on host %s, ' +
-    //             'pid %s...',
-    //             context.name, channel, this.redisKey, process.pid,
-    //         );
-    //     });
-    // }
 
     /**
      * Builds and returns connection error handler

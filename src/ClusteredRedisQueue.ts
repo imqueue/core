@@ -28,8 +28,8 @@ import {
     RedisQueue,
     EventMap,
     IServerInput,
+    copyEventEmitter,
 } from '.';
-import { copyEventEmitter } from './utils';
 
 interface ClusterServer extends IMessageQueueConnection {
     imq?: RedisQueue;
@@ -37,10 +37,10 @@ interface ClusterServer extends IMessageQueueConnection {
 
 interface ClusterState {
     started: boolean;
-    subscriptions: {
+    subscription: {
         channel: string;
         handler: (data: JsonObject) => any;
-    }[];
+    } | null;
 }
 
 /**
@@ -121,7 +121,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
     private state: ClusterState = {
         started: false,
-        subscriptions: [],
+        subscription: null,
     };
 
     /**
@@ -164,7 +164,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
                 manager.init({
                     add: this.addServer.bind(this),
                     remove: this.removeServer.bind(this),
-                    exists: this.findServer.bind(this),
+                    find: this.findServer.bind(this),
                 });
             }
         }
@@ -436,7 +436,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
         channel: string,
         handler: (data: JsonObject) => any,
     ): Promise<void> {
-        this.state.subscriptions.push({ channel, handler });
+        this.state.subscription = { channel, handler };
 
         const promises: Array<Promise<void>> = [];
 
@@ -449,7 +449,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
     // istanbul ignore next
     public async unsubscribe(): Promise<void> {
-        this.state.subscriptions = [];
+        this.state.subscription = null;
 
         const promises: Array<Promise<void>> = [];
 
@@ -495,7 +495,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
         this.queueLength = this.imqs.length;
         this.servers = this.servers.filter(
-            existing => ClusteredRedisQueue.matchServers(
+            existing => !ClusteredRedisQueue.matchServers(
                 existing,
                 server,
             ),
@@ -544,8 +544,11 @@ export class ClusteredRedisQueue implements IMessageQueue,
            await imq.start();
         }
 
-        for (const subscription of this.state.subscriptions) {
-            await imq.subscribe(subscription.channel, subscription.handler);
+        if (this.state.subscription) {
+            await imq.subscribe(
+                this.state.subscription.channel,
+                this.state.subscription.handler,
+            );
         }
     }
 
@@ -562,15 +565,11 @@ export class ClusteredRedisQueue implements IMessageQueue,
         source: IServerInput,
         target: IServerInput,
     ): boolean {
-        if (target.id === source.id) {
-            return true;
-        }
-
         if (!target.id && !source.id) {
             return target.host === source.host
                 && target.port === source.port;
         }
 
-        return false;
+        return target.id === source.id;
     }
 }

@@ -19,10 +19,14 @@
 import { EventEmitter } from 'events';
 
 export function copyEventEmitter(
-    source: EventEmitter,
+    source: EventEmitter & {
+        _maxListeners?: number;
+    },
     target: EventEmitter,
 ): void {
-    target.setMaxListeners(source.getMaxListeners());
+    if (typeof source._maxListeners !== 'undefined') {
+        target.setMaxListeners(source.getMaxListeners());
+    }
 
     for (const event of source.eventNames()) {
         const listeners = source.rawListeners(event) as any[];
@@ -34,6 +38,7 @@ export function copyEventEmitter(
             if (isOnce) {
                 const realListener = originalListener?.listener
                     || originalListener;
+
                 target.once(event, realListener);
             } else {
                 target.on(event, originalListener);

@@ -17,3 +17,5 @@
  */
 export * from './redis';
 export * from './logger';
+export * from './dgram';
+export * from './os';

@@ -92,15 +92,6 @@ export interface UDPBroadcastClusterManagerOptions {
     aliveTimeoutCorrection?: number;
 
     /**
-     * Indicates whether the network interface is internal (i.e., a loopback
-     * interface) or external (i.e., connected to a network)
-     *
-     * @default false
-     * @type {boolean}
-     */
-    internalNetworkInterface?: boolean;
-
-    /**
      * Skip messages that are broadcast by specified addresses or set to
      * "localhost" if you want to skip messages from "127.0.0.1" or "::1"
      *
@@ -325,14 +316,12 @@ export class UDPBroadcastClusterManager extends ClusterManager {
             UDPBroadcastClusterManagerOptions,
             'broadcastAddress'
             | 'limitedBroadcastAddress'
-            | 'internalNetworkInterface'
         >,
     ): string {
         const interfaces = networkInterfaces();
         const limitedBroadcastAddress = options.limitedBroadcastAddress;
         const broadcastAddress = options.broadcastAddress
             || limitedBroadcastAddress;
-        const internal = !!options.internalNetworkInterface;
         const defaultAddress = '0.0.0.0';
 
         if (!broadcastAddress) {
@@ -351,10 +340,6 @@ export class UDPBroadcastClusterManager extends ClusterManager {
             }
 
             for (const net of interfaces[key]) {
-                if (internal && !net.internal) {
-                    continue;
-                }
-
                 const shouldBeSelected = net.family === 'IPv4'
                     && net.address.startsWith(
                         broadcastAddress.replace(/\.255/g, ''),

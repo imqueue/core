@@ -40,3 +40,4 @@ export * from './IMessageQueue';
 export * from './RedisQueue';
 export * from './ClusteredRedisQueue';
 export * from './UDPBroadcastClusterManager';
+export * from './copyEventEmitter';

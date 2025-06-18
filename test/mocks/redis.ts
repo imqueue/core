@@ -37,6 +37,7 @@ export class RedisClientMock extends EventEmitter {
     private __name: string = '';
     // noinspection JSUnusedGlobalSymbols
     public connected: boolean = true;
+    public status = 'ready';
 
     constructor(options: any = {}) {
         super();

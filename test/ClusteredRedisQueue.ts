@@ -19,6 +19,7 @@ import * as mocks from './mocks';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { ClusteredRedisQueue } from '../src';
+import { ClusterManager } from '../src/ClusterManager';
 
 process.setMaxListeners(100);
 
@@ -62,6 +63,19 @@ describe('ClusteredRedisQueue', function() {
                 'TestClusteredQueue',
                 clusterConfig
             )).not.to.throw(TypeError);
+        });
+
+        it('should initialize cluster manager', () => {
+            const clusterManager = new (ClusterManager as any)();
+
+            sinon.spy(clusterManager, 'init');
+
+            new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+
+            expect(clusterManager.init.called).to.be.true;
         });
     });
 
@@ -136,6 +150,36 @@ describe('ClusteredRedisQueue', function() {
 
             await cq.destroy();
         });
+
+        it('should send message after queue was initialized', done => {
+            const clusterManager = new (ClusterManager as any)();
+            const cqOne: any = new ClusteredRedisQueue(
+                'TestClusteredQueueOne',
+                {
+                    clusterManagers: [clusterManager],
+                    logger: mocks.logger,
+                },
+            );
+            const cqTwo: any = new ClusteredRedisQueue(
+                'TestClusteredQueueTwo',
+                {
+                    clusterManagers: [clusterManager],
+                    logger: mocks.logger,
+                },
+            );
+            const message = { 'hello': 'world' };
+
+            cqOne.start();
+            cqTwo.start();
+
+            cqTwo.on('message', () => {
+                done();
+            });
+
+            cqOne.send('TestClusteredQueueTwo', message);
+            cqTwo.addServer(clusterConfig.cluster[0]);
+            cqOne.addServer(clusterConfig.cluster[0]);
+        });
     });
 
     describe('destroy()', () => {
@@ -178,4 +222,145 @@ describe('ClusteredRedisQueue', function() {
         });
     });
 
+    describe('subscribe()', () => {
+        it('should subscribe after queue initialization', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                {
+                    clusterManagers: [clusterManager],
+                    logger: mocks.logger,
+                },
+            );
+            const channel = 'TestChannel';
+
+            cq.subscribe(channel, () => {});
+            cq.addServer(clusterConfig.cluster[0]);
+
+            expect(cq.imqs[0].subscriptionName).to.be.equal(channel);
+        });
+    });
+
+    describe('addServer()', () => {
+        it('should add cluster server', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+
+            cq.addServer(clusterConfig.cluster[0]);
+
+            expect(cq.servers.length).to.be.equal(1);
+        });
+
+        it('should call adding cluster server method through the'
+            + ' Cluster Manager', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+
+            for (const server of clusterManager.clusters) {
+                 server.add(clusterConfig.cluster[0]);
+            }
+
+            expect(cq.servers.length).to.be.equal(1);
+        });
+    });
+
+    describe('removeServer()', () => {
+        it('should remove cluster server', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+
+            cq.addServer(clusterConfig.cluster[0]);
+            cq.removeServer(clusterConfig.cluster[0]);
+
+            expect(cq.servers.length).to.be.equal(0);
+        });
+
+        it('should call removing cluster server method through the'
+            + ' Cluster Manager', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+
+            for (const server of clusterManager.clusters) {
+                 server.remove(clusterConfig.cluster[0]);
+            }
+
+            expect(cq.servers.length).to.be.equal(0);
+        });
+    });
+
+    describe('findServer()', () => {
+        it('should remove cluster server', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+
+            cq.addServer(clusterConfig.cluster[0]);
+
+            const server = cq.findServer(clusterConfig.cluster[0]);
+
+            expect(server).to.deep.include(clusterConfig.cluster[0]);
+        });
+
+        it('should call find cluster server method through the'
+            + ' Cluster Manager', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+
+            cq.addServer(clusterConfig.cluster[0]);
+
+            for (const cluster of clusterManager.clusters) {
+                const server = cluster.find(clusterConfig.cluster[0]);
+
+                expect(server).to.deep.include(clusterConfig.cluster[0]);
+            }
+        });
+
+        it('should strictly find cluster server if id property is '
+            + 'bypassed', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+            const clusterServerWithId = { id: 1, ...clusterConfig.cluster[0] };
+
+            cq.addServer(clusterServerWithId);
+
+            const server = cq.findServer({ id: 1, ...clusterConfig.cluster[0] });
+
+            expect(server).to.deep.include(clusterServerWithId);
+        });
+
+        it('should strictly find cluster server if id property is not'
+            + 'bypassed', () => {
+            const clusterManager = new (ClusterManager as any)();
+            const cq: any = new ClusteredRedisQueue(
+                'TestClusteredQueue',
+                { clusterManagers: [clusterManager] },
+            );
+
+            cq.addServer(clusterConfig.cluster[0]);
+
+            const server = cq.findServer({ id: 1, ...clusterConfig.cluster[0] });
+
+            expect(server).to.be.undefined;
+        });
+    });
 });

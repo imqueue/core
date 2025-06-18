@@ -1,7 +1,7 @@
 /*!
- * Clustered messaging queue over Redis implementation
+ * IMQ Unit Test Mocks: redis
  *
- * Copyright (c) 2025, imqueue.com <support@imqueue.com>
+ * Copyright (c) 2018, imqueue.com <support@imqueue.com>
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,22 +15,22 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-import { IMessageQueueConnection, IServerInput } from './IMessageQueue';
+import mock = require('mock-require');
+import * as os from 'node:os';
 
-export interface ICluster {
-    add: (server: IServerInput) => void;
-    remove: (server: IServerInput) => void;
-    find: <T extends IMessageQueueConnection>(
-        server: IServerInput,
-    ) => T | undefined;
-}
+export const networkInterfaces = () => {
+    return {
+        lo: [
+            {
+                address: '127.0.0.1',
+                netmask: '255.0.0.0',
+                family: 'IPv4',
+                mac: '00:00:00:00:00:00',
+                internal: true,
+                cidr: '127.0.0.1/8',
+            },
+        ],
+    };
+};
 
-export abstract class ClusterManager {
-    protected clusters: ICluster[] = [];
-
-    protected constructor() {}
-
-    public init(cluster: ICluster): void {
-        this.clusters.push(cluster);
-    }
-}
+mock('os', Object.assign(os, { networkInterfaces }));

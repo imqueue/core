@@ -28,6 +28,7 @@ export interface IRedisClient extends Redis {
     __imq?: boolean;
 }
 
+// istanbul ignore next
 export function makeRedisSafe(redis: IRedisClient): IRedisClient {
     return new Proxy(redis, {
         get(target, property, receiver) {

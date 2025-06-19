@@ -15,13 +15,21 @@
  * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
  * PERFORMANCE OF THIS SOFTWARE.
  */
-// import * as mocks from './mocks';
 import { expect } from 'chai';
 import { UDPBroadcastClusterManager } from '../src';
 import * as sinon from 'sinon';
+import { Socket } from 'dgram';
 
 const testMessageUp = 'name\tid\tup\taddress\ttimeout';
 const testMessageDown = 'name\tid\tdown\taddress\ttimeout';
+
+const getSocket = (classObject: typeof UDPBroadcastClusterManager) => {
+    return Object.values((classObject as any).sockets)[0] as Socket;
+};
+
+const emitMessage = (message: string) => {
+    getSocket(UDPBroadcastClusterManager).emit('message', Buffer.from(message));
+};
 
 describe('UDPBroadcastClusterManager', function() {
     it('should be a class', () => {
@@ -29,11 +37,13 @@ describe('UDPBroadcastClusterManager', function() {
     });
 
     it('should initialize socket if socket does not exists', () => {
-        (UDPBroadcastClusterManager as any).socket = undefined;
+        (UDPBroadcastClusterManager as any).sockets = {};
 
         new UDPBroadcastClusterManager();
 
-        expect((UDPBroadcastClusterManager as any).socket).not.to.be.undefined;
+        expect(
+            Object.values((UDPBroadcastClusterManager as any).sockets),
+        ).not.to.be.length(0);
     });
 
     it('should call add on cluster', () => {
@@ -48,11 +58,7 @@ describe('UDPBroadcastClusterManager', function() {
 
         manager.init(cluster);
 
-        (UDPBroadcastClusterManager as any).socket.emit(
-            'message',
-            Buffer.from(testMessageUp),
-        );
-
+        emitMessage(testMessageUp);
         expect(cluster.add.called).to.be.true;
     });
 
@@ -64,17 +70,11 @@ describe('UDPBroadcastClusterManager', function() {
                 return {};
             },
         };
-        const manager: any = new UDPBroadcastClusterManager();
+        new UDPBroadcastClusterManager();
 
         sinon.spy(cluster, 'add');
 
-        manager.init(cluster);
-
-        (UDPBroadcastClusterManager as any).socket.emit(
-            'message',
-            Buffer.from(testMessageUp),
-        );
-
+        emitMessage(testMessageUp);
         expect(cluster.add.called).to.be.false;
     });
 
@@ -92,11 +92,7 @@ describe('UDPBroadcastClusterManager', function() {
 
         manager.init(cluster);
 
-        (UDPBroadcastClusterManager as any).socket.emit(
-            'message',
-            Buffer.from(testMessageDown),
-        );
-
+        emitMessage(testMessageDown);
         expect(cluster.remove.called).to.be.true;
     });
 
@@ -114,11 +110,7 @@ describe('UDPBroadcastClusterManager', function() {
 
         manager.init(cluster);
 
-        (UDPBroadcastClusterManager as any).socket.emit(
-            'message',
-            Buffer.from('name\tid\tup\t127.0.0.1:6379\ttimeout'),
-        );
-
+        emitMessage('name\tid\tup\t127.0.0.1:6379\ttimeout');
         expect(cluster.add.called).to.be.true;
     });
 
@@ -136,11 +128,7 @@ describe('UDPBroadcastClusterManager', function() {
 
         manager.init(cluster);
 
-        (UDPBroadcastClusterManager as any).socket.emit(
-            'message',
-            Buffer.from('name\tid\tup\t127.0.0.1:6379\ttimeout'),
-        );
-
+        emitMessage('name\tid\tup\t127.0.0.1:6379\ttimeout');
         expect(cluster.add.called).to.be.false;
     });
 });

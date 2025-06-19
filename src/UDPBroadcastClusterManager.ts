@@ -125,7 +125,7 @@ const LOCALHOST_ADDRESSES = [
  * ~~~
  */
 export class UDPBroadcastClusterManager extends ClusterManager {
-    private static socket: Socket;
+    private static sockets: Record<string, Socket> = {};
     private readonly options: UDPBroadcastClusterManagerOptions;
 
     constructor(options?: UDPBroadcastClusterManagerOptions) {
@@ -142,17 +142,19 @@ export class UDPBroadcastClusterManager extends ClusterManager {
         listener: (message: BroadcastedMessage) => void,
         options: UDPBroadcastClusterManagerOptions,
     ): void {
-        if (!UDPBroadcastClusterManager.socket) {
+        const address = UDPBroadcastClusterManager.selectNetworkInterface(
+            options,
+        );
+        const key = `${ address }:${ options.broadcastPort }`;
+
+        if (!UDPBroadcastClusterManager.sockets[key]) {
             const socket = createSocket('udp4');
-            const address = UDPBroadcastClusterManager.selectNetworkInterface(
-                options,
-            );
 
             socket.bind(options.broadcastPort, address);
-            UDPBroadcastClusterManager.socket = socket;
+            UDPBroadcastClusterManager.sockets[key] = socket;
         }
 
-        UDPBroadcastClusterManager.socket.on(
+        UDPBroadcastClusterManager.sockets[key].on(
             'message',
             message => listener(
                 UDPBroadcastClusterManager.parseBroadcastedMessage(message),

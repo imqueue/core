@@ -27,10 +27,11 @@ import {
     IMessage,
     ILogger,
     IMQMode,
+    EventMap,
     makeRedisSafe,
     buildOptions,
     profile,
-    uuid, EventMap,
+    uuid,
 } from '.';
 import Redis from './redis';
 

@@ -148,7 +148,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
         const key = `${ address }:${ options.broadcastPort }`;
 
         if (!UDPBroadcastClusterManager.sockets[key]) {
-            const socket = createSocket('udp4');
+            const socket = createSocket({ type: 'udp4', reuseAddr: true });
 
             socket.bind(options.broadcastPort, address);
             UDPBroadcastClusterManager.sockets[key] = socket;

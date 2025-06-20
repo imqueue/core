@@ -55,7 +55,7 @@ export default class IMQ {
 
         let ClassName = `${options.vendor}Queue`;
 
-        if (options.cluster) {
+        if (options.cluster || options.clusterManagers) {
             ClassName = `Clustered${ClassName}`;
         }
 

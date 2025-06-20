@@ -565,11 +565,15 @@ export class ClusteredRedisQueue implements IMessageQueue,
         source: IServerInput,
         target: IServerInput,
     ): boolean {
+        const sameAddress = target.host === source.host
+            && target.port === source.port;
+
         if (!target.id && !source.id) {
-            return target.host === source.host
-                && target.port === source.port;
+            return sameAddress;
         }
 
-        return target.id === source.id;
+        const sameId = target.id === source.id;
+
+        return sameId || sameAddress;
     }
 }

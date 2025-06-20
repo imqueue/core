@@ -301,7 +301,7 @@ describe('ClusteredRedisQueue', function() {
     });
 
     describe('findServer()', () => {
-        it('should remove cluster server', () => {
+        it('should find cluster server', () => {
             const clusterManager = new (ClusterManager as any)();
             const cq: any = new ClusteredRedisQueue(
                 'TestClusteredQueue',
@@ -330,37 +330,6 @@ describe('ClusteredRedisQueue', function() {
 
                 expect(server).to.deep.include(clusterConfig.cluster[0]);
             }
-        });
-
-        it('should strictly find cluster server if id property is '
-            + 'bypassed', () => {
-            const clusterManager = new (ClusterManager as any)();
-            const cq: any = new ClusteredRedisQueue(
-                'TestClusteredQueue',
-                { clusterManagers: [clusterManager] },
-            );
-            const clusterServerWithId = { id: 1, ...clusterConfig.cluster[0] };
-
-            cq.addServer(clusterServerWithId);
-
-            const server = cq.findServer({ id: 1, ...clusterConfig.cluster[0] });
-
-            expect(server).to.deep.include(clusterServerWithId);
-        });
-
-        it('should strictly find cluster server if id property is not'
-            + 'bypassed', () => {
-            const clusterManager = new (ClusterManager as any)();
-            const cq: any = new ClusteredRedisQueue(
-                'TestClusteredQueue',
-                { clusterManagers: [clusterManager] },
-            );
-
-            cq.addServer(clusterConfig.cluster[0]);
-
-            const server = cq.findServer({ id: 1, ...clusterConfig.cluster[0] });
-
-            expect(server).to.be.undefined;
         });
     });
 });

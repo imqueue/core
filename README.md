@@ -159,4 +159,5 @@ npm test
 
 ## License
 
-[ISC](https://rawgit.com/imqueue/core/master/LICENSE)
+This project is licensed under the GNU General Public License v3.0.
+See the [LICENSE](https://www.gnu.org/licenses/gpl-3.0.txt)

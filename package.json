@@ -35,7 +35,7 @@
   },
   "homepage": "https://imqueue.com/",
   "author": "imqueue.com <support@imqueue.com> (https://imqueue.com)",
-  "license": "ISC",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "ioredis": "^5.6.1"
   },

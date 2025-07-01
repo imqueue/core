@@ -1,19 +1,20 @@
 /*!
- * Clustered messaging queue over Redis implementation
+ * UDP message listener for cluster managing
  *
- * Copyright (c) 2025, imqueue.com <support@imqueue.com>
+ * Copyright (C) 2025  imqueue.com <support@imqueue.com>
  *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
- * REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
- * AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
- * INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
- * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
- * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import {
     IMessageQueueConnection,
@@ -48,7 +49,7 @@ export const DEFAULT_UDP_BROADCAST_CLUSTER_MANAGER_OPTIONS = {
     aliveTimeoutCorrection: 1000,
 };
 
-export interface UDPBroadcastClusterManagerOptions {
+export interface UDPClusterManagerOptions {
     /**
      * Represents the cluster operations that are responsible for managing
      * clusters. This includes operations such as adding, removing, or checking
@@ -124,11 +125,11 @@ const LOCALHOST_ADDRESSES = [
  * });
  * ~~~
  */
-export class UDPBroadcastClusterManager extends ClusterManager {
+export class UDPClusterManager extends ClusterManager {
     private static sockets: Record<string, Socket> = {};
-    private readonly options: UDPBroadcastClusterManagerOptions;
+    private readonly options: UDPClusterManagerOptions;
 
-    constructor(options?: UDPBroadcastClusterManagerOptions) {
+    constructor(options?: UDPClusterManagerOptions) {
         super();
 
         this.options = {
@@ -140,33 +141,33 @@ export class UDPBroadcastClusterManager extends ClusterManager {
 
     private listenBroadcastedMessages(
         listener: (message: BroadcastedMessage) => void,
-        options: UDPBroadcastClusterManagerOptions,
+        options: UDPClusterManagerOptions,
     ): void {
-        const address = UDPBroadcastClusterManager.selectNetworkInterface(
+        const address = UDPClusterManager.selectNetworkInterface(
             options,
         );
         const key = `${ address }:${ options.broadcastPort }`;
 
-        if (!UDPBroadcastClusterManager.sockets[key]) {
+        if (!UDPClusterManager.sockets[key]) {
             const socket = createSocket({ type: 'udp4', reuseAddr: true });
 
             socket.bind(options.broadcastPort, address);
-            UDPBroadcastClusterManager.sockets[key] = socket;
+            UDPClusterManager.sockets[key] = socket;
         }
 
-        UDPBroadcastClusterManager.sockets[key].on(
+        UDPClusterManager.sockets[key].on(
             'message',
             message => listener(
-                UDPBroadcastClusterManager.parseBroadcastedMessage(message),
+                UDPClusterManager.parseBroadcastedMessage(message),
             ),
         );
     }
 
     private startListening(
-        options: UDPBroadcastClusterManagerOptions = {},
+        options: UDPClusterManagerOptions = {},
     ): void {
         this.listenBroadcastedMessages(
-            UDPBroadcastClusterManager.processBroadcastedMessage(this),
+            UDPClusterManager.processBroadcastedMessage(this),
             options,
         );
     }
@@ -202,7 +203,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
             const added = cluster.find<ClusterServer>(message);
 
             if (added) {
-                UDPBroadcastClusterManager.serverAliveWait(
+                UDPClusterManager.serverAliveWait(
                     cluster,
                     added,
                     aliveTimeoutCorrection,
@@ -213,7 +214,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
         }
 
         if (server && message.type === BroadcastedMessageType.Up) {
-            return UDPBroadcastClusterManager.serverAliveWait(
+            return UDPClusterManager.serverAliveWait(
                 cluster,
                 server,
                 aliveTimeoutCorrection,
@@ -223,12 +224,12 @@ export class UDPBroadcastClusterManager extends ClusterManager {
     }
 
     private static processBroadcastedMessage(
-        context: UDPBroadcastClusterManager,
+        context: UDPClusterManager,
     ): (message: BroadcastedMessage) => void {
         return message => {
             if (
                 context.options.excludeHosts
-                && UDPBroadcastClusterManager.verifyHosts(
+                && UDPClusterManager.verifyHosts(
                     message.host,
                     context.options.excludeHosts,
                 )
@@ -238,7 +239,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
 
             if (
                 context.options.includeHosts
-                && !UDPBroadcastClusterManager.verifyHosts(
+                && !UDPClusterManager.verifyHosts(
                     message.host,
                     context.options.includeHosts,
                 )
@@ -247,7 +248,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
             }
 
             for (const cluster of context.clusters) {
-                UDPBroadcastClusterManager.processMessageOnCluster(
+                UDPClusterManager.processMessageOnCluster(
                     cluster,
                     message,
                     context.options.aliveTimeoutCorrection,
@@ -315,7 +316,7 @@ export class UDPBroadcastClusterManager extends ClusterManager {
 
     private static selectNetworkInterface(
         options: Pick<
-            UDPBroadcastClusterManagerOptions,
+            UDPClusterManagerOptions,
             'broadcastAddress'
             | 'limitedBroadcastAddress'
         >,

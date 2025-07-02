@@ -689,7 +689,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                     options.prefix || '',
                     channel,
                 ),
-                retryStrategy: this.retryStrategy(context, channel),
+                retryStrategy: this.retryStrategy(context),
                 autoResubscribe: true,
             });
 
@@ -714,26 +714,14 @@ export class RedisQueue extends EventEmitter<EventMap>
      * Builds and returns redis reconnection strategy
      *
      * @param {RedisQueue} context
-     * @param {RedisConnectionChannel} channel
-     * @returns {(times: number) => (number | void | null)}
+     * @returns {() => (number | void | null)}
      * @private
      */
     private retryStrategy(
         context: RedisQueue,
-        channel: RedisConnectionChannel,
-    ): (times: number) => number | void | null {
-        return times => {
-            if (this.destroyed) {
-                return null;
-            }
-
-            if (times > 3) {
-                this.logger.error(
-                    `${context.name}: error reconnecting redis host ${
-                        this.redisKey} on ${
-                        channel}, pid ${process.pid}`,
-                );
-
+    ): () => number | void | null {
+        return () => {
+            if (context.destroyed) {
                 return null;
             }
 

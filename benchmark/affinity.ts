@@ -1,5 +1,5 @@
 /*!
- * IMQ Unit Test Mocks
+ * Redis queue adapter benchmark tests for @imqueue/core module
  *
  * I'm Queue Software Project
  * Copyright (C) 2025  imqueue.com <support@imqueue.com>
@@ -21,7 +21,11 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-export * from './redis';
-export * from './logger';
-export * from './dgram';
-export * from './os';
+import { execSync as exec } from 'child_process';
+import * as os from 'os';
+
+export function setAffinity(cpu: number) {
+    if (os.platform() === 'linux') {
+        exec(`taskset -cp ${cpu} ${process.pid}`);
+    }
+}

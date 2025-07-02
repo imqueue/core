@@ -1,6 +1,7 @@
 /*!
  * Makes callback handling function promise-like
  *
+ * I'm Queue Software Project
  * Copyright (C) 2025  imqueue.com <support@imqueue.com>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -15,6 +16,10 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * If you want to use this code in a closed source (commercial) project, you can
+ * purchase a proprietary commercial license. Please contact us at
+ * <support@imqueue.com> to get commercial licensing options.
  */
 /**
  * Returns entire list of the given object properties including

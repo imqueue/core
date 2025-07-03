@@ -3,6 +3,7 @@
 .dockerignore
 .codebeatignore
 .codebeatsettings
+.github
 
 .ssh/
 dist/

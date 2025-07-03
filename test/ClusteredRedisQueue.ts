@@ -179,6 +179,9 @@ describe('ClusteredRedisQueue', function() {
             cqTwo.start();
 
             cqTwo.on('message', () => {
+                cqOne.destroy();
+                cqTwo.destroy();
+
                 done();
             });
 

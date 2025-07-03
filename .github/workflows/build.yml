@@ -1,4 +1,4 @@
-name: "@imqueue/core"
+name: Build
 
 on:
   push:

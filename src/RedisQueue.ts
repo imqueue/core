@@ -503,6 +503,7 @@ export class RedisQueue extends EventEmitter<EventMap>
         await this.stop();
         await this.clear();
         this.destroyWriter();
+        await this.unsubscribe();
     }
 
     /**

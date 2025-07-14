@@ -23,7 +23,7 @@
  */
 import { logger } from './mocks';
 import { expect } from 'chai';
-import { RedisQueue, uuid } from '../src';
+import { RedisQueue, uuid, IMQMode } from '../src';
 import Redis from 'ioredis';
 
 process.setMaxListeners(100);
@@ -43,13 +43,16 @@ describe('RedisQueue', function() {
     });
 
     describe('constructor()', () => {
-        it('should not throw', () => {
-            expect(() => new (<any>RedisQueue)()).not.to.throw(Error);
-            expect(() => new RedisQueue('IMQUnitTests')).not.to.throw(Error);
-            expect(() => new RedisQueue('IMQUnitTests', {}))
+        it('should not throw', async () => {
+            const instances: RedisQueue[] = [];
+            expect(() => instances.push(new (<any>RedisQueue)())).not.to.throw(Error);
+            expect(() => instances.push(new RedisQueue('IMQUnitTests'))).not.to.throw(Error);
+            expect(() => instances.push(new RedisQueue('IMQUnitTests', {})))
                 .not.to.throw(Error);
-            expect(() => new RedisQueue('IMQUnitTests', { useGzip: true }))
+            expect(() => instances.push(new RedisQueue('IMQUnitTests', { useGzip: true })))
                 .not.to.throw(Error);
+
+            await Promise.all(instances.map(instance => instance.destroy()));
         });
     });
 
@@ -58,6 +61,7 @@ describe('RedisQueue', function() {
             const rq = new (<any>RedisQueue)();
             try { await rq.start() }
             catch (err) { expect(err).to.be.instanceof(TypeError) }
+            rq.destroy().catch();
         });
 
         it('should create reader connection', async () => {
@@ -106,7 +110,7 @@ describe('RedisQueue', function() {
                 await rq.start();
             } catch (err) { passed = false }
             expect(passed).to.be.true;
-            rq.destroy().catch();
+            await rq.destroy();
         });
     });
 
@@ -240,4 +244,99 @@ describe('RedisQueue', function() {
         });
     });
 
+    describe('processCleanup()', () => {
+        it('should perform cleanup when cleanup option is enabled', async () => {
+            const rq: any = new RedisQueue(uuid(), {
+                logger,
+                cleanup: true,
+                cleanupFilter: 'test*'
+            });
+            await rq.start();
+
+            // Call processCleanup directly
+            const result = await rq.processCleanup();
+            expect(result).to.equal(rq);
+
+            await rq.destroy();
+        });
+
+        it('should return early when cleanup option is disabled', async () => {
+            const rq: any = new RedisQueue(uuid(), {
+                logger,
+                cleanup: false
+            });
+            await rq.start();
+
+            const result = await rq.processCleanup();
+            expect(result).to.be.undefined;
+
+            await rq.destroy();
+        });
+    });
+
+    describe('lock/unlock methods', () => {
+        it('should handle lock/unlock when writer is null', async () => {
+            const rq: any = new RedisQueue(uuid(), { logger });
+            // Don't start, so writer will be null
+
+            const lockResult = await rq.lock();
+            expect(lockResult).to.be.false;
+
+            const unlockResult = await rq.unlock();
+            expect(unlockResult).to.be.false;
+
+            const isLockedResult = await rq.isLocked();
+            expect(isLockedResult).to.be.false;
+
+            await rq.destroy();
+        });
+
+        it('should handle lock/unlock operations', async () => {
+            const rq: any = new RedisQueue(uuid(), { logger });
+            await rq.start();
+
+            // Test locking
+            const lockResult = await rq.lock();
+            expect(lockResult).to.be.a('boolean');
+
+            // Test checking if locked
+            const isLockedResult = await rq.isLocked();
+            expect(isLockedResult).to.be.a('boolean');
+
+            // Test unlocking
+            const unlockResult = await rq.unlock();
+            expect(unlockResult).to.be.a('boolean');
+
+            await rq.destroy();
+        });
+    });
+
+    describe('utility methods', () => {
+        it('should test isPublisher and isWorker methods', async () => {
+            const publisherQueue = new RedisQueue(uuid(), { logger }, IMQMode.PUBLISHER);
+            const workerQueue = new RedisQueue(uuid(), { logger }, IMQMode.WORKER);
+
+            expect(publisherQueue.isPublisher()).to.be.true;
+            expect(publisherQueue.isWorker()).to.be.false;
+
+            expect(workerQueue.isPublisher()).to.be.false;
+            expect(workerQueue.isWorker()).to.be.true;
+
+            await workerQueue.destroy();
+            await publisherQueue.destroy();
+        });
+
+        it('should test key and lockKey methods', async () => {
+            const name = uuid();
+            const rq: any = new RedisQueue(name, { logger });
+
+            expect(rq.key).to.be.a('string');
+            expect(rq.key).to.include(name);
+
+            expect(rq.lockKey).to.be.a('string');
+            expect(rq.lockKey).to.include('watch:lock');
+
+            await rq.destroy();
+        });
+    });
 });

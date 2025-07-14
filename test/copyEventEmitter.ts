@@ -75,4 +75,59 @@ describe('copyEventEmitter()', function() {
 
         expect(targetListenersCount).to.be.equal(sourceListenersCount);
     });
+
+    it('should handle listeners without listener property', () => {
+        const source = new EventEmitter();
+        const target = new EventEmitter();
+
+        // Create a mock listener that looks like onceWrapper but has no listener property
+        const mockListener = function() {};
+        Object.defineProperty(mockListener, 'toString', {
+            value: () => 'function onceWrapper() { ... }'
+        });
+
+        // Manually add the listener to simulate the edge case
+        source.on(eventName, mockListener);
+
+        // Mock util.inspect to return onceWrapper for this listener
+        const originalInspect = require('util').inspect;
+        require('util').inspect = (obj: any) => {
+            if (obj === mockListener) {
+                return 'function onceWrapper() { ... }';
+            }
+            return originalInspect(obj);
+        };
+
+        copyEventEmitter(source, target);
+
+        // Restore original inspect
+        require('util').inspect = originalInspect;
+
+        expect(target.listenerCount(eventName)).to.be.equal(1);
+    });
+
+    it('should handle source without _maxListeners property', () => {
+        const source = new EventEmitter();
+        const target = new EventEmitter();
+
+        // Remove _maxListeners property to test the undefined case
+        delete (source as any)._maxListeners;
+
+        source.on(eventName, () => {});
+        copyEventEmitter(source, target);
+
+        expect(target.listenerCount(eventName)).to.be.equal(1);
+    });
+
+    it('should handle once listeners with listener property', () => {
+        const source = new EventEmitter();
+        const target = new EventEmitter();
+
+        const originalListener = () => {};
+        source.once(eventName, originalListener);
+
+        copyEventEmitter(source, target);
+
+        expect(target.listenerCount(eventName)).to.be.equal(1);
+    });
 });

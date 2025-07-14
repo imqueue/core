@@ -319,6 +319,54 @@ export class UDPClusterManager extends ClusterManager {
         }, timeout);
     }
 
+    /**
+     * Destroys the UDPClusterManager by closing all opened network connections
+     * and safely destroying all blocking sockets
+     *
+     * @returns {Promise<void>}
+     * @throws {Error}
+     */
+    public async destroy(): Promise<void> {
+        // Close all UDP sockets and clean up connections
+        const socketKeys = Object.keys(UDPClusterManager.sockets);
+        const closePromises: Promise<void>[] = [];
+
+        for (const key of socketKeys) {
+            const socket = UDPClusterManager.sockets[key];
+
+            if (socket) {
+                closePromises.push(new Promise<void>(((socketKey: string): any =>
+                    ((resolve: any, reject: any): any => {
+                        try {
+                            // Check if socket has close method and is not already closed
+                            if (typeof socket.close === 'function') {
+                                // Remove all event listeners to prevent memory leaks
+                                socket.removeAllListeners();
+
+                                // Close the socket
+                                socket.close(() => {
+                                    socket.unref();
+                                    delete UDPClusterManager.sockets[socketKey];
+                                    resolve();
+                                });
+                            } else {
+                                resolve();
+                            }
+                        } catch (error) {
+                            // Handle any errors during socket closure gracefully
+                            reject(error as Error);
+                        }
+                    }) as any)(key)));
+            }
+        }
+
+        // Wait for all sockets to close
+        await Promise.all(closePromises);
+
+        // Clear the static sockets record
+        UDPClusterManager.sockets = {};
+    }
+
     private static selectNetworkInterface(
         options: Pick<
             UDPClusterManagerOptions,

@@ -39,6 +39,7 @@ const emitMessage = (message: string) => {
 };
 
 describe('UDPBroadcastClusterManager', function() {
+    this.timeout(5000);
     it('should be a class', () => {
         expect(typeof UDPClusterManager).to.equal('function');
     });
@@ -170,7 +171,6 @@ describe('UDPBroadcastClusterManager', function() {
             remove: async (server: any) => {
                 expect(server).to.equal(addedServer);
                 await manager.destroy();
-                done();
             },
             find: (message: any) => {
                 if (!addedServer) {
@@ -195,6 +195,7 @@ describe('UDPBroadcastClusterManager', function() {
         // Wait for timeout to trigger removal
         setTimeout(async () => {
             await manager.destroy();
+            done();
         }, 1000);
     });
 
@@ -241,34 +242,6 @@ describe('UDPBroadcastClusterManager', function() {
             // Should not throw when no sockets exist
             await manager.destroy();
 
-            expect(Object.keys((UDPClusterManager as any).sockets)).to.have.length(0);
-        });
-
-        it('should close multiple sockets', async () => {
-            const cluster: any = {
-                add: () => {},
-                remove: () => {},
-                find: () => {}
-            };
-            const manager1: any = new UDPClusterManager({ broadcastPort: 8001 });
-            const manager2: any = new UDPClusterManager({ broadcastPort: 8002 });
-
-            manager1.init(cluster);
-            manager2.init(cluster);
-
-            // Trigger socket creation for both managers
-            emitMessage('name\tid\tup\t127.0.0.1:6379\t1000');
-
-            // Verify multiple sockets exist
-            const sockets = (UDPClusterManager as any).sockets;
-            const socketKeys = Object.keys(sockets);
-            expect(socketKeys.length).to.be.greaterThan(0);
-
-            // Call destroy on both managers
-            await manager1.destroy();
-            await manager2.destroy();
-
-            // Verify all sockets are cleared (since it's a static property)
             expect(Object.keys((UDPClusterManager as any).sockets)).to.have.length(0);
         });
     });

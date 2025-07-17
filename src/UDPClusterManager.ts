@@ -28,15 +28,15 @@ import { ICluster, ClusterManager } from './ClusterManager';
 import { Socket, createSocket } from 'dgram';
 import { networkInterfaces } from 'os';
 
-enum BroadcastedMessageType {
+enum MessageType {
     Up = 'up',
     Down = 'down',
 }
 
-interface BroadcastedMessage {
+interface Message {
     name: string;
     id: string;
-    type: BroadcastedMessageType;
+    type: MessageType;
     host: string;
     port: number;
     timeout: number;
@@ -48,7 +48,7 @@ interface ClusterServer extends IMessageQueueConnection {
     timer?: NodeJS.Timeout;
 }
 
-export const DEFAULT_UDP_BROADCAST_CLUSTER_MANAGER_OPTIONS = {
+export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS = {
     broadcastPort: 63000,
     broadcastAddress: '255.255.255.255',
     aliveTimeoutCorrection: 1000,
@@ -133,34 +133,55 @@ const LOCALHOST_ADDRESSES = [
 export class UDPClusterManager extends ClusterManager {
     private static sockets: Record<string, Socket> = {};
     private readonly options: UDPClusterManagerOptions;
+    private socketKey: string;
+
+    private get socket(): Socket | undefined {
+        return UDPClusterManager.sockets[this.socketKey];
+    }
+
+    private set socket(socket: Socket) {
+        UDPClusterManager.sockets[this.socketKey] = socket;
+    }
 
     constructor(options?: UDPClusterManagerOptions) {
         super();
 
         this.options = {
-            ...DEFAULT_UDP_BROADCAST_CLUSTER_MANAGER_OPTIONS,
+            ...DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS,
             ...options || {},
         };
         this.startListening(this.options);
+
+        process.on('SIGTERM', UDPClusterManager.free);
+        process.on('SIGINT', UDPClusterManager.free);
+        process.on('SIGABRT', UDPClusterManager.free);
+    }
+
+    private static async free(): Promise<void> {
+        const socketKeys = Object.keys(UDPClusterManager.sockets);
+
+        await Promise.all(socketKeys.map(
+            socketKey => UDPClusterManager.destroySocket(
+                socketKey,
+                UDPClusterManager.sockets[socketKey],
+            )),
+        );
     }
 
     private listenBroadcastedMessages(
-        listener: (message: BroadcastedMessage) => void,
+        listener: (message: Message) => void,
         options: UDPClusterManagerOptions,
     ): void {
-        const address = UDPClusterManager.selectNetworkInterface(
-            options,
-        );
-        const key = `${ address }:${ options.broadcastPort }`;
+        const address = UDPClusterManager.selectNetworkInterface(options);
 
-        if (!UDPClusterManager.sockets[key]) {
-            const socket = createSocket({ type: 'udp4', reuseAddr: true });
+        this.socketKey = `${ address }:${ options.broadcastPort }`;
 
-            socket.bind(options.broadcastPort, address);
-            UDPClusterManager.sockets[key] = socket;
+        if (!this.socket) {
+            this.socket = createSocket({ type: 'udp4', reuseAddr: true });
+            this.socket.bind(options.broadcastPort, address);
         }
 
-        UDPClusterManager.sockets[key].on(
+        this.socket.on(
             'message',
             message => listener(
                 UDPClusterManager.parseBroadcastedMessage(message),
@@ -168,9 +189,7 @@ export class UDPClusterManager extends ClusterManager {
         );
     }
 
-    private startListening(
-        options: UDPClusterManagerOptions = {},
-    ): void {
+    private startListening(options: UDPClusterManagerOptions = {}): void {
         this.listenBroadcastedMessages(
             UDPClusterManager.processBroadcastedMessage(this),
             options,
@@ -191,18 +210,18 @@ export class UDPClusterManager extends ClusterManager {
 
     private static processMessageOnCluster(
         cluster: ICluster,
-        message: BroadcastedMessage,
+        message: Message,
         aliveTimeoutCorrection?: number,
     ): void {
         const server = cluster.find<ClusterServer>(message);
 
-        if (server && message.type === BroadcastedMessageType.Down) {
+        if (server && message.type === MessageType.Down) {
             clearTimeout(server.timer);
 
             return cluster.remove(message);
         }
 
-        if (!server && message.type === BroadcastedMessageType.Up) {
+        if (!server && message.type === MessageType.Up) {
             cluster.add(message);
 
             const added = cluster.find<ClusterServer>(message);
@@ -218,7 +237,7 @@ export class UDPClusterManager extends ClusterManager {
             return;
         }
 
-        if (server && message.type === BroadcastedMessageType.Up) {
+        if (server && message.type === MessageType.Up) {
             return UDPClusterManager.serverAliveWait(
                 cluster,
                 server,
@@ -230,7 +249,7 @@ export class UDPClusterManager extends ClusterManager {
 
     private static processBroadcastedMessage(
         context: UDPClusterManager,
-    ): (message: BroadcastedMessage) => void {
+    ): (message: Message) => void {
         return message => {
             if (
                 context.options.excludeHosts
@@ -239,7 +258,7 @@ export class UDPClusterManager extends ClusterManager {
                     context.options.excludeHosts,
                 )
             ) {
-                 return ;
+                 return;
             }
 
             if (
@@ -249,7 +268,7 @@ export class UDPClusterManager extends ClusterManager {
                     context.options.includeHosts,
                 )
             ) {
-                 return ;
+                 return;
             }
 
             for (const cluster of context.clusters) {
@@ -262,9 +281,7 @@ export class UDPClusterManager extends ClusterManager {
         };
     }
 
-    private static parseBroadcastedMessage(
-        input: Buffer,
-    ): BroadcastedMessage {
+    private static parseBroadcastedMessage(input: Buffer): Message {
         const [
             name,
             id,
@@ -277,7 +294,7 @@ export class UDPClusterManager extends ClusterManager {
         return {
             id,
             name,
-            type: type.toLowerCase() as BroadcastedMessageType,
+            type: type.toLowerCase() as MessageType,
             host,
             port: parseInt(port),
             timeout: parseFloat(timeout) * 1000,
@@ -288,7 +305,7 @@ export class UDPClusterManager extends ClusterManager {
         cluster: ICluster,
         server: ClusterServer,
         aliveTimeoutCorrection?: number,
-        message?: BroadcastedMessage,
+        message?: Message,
     ): void {
         clearTimeout(server.timer);
         server.timestamp = Date.now();
@@ -327,44 +344,42 @@ export class UDPClusterManager extends ClusterManager {
      * @throws {Error}
      */
     public async destroy(): Promise<void> {
-        // Close all UDP sockets and clean up connections
-        const socketKeys = Object.keys(UDPClusterManager.sockets);
-        const closePromises: Promise<void>[] = [];
+        await UDPClusterManager.destroySocket(this.socketKey, this.socket);
+    }
 
-        for (const key of socketKeys) {
-            const socket = UDPClusterManager.sockets[key];
-
-            if (socket) {
-                closePromises.push(new Promise<void>(((socketKey: string): any =>
-                    ((resolve: any, reject: any): any => {
-                        try {
-                            // Check if socket has close method and is not already closed
-                            if (typeof socket.close === 'function') {
-                                // Remove all event listeners to prevent memory leaks
-                                socket.removeAllListeners();
-
-                                // Close the socket
-                                socket.close(() => {
-                                    socket.unref();
-                                    delete UDPClusterManager.sockets[socketKey];
-                                    resolve();
-                                });
-                            } else {
-                                resolve();
-                            }
-                        } catch (error) {
-                            // Handle any errors during socket closure gracefully
-                            reject(error as Error);
-                        }
-                    }) as any)(key)));
-            }
+    private static async destroySocket(
+        socketKey: string,
+        socket?: Socket,
+    ): Promise<void> {
+        if (!socket) {
+            return;
         }
 
-        // Wait for all sockets to close
-        await Promise.all(closePromises);
+        return await new Promise((resolve, reject) => {
+            try {
+                if (typeof socket.close === 'function') {
+                    socket.removeAllListeners();
+                    socket.close(() => {
+                        socket?.unref();
 
-        // Clear the static sockets record
-        UDPClusterManager.sockets = {};
+                        if (
+                            socketKey
+                            && UDPClusterManager.sockets[socketKey]
+                        ) {
+                            delete UDPClusterManager.sockets[socketKey];
+                        }
+
+                        resolve();
+                    });
+
+                    return;
+                }
+
+                resolve();
+            } catch (e) {
+                reject(e);
+            }
+        });
     }
 
     private static selectNetworkInterface(

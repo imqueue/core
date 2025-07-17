@@ -503,6 +503,7 @@ export class RedisQueue extends EventEmitter<EventMap>
         await this.stop();
         await this.clear();
         this.destroyWriter();
+        await this.unsubscribe();
     }
 
     /**
@@ -930,7 +931,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 await this.processKeys(keys, now);
 
                 if (cursor === '0') {
-                    return ;
+                    return;
                 }
             } catch (err) {
                 this.emitError('OnSafeDelivery',
@@ -953,7 +954,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     private async processKeys(keys: string[], now: number): Promise<void> {
         if (!keys.length) {
-            return ;
+            return;
         }
 
         for (const key of keys) {
@@ -1392,5 +1393,4 @@ export class RedisQueue extends EventEmitter<EventMap>
             }
         });
     }
-
 }

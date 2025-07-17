@@ -287,6 +287,22 @@ export class RedisClientMock extends EventEmitter {
     }
 
     // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
+    public publish(channel: string, message: string, cb?: any): number {
+        this.cbExecute(cb, null, 1);
+        return 1;
+    }
+
+    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
+    public subscribe(channel: string, cb?: any): void {
+        this.cbExecute(cb, null, 1);
+    }
+
+    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
+    public unsubscribe(channel?: string, cb?: any): void {
+        this.cbExecute(cb, null, 1);
+    }
+
+    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public config(): boolean {
         return true;
     }

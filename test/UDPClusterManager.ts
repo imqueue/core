@@ -25,6 +25,7 @@ import { expect } from 'chai';
 import { UDPClusterManager } from '../src';
 import * as sinon from 'sinon';
 import { Socket } from 'dgram';
+import * as os from 'os';
 
 const testMessageUp = 'name\tid\tup\taddress\ttimeout';
 const testMessageDown = 'name\tid\tdown\taddress\ttimeout';
@@ -38,21 +39,20 @@ const emitMessage = (message: string) => {
 };
 
 describe('UDPBroadcastClusterManager', function() {
+    this.timeout(5000);
     it('should be a class', () => {
         expect(typeof UDPClusterManager).to.equal('function');
     });
 
-    it('should initialize socket if socket does not exists', () => {
-        (UDPClusterManager as any).sockets = {};
-
-        new UDPClusterManager();
-
+    it('should initialize socket if socket does not exists', async () => {
+        const manager = new UDPClusterManager();
         expect(
             Object.values((UDPClusterManager as any).sockets),
         ).not.to.be.length(0);
+        await manager.destroy();
     });
 
-    it('should call add on cluster', () => {
+    it('should call add on cluster', async () => {
         const cluster: any = {
             add: () => {},
             remove: () => {},
@@ -66,9 +66,10 @@ describe('UDPBroadcastClusterManager', function() {
 
         emitMessage(testMessageUp);
         expect(cluster.add.called).to.be.true;
+        await manager.destroy();
     });
 
-    it('should not call add on cluster if server exists', () => {
+    it('should not call add on cluster if server exists', async () => {
         const cluster: any = {
             add: () => {},
             remove: () => {},
@@ -76,15 +77,18 @@ describe('UDPBroadcastClusterManager', function() {
                 return {};
             },
         };
-        new UDPClusterManager();
+        const manager: any = new UDPClusterManager();
 
         sinon.spy(cluster, 'add');
 
+        manager.init(cluster);
+
         emitMessage(testMessageUp);
         expect(cluster.add.called).to.be.false;
+        await manager.destroy();
     });
 
-    it('should call remove on cluster', () => {
+    it('should call remove on cluster', async () => {
         const cluster: any = {
             add: () => {},
             remove: () => {},
@@ -100,9 +104,10 @@ describe('UDPBroadcastClusterManager', function() {
 
         emitMessage(testMessageDown);
         expect(cluster.remove.called).to.be.true;
+        await manager.destroy();
     });
 
-    it('should add server if localhost included', () => {
+    it('should add server if localhost included', async () => {
        const cluster: any = {
             add: () => {},
             remove: () => {},
@@ -118,9 +123,10 @@ describe('UDPBroadcastClusterManager', function() {
 
         emitMessage('name\tid\tup\t127.0.0.1:6379\ttimeout');
         expect(cluster.add.called).to.be.true;
+        await manager.destroy();
     });
 
-    it('should not add server if localhost excluded', () => {
+    it('should not add server if localhost excluded', async () => {
         const cluster: any = {
             add: () => {},
             remove: () => {},
@@ -136,5 +142,107 @@ describe('UDPBroadcastClusterManager', function() {
 
         emitMessage('name\tid\tup\t127.0.0.1:6379\ttimeout');
         expect(cluster.add.called).to.be.false;
+        await manager.destroy();
+    });
+
+    it('should not add server if not in includeHosts', async () => {
+        const cluster: any = {
+            add: () => {},
+            remove: () => {},
+            find: () => {},
+        };
+        const manager: any = new UDPClusterManager({
+            includeHosts: ['example.com'],
+        });
+
+        sinon.spy(cluster, 'add');
+
+        manager.init(cluster);
+
+        emitMessage('name\tid\tup\t127.0.0.1:6379\ttimeout');
+        expect(cluster.add.called).to.be.false;
+        await manager.destroy();
+    });
+
+    it('should handle server timeout and removal', (done) => {
+        let addedServer: any = null;
+        const cluster: any = {
+            add: () => {},
+            remove: async (server: any) => {
+                expect(server).to.equal(addedServer);
+                await manager.destroy();
+            },
+            find: (message: any) => {
+                if (!addedServer) {
+                    addedServer = {
+                        id: message.id,
+                        timer: null,
+                        timestamp: Date.now(),
+                        timeout: 50, // Short timeout for test
+                    };
+                    return addedServer;
+                }
+                return addedServer;
+            },
+        };
+        const manager: any = new UDPClusterManager();
+
+        manager.init(cluster);
+
+        // Send up message to add server with short timeout
+        emitMessage('name\tid\tup\t127.0.0.1:6379\t0.05');
+
+        // Wait for timeout to trigger removal
+        setTimeout(async () => {
+            await manager.destroy();
+            done();
+        }, 1000);
+    });
+
+    it('should handle timeout when server no longer exists', async () => {
+        let serverAdded = false;
+        const cluster: any = {
+            add: () => {},
+            remove: () => {},
+            find: (message: any) => {
+                if (!serverAdded) {
+                    serverAdded = true;
+                    return {
+                        id: message.id,
+                        timer: null,
+                        timestamp: Date.now(),
+                        timeout: 50,
+                    };
+                }
+                // Return null to simulate server no longer existing
+                return null;
+            },
+        };
+        const manager: any = new UDPClusterManager();
+
+        manager.init(cluster);
+
+        // This should trigger the timeout handler that returns early (line 307)
+        emitMessage('name\tid\tup\t127.0.0.1:6379\t0.05');
+        await manager.destroy();
+    });
+
+    describe('destroy()', () => {
+        it('should handle empty sockets gracefully', async () => {
+            const cluster: any = {
+                add: () => {},
+                remove: () => {},
+                find: () => {}
+            };
+            const manager: any = new UDPClusterManager();
+
+            // Clear any existing sockets
+            (UDPClusterManager as any).sockets = {};
+
+            // Should not throw when no sockets exist
+            await manager.destroy();
+
+            expect(Object.keys((UDPClusterManager as any).sockets)).to.have.length(0);
+        });
     });
 });

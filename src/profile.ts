@@ -165,7 +165,7 @@ export function logDebugInfo({
     if (debugTime) {
         // noinspection TypeScriptUnresolvedFunction
         const time = parseInt(
-            ((process.hrtime as any).bigint() - start) as any,
+            ((process.hrtime as any).bigint() - BigInt(start)) as any,
             10,
         ) / 1000;
         let timeStr: string;

@@ -36,6 +36,7 @@ import {
     IServerInput,
     copyEventEmitter,
 } from '.';
+import { InitializedCluster } from './ClusterManager';
 
 interface ClusterServer extends IMessageQueueConnection {
     imq?: RedisQueue;
@@ -130,6 +131,8 @@ export class ClusteredRedisQueue implements IMessageQueue,
         subscription: null,
     };
 
+    private initializedClusters: InitializedCluster[] = [];
+
     /**
      * Class constructor
      *
@@ -167,11 +170,11 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
         if (this.options.clusterManagers?.length) {
             for (const manager of this.options.clusterManagers) {
-                manager.init({
+                this.initializedClusters.push(manager.init({
                     add: this.addServer.bind(this),
                     remove: this.removeServer.bind(this),
                     find: this.findServer.bind(this),
-                });
+                }));
             }
         }
     }
@@ -247,7 +250,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
     }
 
     /**
-     * Safely destroys current queue, unregistered all set event
+     * Safely destroys the current queue, unregistered all set event
      * listeners and connections.
      * Supposed to be an async function.
      *
@@ -258,6 +261,16 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
         await this.batch('destroy',
             'Destroying clustered redis message queue...');
+
+        if (!this.options.clusterManagers?.length) {
+            return;
+        }
+
+        for await (const manager of this.options.clusterManagers) {
+            for await (const cluster of this.initializedClusters) {
+                await manager.remove(cluster);
+            }
+        }
     }
 
     // noinspection JSUnusedGlobalSymbols

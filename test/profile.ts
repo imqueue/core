@@ -23,62 +23,94 @@
  */
 import { expect } from 'chai';
 import * as sinon from 'sinon';
-import { profile, ILogger, IMQ_LOG_LEVEL } from '..';
+import * as mock from 'mock-require';
+import {
+    profile,
+    ILogger,
+    verifyLogLevel,
+    LogLevel,
+    DebugInfoOptions,
+} from '..';
 import { logger } from './mocks';
 
+const BIG_INT_SUPPORT = (() => {
+    try {
+        return !!BigInt(0);
+    } catch (err) {
+        return false;
+    }
+})();
+
 class ProfiledClass {
-    // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
     @profile()
     public decoratedMethod(...args: any[]) {
         return args;
     }
+
+    @profile({
+        enableDebugTime: true,
+        enableDebugArgs: true,
+        logLevel: LogLevel.LOG,
+    })
+    public async decoratedAsyncMethod() {
+        return new Promise(resolve => setTimeout(resolve, 10));
+    }
 }
 
 class ProfiledClassTimed {
-    // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
     @profile({
         enableDebugTime: true,
+        logLevel: LogLevel.LOG,
     })
     public decoratedMethod() {}
 }
 
 class ProfiledClassArgued {
-    // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
     @profile({
         enableDebugTime: false,
         enableDebugArgs: true,
+        logLevel: LogLevel.LOG,
     })
     public decoratedMethod() {}
 }
 
 class ProfiledClassTimedAndArgued {
-    // noinspection JSUnusedLocalSymbols
     private logger: ILogger = logger;
 
     @profile({
         enableDebugTime: true,
         enableDebugArgs: true,
+        logLevel: LogLevel.LOG,
     })
     public decoratedMethod() {}
 }
 
-
-
 describe('profile()', function() {
     let log: any;
+    let error: any;
+    let warn: any;
+    let info: any;
 
     beforeEach(() => {
-        log = sinon.spy(logger, IMQ_LOG_LEVEL)
+        log = sinon.spy(logger, 'log');
+        error = sinon.spy(logger, 'error');
+        warn = sinon.spy(logger, 'warn');
+        info = sinon.spy(logger, 'info');
     });
 
     afterEach(() => {
         log.restore();
+        error.restore();
+        warn.restore();
+        info.restore();
+        mock.stopAll();
+        delete process.env.IMQ_LOG_TIME_FORMAT;
     });
 
     it('should be a function', () => {
@@ -107,5 +139,73 @@ describe('profile()', function() {
     it('should log time and args if both enabled', () => {
         new ProfiledClassTimedAndArgued().decoratedMethod();
         expect(log.calledTwice).to.be.true;
+    });
+
+    it('should handle async methods correctly', async () => {
+        await new ProfiledClass().decoratedAsyncMethod();
+        expect(log.calledTwice).to.be.true;
+    });
+
+    describe('verifyLogLevel()', () => {
+        it('should return valid log levels as is', () => {
+            expect(verifyLogLevel(LogLevel.LOG)).to.equal(LogLevel.LOG);
+            expect(verifyLogLevel(LogLevel.INFO)).to.equal(LogLevel.INFO);
+            expect(verifyLogLevel(LogLevel.WARN)).to.equal(LogLevel.WARN);
+            expect(verifyLogLevel(LogLevel.ERROR)).to.equal(LogLevel.ERROR);
+        });
+
+        it('should return default log level on invalid value', () => {
+            expect(verifyLogLevel('invalid')).to.equal(LogLevel.INFO);
+        });
+    });
+
+    describe('logDebugInfo()', () => {
+        const start = BIG_INT_SUPPORT ? BigInt(1) : 1;
+        const baseOptions: DebugInfoOptions = {
+            debugTime: true,
+            debugArgs: true,
+            className: 'TestClass',
+            args: [1, 'a', { b: 2 }],
+            methodName: 'testMethod',
+            start,
+            logger,
+            logLevel: LogLevel.LOG,
+        };
+
+        it('should log time in microseconds by default', () => {
+            const { logDebugInfo } = mock.reRequire('../src/profile');
+            logDebugInfo(baseOptions);
+            expect(log.calledWithMatch(/μs/)).to.be.true;
+        });
+
+        it('should log time in milliseconds', () => {
+            process.env.IMQ_LOG_TIME_FORMAT = 'milliseconds';
+            const { logDebugInfo } = mock.reRequire('../src/profile');
+            logDebugInfo(baseOptions);
+            expect(log.calledWithMatch(/ms/)).to.be.true;
+        });
+
+        it('should log time in seconds', () => {
+            process.env.IMQ_LOG_TIME_FORMAT = 'seconds';
+            const { logDebugInfo } = mock.reRequire('../src/profile');
+            logDebugInfo(baseOptions);
+            expect(log.calledWithMatch(/sec/)).to.be.true;
+        });
+
+        it('should handle circular references in args', () => {
+            const { logDebugInfo } = mock.reRequire('../src/profile');
+            const a: any = { b: 1 };
+            const b = { a };
+            a.b = b;
+            logDebugInfo({ ...baseOptions, args: [a] });
+            expect(error.notCalled).to.be.true;
+        });
+
+        it('should handle JSON.stringify errors', () => {
+            const { logDebugInfo } = mock.reRequire('../src/profile');
+            const badJson = { toJSON: () => { throw new Error('bad json'); } };
+            logDebugInfo({ ...baseOptions, args: [badJson] });
+            expect(error.calledOnce).to.be.true;
+        });
     });
 });

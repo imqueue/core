@@ -22,6 +22,7 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { IMessageQueueConnection, IServerInput } from './IMessageQueue';
+import { uuid } from './uuid';
 
 export interface ICluster {
     add: (server: IServerInput) => void;
@@ -31,12 +32,39 @@ export interface ICluster {
     ) => T | undefined;
 }
 
+export interface InitializedCluster extends ICluster {
+    id: string;
+}
+
 export abstract class ClusterManager {
-    protected clusters: ICluster[] = [];
+    protected clusters: InitializedCluster[] = [];
 
     protected constructor() {}
 
-    public init(cluster: ICluster): void {
-        this.clusters.push(cluster);
+    public init(cluster: ICluster): InitializedCluster {
+        const initializedCluster = Object.assign(cluster, { id: uuid() });
+
+        this.clusters.push(initializedCluster);
+
+        return initializedCluster;
     }
+
+    public async remove(
+        cluster: string | InitializedCluster,
+        destroy: boolean = true,
+    ): Promise<void> {
+        const id = typeof cluster === 'string' ? cluster : cluster.id;
+
+        this.clusters = this.clusters.filter(cluster => cluster.id !== id);
+
+        if (
+            this.clusters.length === 0
+            && destroy
+            && typeof this.destroy === 'function'
+        ) {
+            await this.destroy();
+        }
+    }
+
+    public abstract destroy(): Promise<void>;
 }

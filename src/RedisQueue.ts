@@ -180,7 +180,7 @@ export class RedisQueue extends EventEmitter<EventMap>
     private destroyed: boolean = false;
 
     /**
-     * True if the current instance owns watcher connection, false otherwise
+     * True if the current instance owns a watcher connection, false otherwise
      *
      * @type {boolean}
      */
@@ -369,6 +369,8 @@ export class RedisQueue extends EventEmitter<EventMap>
             return this;
         }
 
+        this.destroyed = false;
+
         const connPromises = [];
 
         // istanbul ignore next
@@ -408,7 +410,6 @@ export class RedisQueue extends EventEmitter<EventMap>
 
         await this.initWatcher();
         this.initialized = true;
-        this.destroyed = false;
 
         return this;
     }
@@ -586,7 +587,7 @@ export class RedisQueue extends EventEmitter<EventMap>
 
     // noinspection JSUnusedLocalSymbols
     /**
-     * Watcher setter, sets the watcher connection property for this
+     * Watcher setter sets the watcher connection property for this
      * queue instance
      *
      * @param {IRedisClient} conn
@@ -864,13 +865,17 @@ export class RedisQueue extends EventEmitter<EventMap>
     }
 
     /**
-     * Returns number of established watcher connections on redis
+     * Returns the number of established watcher connections on redis
      *
      * @access private
      * @returns {Promise<number>}
      */
     // istanbul ignore next
     private async watcherCount(): Promise<number> {
+        if (!this.writer) {
+            return 0;
+        }
+
         const rx = new RegExp(
             `\\bname=${this.options.prefix}:[\\S]+?:watcher:`,
         );
@@ -883,7 +888,7 @@ export class RedisQueue extends EventEmitter<EventMap>
     }
 
     /**
-     * Processes delayed message by its given redis key
+     * Processes delayed a message by its given redis key
      *
      * @access private
      * @param {string} key

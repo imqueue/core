@@ -56,15 +56,6 @@ export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS = {
 
 export interface UDPClusterManagerOptions {
     /**
-     * Represents the cluster operations that are responsible for managing
-     * clusters. This includes operations such as adding, removing, or checking
-     * if a cluster server exists.
-     *
-     * @type {ICluster}
-     */
-    cluster?: ICluster;
-
-    /**
      * Message queue broadcast port
      *
      * @default 63000
@@ -224,7 +215,7 @@ export class UDPClusterManager extends ClusterManager {
         if (!server && message.type === MessageType.Up) {
             cluster.add(message);
 
-            const added = cluster.find<ClusterServer>(message);
+            const added = cluster.find<ClusterServer>(message, true);
 
             if (added) {
                 UDPClusterManager.serverAliveWait(
@@ -271,13 +262,13 @@ export class UDPClusterManager extends ClusterManager {
                  return;
             }
 
-            for (const cluster of context.clusters) {
+            context.anyCluster(cluster => {
                 UDPClusterManager.processMessageOnCluster(
                     cluster,
                     message,
                     context.options.aliveTimeoutCorrection,
                 );
-            }
+            }).then();
         };
     }
 
@@ -307,7 +298,11 @@ export class UDPClusterManager extends ClusterManager {
         aliveTimeoutCorrection?: number,
         message?: Message,
     ): void {
-        clearTimeout(server.timer);
+        if (server.timer) {
+            clearTimeout(server.timer);
+            server.timer = undefined;
+        }
+
         server.timestamp = Date.now();
 
         if (message) {
@@ -317,23 +312,38 @@ export class UDPClusterManager extends ClusterManager {
         const correction = aliveTimeoutCorrection || 0;
         const timeout = (server.timeout || 0) + correction;
 
-        server.timer = setTimeout(() => {
-            const existing = cluster.find<ClusterServer>(server);
+        if (timeout <= 0) {
+            return;
+        }
 
-            if (!existing) {
+        const timerId = setTimeout(() => {
+            const existing = cluster.find<ClusterServer>(server, true);
+
+            if (!existing || existing.timer !== timerId) {
                 return;
             }
 
             const now = Date.now();
-            const delta = now - (existing.timestamp || now);
+
+            if (!existing.timestamp) {
+                clearTimeout(existing.timer);
+                existing.timer = undefined;
+                cluster.remove(existing);
+
+                return;
+            }
+
+            const delta = now - existing.timestamp;
             const currentTimeout = (existing.timeout || 0) + correction;
 
             if (delta >= currentTimeout) {
-                clearTimeout(server.timer);
-
-                cluster.remove(server);
+                clearTimeout(existing.timer);
+                existing.timer = undefined;
+                cluster.remove(existing);
             }
         }, timeout);
+
+        server.timer = timerId;
     }
 
     /**

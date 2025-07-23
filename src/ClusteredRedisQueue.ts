@@ -23,18 +23,18 @@
  */
 import { EventEmitter } from 'events';
 import {
-    DEFAULT_IMQ_OPTIONS,
     buildOptions,
+    copyEventEmitter,
+    DEFAULT_IMQ_OPTIONS,
+    EventMap,
     ILogger,
     IMessageQueue,
     IMessageQueueConnection,
     IMQMode,
     IMQOptions,
+    IServerInput,
     JsonObject,
     RedisQueue,
-    EventMap,
-    IServerInput,
-    copyEventEmitter,
 } from '.';
 import { InitializedCluster } from './ClusterManager';
 
@@ -496,7 +496,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
      * @returns {void}
      */
     protected removeServer(server: IServerInput): void {
-        const remove = this.findServer(server);
+        const remove = this.findServer(server, true);
 
         if (!remove) {
             return;
@@ -534,14 +534,12 @@ export class ClusteredRedisQueue implements IMessageQueue,
         const imq = new RedisQueue(this.name, opts);
 
         if (initializeQueue) {
-            this.initializeQueue(imq)
-                .then(() => {
-                    this.clusterEmitter.emit('initialized', {
-                        server: newServer,
-                        imq,
-                    });
-                })
-                .catch();
+            this.initializeQueue(imq).then(() => {
+                this.clusterEmitter.emit('initialized', {
+                    server: newServer,
+                    imq,
+                });
+            });
         }
 
         newServer.imq = imq;
@@ -571,11 +569,15 @@ export class ClusteredRedisQueue implements IMessageQueue,
         }
     }
 
-    private findServer(server: IServerInput): ClusterServer | undefined {
+    private findServer(
+        server: IServerInput,
+        strict: boolean = false,
+    ): ClusterServer | undefined {
         return this.servers.find(
             existing => ClusteredRedisQueue.matchServers(
                 existing,
                 server,
+                strict,
             ),
         );
     }
@@ -583,6 +585,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
     private static matchServers(
         source: IServerInput,
         target: IServerInput,
+        strict: boolean = false,
     ): boolean {
         const sameAddress = target.host === source.host
             && target.port === source.port;
@@ -593,6 +596,11 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
         const sameId = target.id === source.id;
 
+        if (strict) {
+            return sameId && sameAddress;
+        }
+
         return sameId || sameAddress;
     }
+
 }

@@ -29,6 +29,7 @@ export interface ICluster {
     remove: (server: IServerInput) => void;
     find: <T extends IMessageQueueConnection>(
         server: IServerInput,
+        strict?: boolean,
     ) => T | undefined;
 }
 
@@ -47,6 +48,12 @@ export abstract class ClusterManager {
         this.clusters.push(initializedCluster);
 
         return initializedCluster;
+    }
+
+    public async anyCluster(
+        fn: (cluster: InitializedCluster) => Promise<void> | void,
+    ): Promise<void> {
+        await Promise.all(this.clusters.map(cluster => fn(cluster)));
     }
 
     public async remove(

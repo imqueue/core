@@ -438,6 +438,10 @@ export class RedisQueue extends EventEmitter<EventMap>
             await this.start();
         }
 
+        if (!this.writer) {
+            throw new TypeError('IMQ: unable to initialize queue!');
+        }
+
         const id = uuid();
         const data: IMessage = { id, message, from: this.name };
         const key = `${this.options.prefix}:${toQueue}`;
@@ -856,7 +860,9 @@ export class RedisQueue extends EventEmitter<EventMap>
             this.emit('message', message, id, from);
         } catch (err) {
             // istanbul ignore next
-            this.emitError('OnMessage', 'process error - message is invalid',
+            this.emitError(
+                'OnMessage',
+                'process error - message is invalid',
                 err,
             );
         }
@@ -879,12 +885,9 @@ export class RedisQueue extends EventEmitter<EventMap>
         const rx = new RegExp(
             `\\bname=${this.options.prefix}:[\\S]+?:watcher:`,
         );
-        const list = await this.writer.client('LIST') as string;
+        const list = <string>await this.writer.client('LIST');
 
-        return (list || '')
-            .split(/\r?\n/)
-            .filter(client => rx.test(client))
-            .length;
+        return list.split(/\r?\n/).filter(client => rx.test(client)).length;
     }
 
     /**
@@ -903,8 +906,11 @@ export class RedisQueue extends EventEmitter<EventMap>
                 );
             }
         } catch (err) {
-            this.emitError('OnProcessDelayed', 'error processing delayed queue',
-                err);
+            this.emitError(
+                'OnProcessDelayed',
+                'error processing delayed queue',
+                err,
+            );
         }
     }
 
@@ -939,8 +945,11 @@ export class RedisQueue extends EventEmitter<EventMap>
                     return;
                 }
             } catch (err) {
-                this.emitError('OnSafeDelivery',
-                    'safe queue message delivery problem', err);
+                this.emitError(
+                    'OnSafeDelivery',
+                    'safe queue message delivery problem',
+                    err,
+                );
                 this.cleanSafeCheckInterval();
 
                 return;
@@ -1194,10 +1203,12 @@ export class RedisQueue extends EventEmitter<EventMap>
                 const msgArr: any = await this.writer.lrange(
                     workerKey, -1, 1,
                 );
+
                 if (msgArr.length !== 1) {
                     // noinspection ExceptionCaughtLocallyJS
                     throw new Error('Wrong messages count');
                 }
+
                 const msg = msgArr[0];
 
                 this.process([key, msg]);

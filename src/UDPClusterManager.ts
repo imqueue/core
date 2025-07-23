@@ -21,9 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import {
-    IMessageQueueConnection,
-} from './IMessageQueue';
+import { IMessageQueueConnection } from './IMessageQueue';
 import { ICluster, ClusterManager } from './ClusterManager';
 import { Socket, createSocket } from 'dgram';
 import { networkInterfaces } from 'os';

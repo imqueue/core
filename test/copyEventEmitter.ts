@@ -131,4 +131,27 @@ describe('copyEventEmitter()', function() {
 
         expect(target.listenerCount(eventName)).to.be.equal(1);
     });
+    it('should handle onceWrapper-like listener with falsy listener property', () => {
+        const source = new EventEmitter();
+        const target = new EventEmitter();
+
+        // Create a mock listener that looks like onceWrapper and has a falsy listener property
+        const mockListener: any = function() {};
+        mockListener.listener = 0; // falsy value present
+        const originalInspect = require('util').inspect;
+        require('util').inspect = (obj: any) => {
+            if (obj === mockListener) {
+                return 'function onceWrapper() { ... }';
+            }
+            return originalInspect(obj);
+        };
+
+        source.on(eventName, mockListener as any);
+        copyEventEmitter(source, target);
+
+        // Restore original inspect
+        require('util').inspect = originalInspect;
+
+        expect(target.listenerCount(eventName)).to.be.equal(1);
+    });
 });

@@ -40,7 +40,13 @@ describe('profile.ts additional branches', () => {
         const fakeLogger: any = {
             error: sinon.spy(),
         };
-        const args = [BigInt(1)]; // JSON.stringify throws on BigInt
+    it('logDebugInfo: should call logger.error on JSON.stringify error (explicit stub)', () => {
+        const { logDebugInfo, LogLevel } = mock.reRequire('../src/profile');
+        const fakeLogger: any = {
+            error: sinon.spy(),
+        };
+        const args = [{ foo: 'bar' }];
+        const jsonStringifyStub = sinon.stub(JSON, 'stringify').throws(new Error('Serialization failed'));
         const options = {
             debugTime: false,
             debugArgs: true,

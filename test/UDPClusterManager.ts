@@ -21,11 +21,11 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
+import './mocks';
 import { expect } from 'chai';
 import { UDPClusterManager } from '../src';
 import * as sinon from 'sinon';
 import { Socket } from 'dgram';
-import * as os from 'os';
 
 const testMessageUp = 'name\tid\tup\taddress\ttimeout';
 const testMessageDown = 'name\tid\tdown\taddress\ttimeout';

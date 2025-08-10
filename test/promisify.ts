@@ -21,6 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
+import './mocks';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { promisify } from '..';

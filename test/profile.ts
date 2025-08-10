@@ -21,6 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
+import './mocks';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import * as mock from 'mock-require';
@@ -199,6 +200,13 @@ describe('profile()', function() {
             a.b = b;
             logDebugInfo({ ...baseOptions, args: [a] });
             expect(error.notCalled).to.be.true;
+        });
+
+        it('should not log when logger method is missing', () => {
+            const { logDebugInfo } = mock.reRequire('../src/profile');
+            const dummyLogger: any = { error: logger.error.bind(logger) };
+            logDebugInfo({ ...baseOptions, logger: dummyLogger, logLevel: 'nonexistent' as any });
+            expect(log.notCalled).to.be.true;
         });
 
         it('should handle JSON.stringify errors', () => {

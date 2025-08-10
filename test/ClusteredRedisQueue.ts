@@ -21,7 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import * as mocks from './mocks';
+import { logger } from './mocks';
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { ClusteredRedisQueue } from '../src';
@@ -30,7 +30,7 @@ import { ClusterManager } from '../src/ClusterManager';
 process.setMaxListeners(100);
 
 const clusterConfig = {
-    logger: mocks.logger,
+    logger,
     cluster: [{
         host: '127.0.0.1',
         port: 7777
@@ -163,14 +163,14 @@ describe('ClusteredRedisQueue', function() {
                 'TestClusteredQueueOne',
                 {
                     clusterManagers: [clusterManager],
-                    logger: mocks.logger,
+                    logger,
                 },
             );
             const cqTwo: any = new ClusteredRedisQueue(
                 'TestClusteredQueueTwo',
                 {
                     clusterManagers: [clusterManager],
-                    logger: mocks.logger,
+                    logger,
                 },
             );
             const message = { 'hello': 'world' };
@@ -238,7 +238,7 @@ describe('ClusteredRedisQueue', function() {
                 'TestClusteredQueue',
                 {
                     clusterManagers: [clusterManager],
-                    logger: mocks.logger,
+                    logger,
                 },
             );
             const channel = 'TestChannel';

@@ -202,6 +202,13 @@ describe('profile()', function() {
             expect(error.notCalled).to.be.true;
         });
 
+        it('should not log when logger method is missing', () => {
+            const { logDebugInfo } = mock.reRequire('../src/profile');
+            const dummyLogger: any = { error: logger.error.bind(logger) };
+            logDebugInfo({ ...baseOptions, logger: dummyLogger, logLevel: 'nonexistent' as any });
+            expect(log.notCalled).to.be.true;
+        });
+
         it('should handle JSON.stringify errors', () => {
             const { logDebugInfo } = mock.reRequire('../src/profile');
             const badJson = { toJSON: () => { throw new Error('bad json'); } };

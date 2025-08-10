@@ -154,4 +154,88 @@ describe('copyEventEmitter()', function() {
 
         expect(target.listenerCount(eventName)).to.be.equal(1);
     });
+
+    it('should handle onceWrapper-like listener with undefined listener property', () => {
+        const source = new EventEmitter();
+        const target = new EventEmitter();
+
+        const mockListener: any = function() {};
+        mockListener.listener = undefined; // explicitly undefined
+        const originalInspect = require('util').inspect;
+        require('util').inspect = (obj: any) => {
+            if (obj === mockListener) {
+                return 'function onceWrapper() { ... }';
+            }
+            return originalInspect(obj);
+        };
+
+        source.on(eventName, mockListener as any);
+        copyEventEmitter(source, target);
+
+        // Restore original inspect
+        require('util').inspect = originalInspect;
+
+        expect(target.listenerCount(eventName)).to.be.equal(1);
+    });
+
+    it('should handle onceWrapper-like listener with truthy listener property', () => {
+        const source = new EventEmitter();
+        const target = new EventEmitter();
+
+        // Create a mock listener that looks like onceWrapper and has a truthy listener property
+        let called = 0;
+        const realListener = () => { called++; };
+        const mockListener: any = function() {};
+        mockListener.listener = realListener; // truthy function
+
+        const originalInspect = require('util').inspect;
+        require('util').inspect = (obj: any) => {
+            if (obj === mockListener) {
+                return 'function onceWrapper() { ... }';
+            }
+            return originalInspect(obj);
+        };
+
+        source.on(eventName, mockListener as any);
+        copyEventEmitter(source, target);
+
+        // Restore original inspect
+        require('util').inspect = originalInspect;
+
+        // Ensure the listener was attached via once() and is callable exactly once
+        expect(target.listenerCount(eventName)).to.be.equal(1);
+        target.emit(eventName);
+        target.emit(eventName);
+        expect(called).to.equal(1);
+    });
+
+    it('should handle onceWrapper path when originalListener is undefined', () => {
+        const source: any = {
+            eventNames: () => [eventName],
+            rawListeners: () => [undefined],
+            getMaxListeners: () => 0,
+            setMaxListeners: () => {},
+        };
+        const onceCalls: any[] = [];
+        const target: any = {
+            once: (ev: any, listener: any) => { onceCalls.push([ev, listener]); },
+            on: () => {},
+        };
+        const originalInspect = require('util').inspect;
+        require('util').inspect = (obj: any) => {
+            if (typeof obj === 'undefined') {
+                return 'function onceWrapper() { ... }';
+            }
+            return originalInspect(obj);
+        };
+
+        copyEventEmitter(source as any, target as any);
+
+        // Restore original inspect
+        require('util').inspect = originalInspect;
+
+        expect(onceCalls.length).to.equal(1);
+        expect(onceCalls[0][0]).to.equal(eventName);
+        expect(onceCalls[0][1]).to.equal(undefined);
+    });
 });

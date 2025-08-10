@@ -11,6 +11,7 @@
     "json-message"
   ],
   "scripts": {
+    "benchmark": "node benchmark -c $(( $(nproc) - 2 )) -m 100000",
     "prepare": "./node_modules/.bin/tsc",
     "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && ./node_modules/.bin/nyc report --reporter=text-lcov && npm run test-coverage",
     "test-fast": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"import('open').then(open => open.default('file://`pwd`/coverage/index.html', { wait: false }))\"",

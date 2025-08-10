@@ -19,6 +19,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
+import './mocks';
 import { EventEmitter } from 'events';
 import { expect } from 'chai';
 import { copyEventEmitter } from '../src';

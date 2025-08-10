@@ -368,7 +368,10 @@ export class UDPClusterManager extends ClusterManager {
                 if (typeof socket.close === 'function') {
                     socket.removeAllListeners();
                     socket.close(() => {
-                        socket?.unref();
+                        // unref may be missing or not a function on mocked sockets
+                        if (socket && typeof (socket as any).unref === 'function') {
+                            socket.unref();
+                        }
 
                         if (
                             socketKey

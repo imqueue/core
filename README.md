@@ -1,6 +1,5 @@
 # I Message Queue (@imqueue/core)
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/imqueue/core/build.yml)](https://github.com/imqueue/core)
 [![License](https://img.shields.io/badge/license-GPL-blue.svg)](https://rawgit.com/imqueue/core/master/LICENSE)
 
 Simple JSON-based messaging queue for inter service communication

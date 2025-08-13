@@ -887,6 +887,10 @@ export class RedisQueue extends EventEmitter<EventMap>
         );
         const list = <string>await this.writer.client('LIST');
 
+        if (!list || !list.split) {
+            return 0;
+        }
+
         return list.split(/\r?\n/).filter(client => rx.test(client)).length;
     }
 

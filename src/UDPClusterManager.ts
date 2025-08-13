@@ -298,6 +298,7 @@ export class UDPClusterManager extends ClusterManager {
     ): void {
         if (server.timer) {
             clearTimeout(server.timer);
+            server.timer = undefined;
         }
 
         const timeout = (message?.timeout || 0) + aliveTimeoutCorrection;
@@ -311,7 +312,7 @@ export class UDPClusterManager extends ClusterManager {
         server.timer = setTimeout(() => {
             const entry = cluster.find<ClusterServer>(server, true);
 
-            if (!entry?.timestamp) {
+            if (typeof entry?.timestamp !== 'number') {
                 return;
             }
 
@@ -320,7 +321,7 @@ export class UDPClusterManager extends ClusterManager {
             if (elapsed >= timeout) {
                 cluster.remove(entry);
             }
-        }, server.timeout);
+        }, timeout);
     }
 
     /**

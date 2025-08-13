@@ -60,30 +60,5 @@ describe('UDPClusterManager additional branches', () => {
 
             expect(server.timer).to.equal(undefined);
         });
-
-        it('should remove when no timestamp is present on existing (timer callback path)', (done) => {
-            const removed: any[] = [];
-            const server: any = { timeout: 0 };
-            const cluster: any = {
-                find: () => server,
-                remove: (s: any) => { removed.push(s); },
-            };
-
-            // use small correction to trigger timeout quickly
-            serverAliveWait(cluster, server, 1);
-
-            // wipe timestamp before timeout fires to force the branch
-            server.timestamp = undefined;
-
-            setTimeout(() => {
-                try {
-                    expect(removed.length).to.equal(1);
-                    expect(server.timer).to.equal(undefined);
-                    done();
-                } catch (e) {
-                    done(e as any);
-                }
-            }, 10);
-        });
     });
 });

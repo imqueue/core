@@ -49,7 +49,7 @@ interface ClusterServer extends IMessageQueueConnection {
 export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS = {
     broadcastPort: 63000,
     broadcastAddress: '255.255.255.255',
-    aliveTimeoutCorrection: 1000,
+    aliveTimeoutCorrection: 2000,
 };
 
 export interface UDPClusterManagerOptions {
@@ -293,55 +293,34 @@ export class UDPClusterManager extends ClusterManager {
     private static serverAliveWait(
         cluster: ICluster,
         server: ClusterServer,
-        aliveTimeoutCorrection?: number,
+        aliveTimeoutCorrection: number = 0,
         message?: Message,
     ): void {
         if (server.timer) {
             clearTimeout(server.timer);
-            server.timer = undefined;
         }
 
-        server.timestamp = Date.now();
-
-        if (message) {
-            server.timeout = message.timeout;
-        }
-
-        const correction = aliveTimeoutCorrection || 0;
-        const timeout = (server.timeout || 0) + correction;
+        const timeout = (message?.timeout || 0) + aliveTimeoutCorrection;
 
         if (timeout <= 0) {
             return;
         }
 
-        const timerId = setTimeout(() => {
-            const existing = cluster.find<ClusterServer>(server, true);
+        server.timeout = timeout;
+        server.timestamp = Date.now();
+        server.timer = setTimeout(() => {
+            const entry = cluster.find<ClusterServer>(server, true);
 
-            if (!existing || existing.timer !== timerId) {
+            if (!entry?.timestamp) {
                 return;
             }
 
-            const now = Date.now();
+            const elapsed = Date.now() - entry.timestamp;
 
-            if (!existing.timestamp) {
-                clearTimeout(existing.timer);
-                existing.timer = undefined;
-                cluster.remove(existing);
-
-                return;
+            if (elapsed >= timeout) {
+                cluster.remove(entry);
             }
-
-            const delta = now - existing.timestamp;
-            const currentTimeout = (existing.timeout || 0) + correction;
-
-            if (delta >= currentTimeout) {
-                clearTimeout(existing.timer);
-                existing.timer = undefined;
-                cluster.remove(existing);
-            }
-        }, timeout);
-
-        server.timer = timerId;
+        }, server.timeout);
     }
 
     /**

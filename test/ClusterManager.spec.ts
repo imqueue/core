@@ -21,7 +21,7 @@ describe('ClusterManager.remove()', () => {
     it('should call destroy when the last cluster is removed and destroy=true', async () => {
         const cm = new TestClusterManager();
         const cluster: InitializedCluster = cm.init({
-            add: () => undefined,
+            add: () => ({} as any),
             remove: () => undefined,
             find: () => undefined,
         });
@@ -40,7 +40,7 @@ describe('ClusterManager.remove()', () => {
     it('should not call destroy when destroy=false', async () => {
         const cm = new TestClusterManager();
         const cluster: InitializedCluster = cm.init({
-            add: () => undefined,
+            add: () => ({} as any),
             remove: () => undefined,
             find: () => undefined,
         });

@@ -25,11 +25,10 @@ import { IMessageQueueConnection, IServerInput } from './IMessageQueue';
 import { uuid } from './uuid';
 
 export interface ICluster {
-    add: (server: IServerInput) => void;
+    add: <T extends IMessageQueueConnection>(server: IServerInput) => T;
     remove: (server: IServerInput) => void;
     find: <T extends IMessageQueueConnection>(
         server: IServerInput,
-        strict?: boolean,
     ) => T | undefined;
 }
 

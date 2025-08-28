@@ -22,8 +22,8 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { IMessageQueueConnection } from './IMessageQueue';
-import { ICluster, ClusterManager } from './ClusterManager';
-import { Socket, createSocket } from 'dgram';
+import { ClusterManager, ICluster } from './ClusterManager';
+import { createSocket, Socket } from 'dgram';
 import { networkInterfaces } from 'os';
 
 enum MessageType {
@@ -43,13 +43,13 @@ interface Message {
 interface ClusterServer extends IMessageQueueConnection {
     timeout?: number;
     timestamp?: number;
-    timer?: NodeJS.Timeout;
+    timer?: any;
 }
 
 export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS = {
     broadcastPort: 63000,
     broadcastAddress: '255.255.255.255',
-    aliveTimeoutCorrection: 2000,
+    aliveTimeoutCorrection: 1000,
 };
 
 export interface UDPClusterManagerOptions {
@@ -59,7 +59,7 @@ export interface UDPClusterManagerOptions {
      * @default 63000
      * @type {number}
      */
-    broadcastPort?: number;
+    broadcastPort: number;
 
     /**
      * Message queue broadcast address
@@ -67,7 +67,7 @@ export interface UDPClusterManagerOptions {
      * @default limitedBroadcastAddress
      * @type {number}
      */
-    broadcastAddress?: string;
+    broadcastAddress: string;
 
     /**
      * Message queue limited broadcast address
@@ -84,30 +84,8 @@ export interface UDPClusterManagerOptions {
      * @default 1000
      * @type {number}
      */
-    aliveTimeoutCorrection?: number;
-
-    /**
-     * Skip messages that are broadcast by specified addresses or set to
-     * "localhost" if you want to skip messages from "127.0.0.1" or "::1"
-     *
-     * @type {"local" | string[]}
-     */
-    excludeHosts?: 'localhost' | string[];
-
-    /**
-     * Allow messages that are broadcast only by specified addresses or set to
-     * "localhost" if you want to allow messages only from "127.0.0.1" or "::1"
-     *
-     * @type {"local" | string[]}
-     */
-    includeHosts?: 'localhost' | string[];
+    aliveTimeoutCorrection: number;
 }
-
-const LOCALHOST_ADDRESSES = [
-    'localhost',
-    '127.0.0.1',
-    '::1',
-];
 
 /**
  * UDP broadcast-based cluster management implementation
@@ -132,14 +110,14 @@ export class UDPClusterManager extends ClusterManager {
         UDPClusterManager.sockets[this.socketKey] = socket;
     }
 
-    constructor(options?: UDPClusterManagerOptions) {
+    constructor(options?: Partial<UDPClusterManagerOptions>) {
         super();
 
         this.options = {
             ...DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS,
             ...options || {},
         };
-        this.startListening(this.options);
+        this.startListening();
 
         process.on('SIGTERM', UDPClusterManager.free);
         process.on('SIGINT', UDPClusterManager.free);
@@ -166,108 +144,72 @@ export class UDPClusterManager extends ClusterManager {
         this.socketKey = `${ address }:${ options.broadcastPort }`;
 
         if (!this.socket) {
-            this.socket = createSocket({ type: 'udp4', reuseAddr: true });
-            this.socket.bind(options.broadcastPort, address);
+            this.socket = createSocket({
+                type: 'udp4',
+                reuseAddr: true,
+                reusePort: true,
+            })
+                .bind(options.broadcastPort, address);
         }
 
         this.socket.on(
             'message',
-            message => listener(
-                UDPClusterManager.parseBroadcastedMessage(message),
-            ),
+            message => {
+                listener(
+                    UDPClusterManager.parseBroadcastedMessage(message),
+                );
+            },
         );
     }
 
-    private startListening(options: UDPClusterManagerOptions = {}): void {
+    private startListening(): void {
         this.listenBroadcastedMessages(
-            UDPClusterManager.processBroadcastedMessage(this),
-            options,
+            message => {
+                console.log('Received message:', {
+                    message,
+                    timestamp: new Date().toISOString(),
+                });
+                this.anyCluster(cluster => {
+                    UDPClusterManager.processMessageOnCluster(
+                        cluster,
+                        message,
+                        this.options.aliveTimeoutCorrection,
+                    );
+                }).then();
+            },
+            this.options,
         );
-    }
-
-    private static verifyHosts(
-        host: string,
-        hosts: string[] | 'localhost',
-    ): boolean {
-        const normalizedHosts = hosts === 'localhost'
-            ? LOCALHOST_ADDRESSES
-            : hosts
-        ;
-
-        return normalizedHosts.includes(host);
     }
 
     private static processMessageOnCluster(
         cluster: ICluster,
         message: Message,
-        aliveTimeoutCorrection?: number,
+        aliveTimeoutCorrection: number,
     ): void {
         const server = cluster.find<ClusterServer>(message);
 
         if (server && message.type === MessageType.Down) {
-            clearTimeout(server.timer);
-
             return cluster.remove(message);
         }
 
         if (!server && message.type === MessageType.Up) {
-            cluster.add(message);
-
-            const added = cluster.find<ClusterServer>(message, true);
-
-            if (added) {
-                UDPClusterManager.serverAliveWait(
-                    cluster,
-                    added,
-                    aliveTimeoutCorrection,
-                );
-            }
-
-            return;
+            return UDPClusterManager.serverAliveWait(
+                cluster,
+                cluster.add<ClusterServer>(message),
+                message,
+                aliveTimeoutCorrection,
+                false,
+            );
         }
 
         if (server && message.type === MessageType.Up) {
-            return UDPClusterManager.serverAliveWait(
+            UDPClusterManager.serverAliveWait(
                 cluster,
                 server,
-                aliveTimeoutCorrection,
                 message,
+                aliveTimeoutCorrection,
             );
         }
-    }
-
-    private static processBroadcastedMessage(
-        context: UDPClusterManager,
-    ): (message: Message) => void {
-        return message => {
-            if (
-                context.options.excludeHosts
-                && UDPClusterManager.verifyHosts(
-                    message.host,
-                    context.options.excludeHosts,
-                )
-            ) {
-                 return;
-            }
-
-            if (
-                context.options.includeHosts
-                && !UDPClusterManager.verifyHosts(
-                    message.host,
-                    context.options.includeHosts,
-                )
-            ) {
-                 return;
-            }
-
-            context.anyCluster(cluster => {
-                UDPClusterManager.processMessageOnCluster(
-                    cluster,
-                    message,
-                    context.options.aliveTimeoutCorrection,
-                );
-            }).then();
-        };
     }
 
     private static parseBroadcastedMessage(input: Buffer): Message {
@@ -293,35 +235,50 @@ export class UDPClusterManager extends ClusterManager {
     private static serverAliveWait(
         cluster: ICluster,
         server: ClusterServer,
-        aliveTimeoutCorrection: number = 0,
-        message?: Message,
+        message: Message,
+        aliveTimeoutCorrection: number,
+        existingServer: boolean = true,
     ): void {
-        if (server.timer) {
-            clearTimeout(server.timer);
-            server.timer = undefined;
-        }
+        console.log('Server alive renewal:', {
+            server,
+            message,
+        });
 
-        const timeout = (message?.timeout || 0) + aliveTimeoutCorrection;
-
-        if (timeout <= 0) {
+        if (server.timer === undefined && existingServer) {
             return;
         }
 
-        server.timeout = timeout;
-        server.timestamp = Date.now();
-        server.timer = setTimeout(() => {
-            const entry = cluster.find<ClusterServer>(server, true);
+        clearTimeout(server.timer);
 
-            if (typeof entry?.timestamp !== 'number') {
+        server.timer = undefined;
+        server.timestamp = Date.now();
+        server.timeout = message.timeout || 0;
+        server.timer = setTimeout(() => {
+            const existing = cluster.find<ClusterServer>(server);
+
+            if (!existing) {
                 return;
             }
 
-            const elapsed = Date.now() - entry.timestamp;
+            console.log('Server alive timeout - existing server:', {
+                existing
+            });
 
-            if (elapsed >= timeout) {
-                cluster.remove(entry);
+            const now = Date.now();
+            const delta = now - (existing.timestamp || now);
+            const currentTimeout = (existing.timeout || 0) +
+                aliveTimeoutCorrection;
+
+            console.log('Server alive - should remove:', {
+                delta,
+                currentTimeout,
+                more: delta >= currentTimeout,
+            });
+
+            if (delta >= currentTimeout) {
+                cluster.remove(server);
             }
-        }, timeout);
+        }, server.timeout + aliveTimeoutCorrection);
     }
 
     /**
@@ -345,28 +302,27 @@ export class UDPClusterManager extends ClusterManager {
 
         return await new Promise((resolve, reject) => {
             try {
-                if (typeof socket.close === 'function') {
-                    socket.removeAllListeners();
-                    socket.close(() => {
-                        // unref may be missing or not a function on mocked sockets
-                        if (socket && typeof (socket as any).unref === 'function') {
-                            socket.unref();
-                        }
-
-                        if (
-                            socketKey
-                            && UDPClusterManager.sockets[socketKey]
-                        ) {
-                            delete UDPClusterManager.sockets[socketKey];
-                        }
-
-                        resolve();
-                    });
+                if (typeof socket.close !== 'function') {
+                    resolve();
 
                     return;
                 }
 
-                resolve();
+                socket.removeAllListeners();
+                socket.close(() => {
+                    if (socket && typeof (socket as any).unref === 'function') {
+                        socket.unref();
+                    }
+
+                    if (
+                        socketKey
+                        && UDPClusterManager.sockets[socketKey]
+                    ) {
+                        delete UDPClusterManager.sockets[socketKey];
+                    }
+
+                    resolve();
+                });
             } catch (e) {
                 reject(e);
             }
@@ -386,13 +342,7 @@ export class UDPClusterManager extends ClusterManager {
             || limitedBroadcastAddress;
         const defaultAddress = '0.0.0.0';
 
-        if (!broadcastAddress) {
-            return defaultAddress;
-        }
-
-        const equalAddresses = broadcastAddress === limitedBroadcastAddress;
-
-        if (equalAddresses) {
+        if (!broadcastAddress || broadcastAddress === limitedBroadcastAddress) {
             return defaultAddress;
         }
 

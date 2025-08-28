@@ -107,63 +107,6 @@ describe('UDPBroadcastClusterManager', function() {
         await manager.destroy();
     });
 
-    it('should add server if localhost included', async () => {
-       const cluster: any = {
-            add: () => {},
-            remove: () => {},
-            find: () => {},
-        };
-        const manager: any = new UDPClusterManager({
-            includeHosts: 'localhost',
-        });
-
-        sinon.spy(cluster, 'add');
-
-        manager.init(cluster);
-
-        emitMessage('name\tid\tup\t127.0.0.1:6379\ttimeout');
-        expect(cluster.add.called).to.be.true;
-        await manager.destroy();
-    });
-
-    it('should not add server if localhost excluded', async () => {
-        const cluster: any = {
-            add: () => {},
-            remove: () => {},
-            find: () => {},
-        };
-        const manager: any = new UDPClusterManager({
-            excludeHosts: 'localhost',
-        });
-
-        sinon.spy(cluster, 'add');
-
-        manager.init(cluster);
-
-        emitMessage('name\tid\tup\t127.0.0.1:6379\ttimeout');
-        expect(cluster.add.called).to.be.false;
-        await manager.destroy();
-    });
-
-    it('should not add server if not in includeHosts', async () => {
-        const cluster: any = {
-            add: () => {},
-            remove: () => {},
-            find: () => {},
-        };
-        const manager: any = new UDPClusterManager({
-            includeHosts: ['example.com'],
-        });
-
-        sinon.spy(cluster, 'add');
-
-        manager.init(cluster);
-
-        emitMessage('name\tid\tup\t127.0.0.1:6379\ttimeout');
-        expect(cluster.add.called).to.be.false;
-        await manager.destroy();
-    });
-
     it('should handle server timeout and removal', (done) => {
         let addedServer: any = null;
         const cluster: any = {
@@ -229,11 +172,6 @@ describe('UDPBroadcastClusterManager', function() {
 
     describe('destroy()', () => {
         it('should handle empty sockets gracefully', async () => {
-            const cluster: any = {
-                add: () => {},
-                remove: () => {},
-                find: () => {}
-            };
             const manager: any = new UDPClusterManager();
 
             // Clear any existing sockets

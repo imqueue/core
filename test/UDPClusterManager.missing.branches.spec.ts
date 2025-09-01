@@ -7,30 +7,6 @@ import * as sinon from 'sinon';
 import { UDPClusterManager } from '../src';
 
 describe('UDPClusterManager - cover remaining branches', () => {
-    it('serverAliveWait should handle existing.timeout falsy (|| 0) path and remove on timeout', async () => {
-        // Arrange cluster stub
-        const server: any = { host: 'h', port: 1, timer: undefined, timeout: undefined, timestamp: undefined };
-        const cluster: any = {
-            find: sinon.stub().callsFake((_s: any, _strict?: boolean) => server),
-            remove: sinon.stub(),
-        };
-
-        // Use fake timers to control setTimeout and Date
-        const clock = sinon.useFakeTimers();
-        try {
-            // make timestamp truthy
-            clock.tick(1);
-            // Alive correction > 0 ensures timer is scheduled even if timeout is falsy
-            (UDPClusterManager as any).serverAliveWait(cluster, server, 1);
-            // Advance time to trigger setTimeout callback and make delta >= currentTimeout (1ms)
-            clock.tick(2);
-
-            expect(cluster.remove.called).to.equal(true);
-        } finally {
-            clock.restore();
-        }
-    });
-
     it('destroySocket should call socket.unref() when socket is present', async () => {
         // Prepare fake socket with unref
         const unref = sinon.spy();

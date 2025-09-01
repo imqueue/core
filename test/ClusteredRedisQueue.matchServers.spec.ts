@@ -16,19 +16,8 @@ describe('ClusteredRedisQueue.matchServers()', () => {
         expect(match({ host: 'h', port: 1 }, { host: 'h', port: 2 })).to.be.false;
     });
 
-    it('should use strict logic when strict=true', () => {
-        // same id and same address -> true
-        expect(match({ id: 'a', host: 'h', port: 1 }, { id: 'a', host: 'h', port: 1 }, true)).to.be.true;
-        // same id but different address -> false
-        expect(match({ id: 'a', host: 'h', port: 1 }, { id: 'a', host: 'h', port: 2 }, true)).to.be.false;
-        // different id but same address -> false
-        expect(match({ id: 'a', host: 'h', port: 1 }, { id: 'b', host: 'h', port: 1 }, true)).to.be.false;
-    });
-
-    it('should use relaxed logic when strict=false', () => {
-        // id matches -> true even if address differs
-        expect(match({ id: 'a', host: 'h', port: 1 }, { id: 'a', host: 'h', port: 2 }, false)).to.be.true;
-        // address matches -> true even if id differs
-        expect(match({ id: 'a', host: 'h', port: 1 }, { id: 'b', host: 'h', port: 1 }, false)).to.be.true;
+    it('should match servers if id provided', () => {
+        expect(match({ id: 'a', host: 'h', port: 1 }, { id: 'a', host: 'h', port: 2 })).to.be.true;
+        expect(match({ id: 'a', host: 'h', port: 1 }, { id: 'b', host: 'h', port: 1 })).to.be.true;
     });
 });

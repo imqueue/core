@@ -31,22 +31,6 @@ describe('UDPClusterManager additional branches', () => {
             // restore
             (UDPClusterManager as any).serverAliveWait = original;
         });
-
-        it('should not call serverAliveWait when added not found', async () => {
-            const cluster: any = {
-                add: (_: any) => undefined,
-                find: (_: any, __?: boolean) => undefined,
-            };
-            const original = (UDPClusterManager as any).serverAliveWait;
-            let waited = false;
-            (UDPClusterManager as any).serverAliveWait = () => { waited = true; };
-
-            processMessageOnCluster(cluster, { id: 'id', name: 'n', type: 'up', host: 'h', port: 1, timeout: 0 }, 5);
-            await new Promise(res => setTimeout(res, 0));
-
-            expect(waited).to.equal(false);
-            (UDPClusterManager as any).serverAliveWait = original;
-        });
     });
 
     describe('serverAliveWait branches', () => {

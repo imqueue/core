@@ -234,6 +234,10 @@ export class UDPClusterManager extends ClusterManager {
         aliveTimeoutCorrection: number,
         existingServer: boolean = true,
     ): void {
+        if (!server) {
+            return;
+        }
+
         if (server.timer === undefined && existingServer) {
             return;
         }

@@ -148,8 +148,7 @@ export class UDPClusterManager extends ClusterManager {
                 type: 'udp4',
                 reuseAddr: true,
                 reusePort: true,
-            })
-                .bind(options.broadcastPort, address);
+            }).bind(options.broadcastPort, address);
         }
 
         this.socket.on(
@@ -165,10 +164,6 @@ export class UDPClusterManager extends ClusterManager {
     private startListening(): void {
         this.listenBroadcastedMessages(
             message => {
-                console.log('Received message:', {
-                    message,
-                    timestamp: new Date().toISOString(),
-                });
                 this.anyCluster(cluster => {
                     UDPClusterManager.processMessageOnCluster(
                         cluster,
@@ -239,11 +234,6 @@ export class UDPClusterManager extends ClusterManager {
         aliveTimeoutCorrection: number,
         existingServer: boolean = true,
     ): void {
-        console.log('Server alive renewal:', {
-            server,
-            message,
-        });
-
         if (server.timer === undefined && existingServer) {
             return;
         }
@@ -260,20 +250,10 @@ export class UDPClusterManager extends ClusterManager {
                 return;
             }
 
-            console.log('Server alive timeout - existing server:', {
-                existing
-            });
-
             const now = Date.now();
             const delta = now - (existing.timestamp || now);
             const currentTimeout = (existing.timeout || 0) +
                 aliveTimeoutCorrection;
-
-            console.log('Server alive - should remove:', {
-                delta,
-                currentTimeout,
-                more: delta >= currentTimeout,
-            });
 
             if (delta >= currentTimeout) {
                 cluster.remove(server);

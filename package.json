@@ -13,8 +13,8 @@
   "scripts": {
     "benchmark": "node benchmark -c $(( $(nproc) - 2 )) -m 100000",
     "prepare": "./node_modules/.bin/tsc",
-    "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && ./node_modules/.bin/nyc report --reporter=text-lcov",
-    "test-fast": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha && /usr/bin/env node -e \"import('open').then(open => open.default('file://`pwd`/coverage/index.html', { wait: false }))\"",
+    "test": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha --exit --timeout 10000 && ./node_modules/.bin/nyc report --reporter=text-lcov",
+    "test-fast": "./node_modules/.bin/tsc && ./node_modules/.bin/nyc mocha --exit --timeout 10000 && /usr/bin/env node -e \"import('open').then(open => open.default('file://`pwd`/coverage/index.html', { wait: false }))\"",
     "test-local": "export COVERALLS_REPO_TOKEN=$IMQ_COVERALLS_TOKEN && npm test && /usr/bin/env node -e \"import('open').then(open => open.default('https://coveralls.io/github/imqueue/imq', { wait: false }))\"",
     "test-dev": "npm run test && npm run clean-js && npm run clean-typedefs && npm run clean-maps",
     "test-coverage": "cat ./coverage/lcov.info | CODECLIMATE_API_HOST=https://codebeat.co/webhooks/code_coverage CODECLIMATE_REPO_TOKEN=85bb2a18-4ebb-4e48-a2ce-92b7bf438b1a ./node_modules/.bin/codeclimate-test-reporter",
@@ -80,7 +80,9 @@
     ],
     "recursive": true,
     "bail": true,
-    "full-trace": true
+    "full-trace": true,
+    "exit": true,
+    "timeout": 10000
   },
   "nyc": {
     "check-coverage": false,

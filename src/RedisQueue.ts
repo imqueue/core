@@ -201,7 +201,7 @@ export class RedisQueue extends EventEmitter<EventMap>
     /**
      * This queue instance unique key (identifier), for internal use
      */
-    private readonly redisKey: string;
+    public readonly redisKey: string;
 
     /**
      * LUA scripts for redis
@@ -697,6 +697,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 ),
                 retryStrategy: this.retryStrategy(context),
                 autoResubscribe: true,
+                enableReadyCheck: true,
             });
 
             context[channel] = makeRedisSafe(redis);

@@ -1,51 +1,36 @@
 /*!
- * UDPClusterManager.destroySocket() branch coverage tests
+ * UDPClusterManager.destroyWorker() behavior tests aligned with implementation
  */
 import './mocks';
 import { expect } from 'chai';
 import { UDPClusterManager } from '../src';
 
-describe('UDPClusterManager.destroySocket()', () => {
-    it('should resolve when socket has no close() function', async () => {
-        const destroy = (UDPClusterManager as any).destroySocket as Function;
-        const fakeSocket: any = { /* no close, no removeAllListeners */ };
-
-        await destroy('0.0.0.0:63000', fakeSocket);
+describe('UDPClusterManager.destroyWorker()', () => {
+    it('should resolve when worker is undefined (no-op)', async () => {
+        const destroy = (UDPClusterManager as any).destroyWorker as Function;
+        await destroy('0.0.0.0:63000', undefined);
     });
 
-    it('should reject when removeAllListeners throws inside try-block', async () => {
-        const destroy = (UDPClusterManager as any).destroySocket as Function;
-        const fakeSocket: any = {
-            removeAllListeners: () => { throw new Error('boom'); },
-            close: (cb: Function) => cb && cb(),
+    it('should terminate worker and remove it from the workers map', async () => {
+        const destroy = (UDPClusterManager as any).destroyWorker as Function;
+        const workers = (UDPClusterManager as any).workers as Record<string, any>;
+        const key = '1.2.3.4:65000';
+
+        let terminated = false;
+        const fakeWorker: any = {
+            postMessage: () => {},
+            once: (event: string, cb: Function) => {
+                if (event === 'message') {
+                    setImmediate(() => cb({ type: 'stopped' }));
+                }
+            },
+            terminate: () => { terminated = true; },
         };
 
-        let thrown = null as any;
-        try {
-            await destroy('1.1.1.1:63000', fakeSocket);
-        } catch (e) {
-            thrown = e;
-        }
-        expect(thrown).to.be.instanceOf(Error);
-        expect((thrown as Error).message).to.equal('boom');
-    });
+        workers[key] = fakeWorker;
+        await destroy(key, fakeWorker);
 
-    it('should remove socket entry and unref after successful close()', async () => {
-        const destroy = (UDPClusterManager as any).destroySocket as Function;
-        const sockets = (UDPClusterManager as any).sockets as Record<string, any>;
-        const key = '9.9.9.9:65000';
-
-        let unrefCalled = false;
-        const fakeSocket: any = {
-            removeAllListeners: () => {},
-            close: (cb: Function) => cb && cb(),
-            unref: () => { unrefCalled = true; },
-        };
-
-        sockets[key] = fakeSocket;
-        await destroy(key, fakeSocket);
-
-        expect(unrefCalled).to.equal(true);
-        expect(sockets[key]).to.be.undefined;
+        expect(terminated).to.equal(true);
+        expect(workers[key]).to.be.undefined;
     });
 });

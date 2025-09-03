@@ -502,15 +502,14 @@ export class ClusteredRedisQueue implements IMessageQueue,
             return;
         }
 
-        if (remove.imq) {
-            this.imqs = this.imqs.filter(imq => remove.imq !== imq);
-            remove.imq.destroy().catch();
-        }
+        const imqToRemove = remove.imq;
 
-        this.clusterEmitter.emit('remove', {
-            server: remove,
-            imq: remove.imq,
-        });
+        if (imqToRemove) {
+            this.imqs = this.imqs.filter(
+                imq => imqToRemove.redisKey !== imq.redisKey
+            );
+            imqToRemove.destroy().catch();
+        }
 
         this.queueLength = this.imqs.length;
         this.servers = this.servers.filter(
@@ -519,12 +518,22 @@ export class ClusteredRedisQueue implements IMessageQueue,
                 server,
             ),
         );
+        this.clusterEmitter.emit('remove', {
+            server: remove,
+            imq: imqToRemove,
+        });
     }
 
     private addServerWithQueueInitializing(
         server: ClusterServer,
         initializeQueue: boolean = true,
     ): ClusterServer {
+        const existingServer = this.findServer(server);
+
+        if (existingServer) {
+            return existingServer;
+        }
+
         const newServer: ClusterServer = {
             id: server.id,
             host: server.host,

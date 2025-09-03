@@ -28,7 +28,7 @@ describe('UDPClusterManager.selectNetworkInterface()', () => {
         mock('os', Object.assign({}, os, { networkInterfaces }));
         // Re-require the module to capture new binding
         const { UDPClusterManager } = mock.reRequire('../src/UDPClusterManager');
-        const res = (UDPClusterManager as any).selectNetworkInterface({ broadcastAddress: '127.0.0.255', limitedBroadcastAddress: '255.255.255.255' });
+        const res = (UDPClusterManager as any).selectNetworkInterface({ address: '127.0.0.255', limitedAddress: '255.255.255.255' });
         expect(res).to.equal('127.0.0.1');
 
         // restore to base mocks for other tests

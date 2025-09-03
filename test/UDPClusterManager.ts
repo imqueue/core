@@ -25,31 +25,41 @@ import './mocks';
 import { expect } from 'chai';
 import { UDPClusterManager } from '../src';
 import * as sinon from 'sinon';
-import { Socket } from 'dgram';
 
-const testMessageUp = 'name\tid\tup\taddress\ttimeout';
-const testMessageDown = 'name\tid\tdown\taddress\ttimeout';
-
-const getSocket = (classObject: typeof UDPClusterManager) => {
-    return Object.values((classObject as any).sockets)[0] as Socket;
+const testMessageUp = {
+    name: 'IMQUnitTest',
+    id: '1234567890',
+    type: 'up',
+    address: '127.0.0.1:6379',
+    timeout: 50,
 };
 
-const emitMessage = (message: string) => {
-    getSocket(UDPClusterManager).emit('message', Buffer.from(message));
+const testMessageDown = {
+    name: 'IMQUnitTest',
+    id: '1234567890',
+    type: 'down',
+    address: '127.0.0.1:6379',
+    timeout: 50,
+};
+
+const getSocket = (classObject: any) => {
+    return classObject.worker;
+};
+
+const emitMessage = (
+    instanceClass: any,
+    type: 'cluster:add' | 'cluster:remove',
+) => {
+    getSocket(instanceClass).emit('message', {
+        type,
+        server: type === 'cluster:add' ? testMessageUp : testMessageDown,
+    });
 };
 
 describe('UDPBroadcastClusterManager', function() {
     this.timeout(5000);
     it('should be a class', () => {
         expect(typeof UDPClusterManager).to.equal('function');
-    });
-
-    it('should initialize socket if socket does not exists', async () => {
-        const manager = new UDPClusterManager();
-        expect(
-            Object.values((UDPClusterManager as any).sockets),
-        ).not.to.be.length(0);
-        await manager.destroy();
     });
 
     it('should call add on cluster', async () => {
@@ -64,7 +74,7 @@ describe('UDPBroadcastClusterManager', function() {
 
         manager.init(cluster);
 
-        emitMessage(testMessageUp);
+        emitMessage(manager, 'cluster:add');
         expect(cluster.add.called).to.be.true;
         await manager.destroy();
     });
@@ -83,7 +93,7 @@ describe('UDPBroadcastClusterManager', function() {
 
         manager.init(cluster);
 
-        emitMessage(testMessageUp);
+        emitMessage(manager, 'cluster:add');
         expect(cluster.add.called).to.be.false;
         await manager.destroy();
     });
@@ -102,7 +112,7 @@ describe('UDPBroadcastClusterManager', function() {
 
         manager.init(cluster);
 
-        emitMessage(testMessageDown);
+        emitMessage(manager, 'cluster:remove');
         expect(cluster.remove.called).to.be.true;
         await manager.destroy();
     });
@@ -133,7 +143,7 @@ describe('UDPBroadcastClusterManager', function() {
         manager.init(cluster);
 
         // Send up message to add server with short timeout
-        emitMessage('name\tid\tup\t127.0.0.1:6379\t0.05');
+        emitMessage(manager, 'cluster:add');
 
         // Wait for timeout to trigger removal
         setTimeout(async () => {
@@ -166,7 +176,7 @@ describe('UDPBroadcastClusterManager', function() {
         manager.init(cluster);
 
         // This should trigger the timeout handler that returns early (line 307)
-        emitMessage('name\tid\tup\t127.0.0.1:6379\t0.05');
+        emitMessage(manager, 'cluster:add');
         await manager.destroy();
     });
 

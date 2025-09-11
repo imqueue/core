@@ -23,7 +23,7 @@ describe('ClusteredRedisQueue.addServerWithQueueInitializing(false)', () => {
         expect(cq.servers.length).to.be.greaterThan(0);
         expect(cq.imqs.length).to.be.greaterThan(0);
         // queueLength updated
-        expect(cq.queueLength).to.equal(cq.imqs.length);
+        expect(cq.imqLength).to.equal(cq.imqs.length);
         // initialized not emitted
         expect(initializedCalled).to.equal(false);
 

@@ -108,7 +108,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
      *
      * @type {number}
      */
-    private queueLength: number = 0;
+    private imqLength: number = 0;
 
     /**
      * Template EventEmitter instance used to replicate queue EventEmitters when
@@ -223,7 +223,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
         delay?: number,
         errorHandler?: (err: Error) => void,
     ): Promise<string> {
-        if (!this.queueLength) {
+        if (!this.imqLength) {
             return await new Promise(resolve => this.clusterEmitter.once(
                 'initialized',
                 async ({ imq }) => {
@@ -237,7 +237,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
             ));
         }
 
-        if (this.currentQueue >= this.queueLength) {
+        if (this.currentQueue >= this.imqLength) {
             this.currentQueue = 0;
         }
 
@@ -283,6 +283,18 @@ export class ClusteredRedisQueue implements IMessageQueue,
     public async clear(): Promise<ClusteredRedisQueue> {
         return await this.batch('clear',
             'Clearing clustered redis message queue...');
+    }
+
+    public async queueLength(): Promise<number> {
+        const promises = [];
+
+        for (const imq of this.imqs) {
+            promises.push(imq.queueLength());
+        }
+
+        const lengths = await Promise.all(promises);
+
+        return lengths.reduce((total, length) => total + length, 0);
     }
 
     /**
@@ -511,7 +523,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
             imqToRemove.destroy().catch();
         }
 
-        this.queueLength = this.imqs.length;
+        this.imqLength = this.imqs.length;
         this.servers = this.servers.filter(
             existing => !ClusteredRedisQueue.matchServers(
                 existing,
@@ -557,7 +569,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
         this.imqs.push(imq);
         this.servers.push(newServer);
         this.clusterEmitter.emit('add', { server: newServer, imq });
-        this.queueLength = this.imqs.length;
+        this.imqLength = this.imqs.length;
 
         return newServer;
     }
@@ -605,5 +617,4 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
         return sameId || sameAddress;
     }
-
 }

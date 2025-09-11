@@ -512,7 +512,7 @@ export class RedisQueue extends EventEmitter<EventMap>
     }
 
     /**
-     * Clears queue data in redis;
+     * Clears queue data in redis
      *
      * @returns {Promise<void>}
      */
@@ -539,6 +539,20 @@ export class RedisQueue extends EventEmitter<EventMap>
         }
 
         return this;
+    }
+
+    /**
+     * Retrieves the current count of messages in the queue
+     *
+     * @returns {Promise<number>}
+     */
+    @profile()
+    public async queueLength(): Promise<number> {
+        if (!this.writer) {
+            return 0;
+        }
+
+        return this.writer.llen(this.key);
     }
 
     /**
@@ -698,6 +712,8 @@ export class RedisQueue extends EventEmitter<EventMap>
                 retryStrategy: this.retryStrategy(context),
                 autoResubscribe: true,
                 enableReadyCheck: true,
+                enableOfflineQueue: true,
+                autoResendUnfulfilledCommands: true,
             });
 
             context[channel] = makeRedisSafe(redis);

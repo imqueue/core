@@ -27,7 +27,7 @@ describe('ClusteredRedisQueue.addServerWithQueueInitializing() default param', (
 
         // Ensure the server added and queue length updated
         expect((cq as any).servers.some((s: any) => s.host === server.host && s.port === server.port)).to.equal(true);
-        expect((cq as any).queueLength).to.equal((cq as any).imqs.length);
+        expect((cq as any).imqLength).to.equal((cq as any).imqs.length);
 
         await cq.destroy();
     });

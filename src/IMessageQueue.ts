@@ -421,4 +421,12 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
      * @returns {Promise<IMessageQueue>}
      */
     clear(): Promise<IMessageQueue>;
+
+    /**
+     * Retrieves the current count of messages in the queue.
+     * Supposed to be an async function.
+     *
+     * @returns {Promise<number>}
+     */
+    queueLength(): Promise<number>;
 }

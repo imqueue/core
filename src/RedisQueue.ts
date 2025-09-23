@@ -1105,7 +1105,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 (this.options.cleanupFilter || '*').replace(/\*/g, '.*'),
                 'i',
             );
-            const clients = await this.writer.client('LIST') as string;
+            const clients = await this.writer.client('LIST') as string || '';
             const connectedKeys = (clients.match(RX_CLIENT_NAME) || [])
                 .filter((name: string) =>
                     RX_CLIENT_TEST.test(name) && filter.test(name),

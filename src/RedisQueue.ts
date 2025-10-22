@@ -1165,7 +1165,7 @@ export class RedisQueue extends EventEmitter<EventMap>
     /**
      * Unreliable but fast way of message handling by the queue
      */
-    private async readUnsafe() {
+    private async readUnsafe(): Promise<void> {
         try {
             const key = this.key;
 
@@ -1182,6 +1182,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                     }
                 } catch (err) {
                     // istanbul ignore next
+                    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
                     if (err.message.match(/Stream connection ended/)) {
                         break;
                     }
@@ -1201,7 +1202,7 @@ export class RedisQueue extends EventEmitter<EventMap>
     /**
      * Reliable but slow method of message handling by message queue
      */
-    private async readSafe() {
+    private async readSafe(): Promise<void> {
         try {
             const key = this.key;
 
@@ -1216,7 +1217,8 @@ export class RedisQueue extends EventEmitter<EventMap>
 
                 try {
                     await this.reader.brpoplpush(this.key, workerKey, 0);
-                } catch (err) {
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                } catch (_) {
                     // istanbul ignore next
                     break;
                 }
@@ -1225,19 +1227,26 @@ export class RedisQueue extends EventEmitter<EventMap>
                     workerKey, -1, 1,
                 );
 
-                if (msgArr.length !== 1) {
+                if (!msgArr || msgArr?.length !== 1) {
                     // noinspection ExceptionCaughtLocallyJS
                     throw new Error('Wrong messages count');
                 }
 
-                const msg = msgArr[0];
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                const [msg] = msgArr as any[];
 
                 this.process([key, msg]);
-                this.writer.del(workerKey);
+                this.writer.del(workerKey).catch(e =>
+                    this.logger.warn('OnReadSafe: del error', e));
             }
         } catch (err) {
             // istanbul ignore next
-            this.emitError('OnReadSafe', 'safe reader failed', err);
+            this.emitError(
+                'OnReadSafe',
+                'safe reader failed',
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+                err,
+            );
         }
     }
 
@@ -1261,6 +1270,7 @@ export class RedisQueue extends EventEmitter<EventMap>
             ? 'readSafe'
             : 'readUnsafe';
 
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
         process.nextTick(this[readMethod].bind(this));
 
         return this;

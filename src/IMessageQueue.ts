@@ -275,6 +275,13 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
      * @type {ClusterManager[]}
      */
     clusterManagers?: ClusterManager[];
+
+    /**
+     * Enables/disables verbose logging, default is false
+     *
+     * @type {boolean}
+     */
+    verbose?: boolean;
 }
 
 export interface EventMap {

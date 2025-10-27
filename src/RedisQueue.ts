@@ -1256,7 +1256,9 @@ export class RedisQueue extends EventEmitter<EventMap>
 
             this.verbose(`Cleaning up keys matching ${ filter }`);
 
-            const clients = await this.writer.client('LIST') as string || '';
+            const clients: string = (await this.writer.client(
+                'LIST',
+            ) as string).toString() || '';
             const connectedKeys = (clients.match(RX_CLIENT_NAME) || [])
                 .filter((name: string) =>
                     RX_CLIENT_TEST.test(name) && filter.test(name),

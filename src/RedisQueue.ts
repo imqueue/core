@@ -109,6 +109,10 @@ export function unpack(data: string): any {
 
 type RedisConnectionChannel = 'reader' | 'writer' | 'watcher' | 'subscription';
 
+const IMQ_REDIS_MAX_LISTENERS_LIMIT = +(
+    process.env.IMQ_REDIS_MAX_LISTENERS_LIMIT || 10000
+);
+
 /**
  * Class RedisQueue
  * Implements simple messaging queue over redis.
@@ -262,11 +266,27 @@ export class RedisQueue extends EventEmitter<EventMap>
             DEFAULT_IMQ_OPTIONS,
             options,
         );
+
         /* tslint:disable */
         this.pack = this.options.useGzip ? pack : JSON.stringify;
         this.unpack = this.options.useGzip ? unpack : JSON.parse;
         /* tslint:enable */
         this.redisKey = `${this.options.host}:${this.options.port}`;
+
+        this.verbose(`Initializing queue on ${
+            this.options.host }:${
+            this.options.port} with prefix ${
+            this.options.prefix } and safeDelivery = ${
+            this.options.safeDelivery }, and safeDeliveryTtl = ${
+            this.options.safeDeliveryTtl }, and watcherCheckDelay = ${
+            this.options.watcherCheckDelay }, and useGzip = ${
+            this.options.useGzip }`);
+    }
+
+    private verbose(message: string): void {
+        if (this.options.verbose) {
+            this.logger.info(`[IMQ-CORE][${ this.name }]: ${ message }`);
+        }
     }
 
     /**
@@ -284,7 +304,7 @@ export class RedisQueue extends EventEmitter<EventMap>
         // istanbul ignore next
         if (!channel) {
             throw new TypeError(
-                `${channel}: No subscription channel name provided!`,
+                `${ channel }: No subscription channel name provided!`,
             );
         }
 
@@ -292,7 +312,7 @@ export class RedisQueue extends EventEmitter<EventMap>
         if (this.subscriptionName && this.subscriptionName !== channel) {
             throw new TypeError(
                 `Invalid channel name provided: expected "${
-                    this.subscriptionName}", but "${channel}" given instead!`,
+                    this.subscriptionName}", but "${ channel }" given instead!`,
             );
         } else if (!this.subscriptionName) {
             this.subscriptionName = channel;
@@ -306,9 +326,16 @@ export class RedisQueue extends EventEmitter<EventMap>
         // istanbul ignore next
         chan.on('message', (ch: string, message: string) => {
             if (ch === fcn && typeof handler === 'function') {
-                handler(JSON.parse(message));
+                handler(JSON.parse(message) as unknown as JsonObject);
             }
+
+            this.verbose(`Received message from ${
+                ch } channel, data: ${
+                JSON.stringify(message) }`,
+            );
         });
+
+        this.verbose(`Subscribed to ${ channel } channel`);
     }
 
     /**
@@ -318,15 +345,20 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     public async unsubscribe(): Promise<void> {
         if (this.subscription) {
+            this.verbose('Initialize unsubscribing...');
+
             if (this.subscriptionName) {
-                this.subscription.unsubscribe(
+                await this.subscription.unsubscribe(
                     `${this.options.prefix}:${this.subscriptionName}`,
                 );
+
+                this.verbose(`Unsubscribed from ${
+                    this.subscriptionName } channel`);
             }
 
             this.subscription.removeAllListeners();
             this.subscription.disconnect(false);
-            this.subscription.quit();
+            await this.subscription.quit();
         }
 
         this.subscriptionName = undefined;
@@ -349,10 +381,18 @@ export class RedisQueue extends EventEmitter<EventMap>
             throw new TypeError('Writer is not connected!');
         }
 
+        const jsonData = JSON.stringify(data);
+        const name = toName || this.name;
+
         await this.writer.publish(
-            `${this.options.prefix}:${toName || this.name}`,
-            JSON.stringify(data),
+            `${this.options.prefix}:${ name }`,
+            jsonData,
         );
+
+        this.verbose(`Published message to ${
+            name } channel, data: ${
+            jsonData }
+        `);
     }
 
     /**
@@ -362,7 +402,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     public async start(): Promise<RedisQueue> {
         if (!this.name) {
-            throw new TypeError(`${this.name}: No queue name provided!`);
+            throw new TypeError(`${ this.name }: No queue name provided!`);
         }
 
         if (this.initialized) {
@@ -375,24 +415,35 @@ export class RedisQueue extends EventEmitter<EventMap>
 
         // istanbul ignore next
         if (!this.reader && this.isWorker()) {
+            this.verbose('Initializing reader...');
             connPromises.push(this.connect('reader', this.options));
         }
 
         if (!this.writer) {
+            this.verbose('Initializing writer...');
             connPromises.push(this.connect('writer', this.options));
         }
 
         await Promise.all(connPromises);
 
+        this.verbose('Connections initialized');
+
         if (!this.signalsInitialized) {
+            this.verbose('Setting up OS signal handlers...');
             // istanbul ignore next
             const free = async () => {
                 let exitCode = 0;
 
-                setTimeout(() => process.exit(exitCode), IMQ_SHUTDOWN_TIMEOUT);
+                setTimeout(() => {
+                    this.verbose(`Shutting down after ${
+                        IMQ_SHUTDOWN_TIMEOUT } timeout`,
+                    );
+                    process.exit(exitCode);
+                }, IMQ_SHUTDOWN_TIMEOUT);
 
                 try {
                     if (this.watchOwner) {
+                        this.verbose('Freeing watcher lock...');
                         await this.unlock();
                     }
                 } catch (err) {
@@ -406,6 +457,7 @@ export class RedisQueue extends EventEmitter<EventMap>
             process.on('SIGABRT', free);
 
             this.signalsInitialized = true;
+            this.verbose('OS signal handlers initialized!');
         }
 
         await this.initWatcher();
@@ -446,29 +498,47 @@ export class RedisQueue extends EventEmitter<EventMap>
         const data: IMessage = { id, message, from: this.name };
         const key = `${this.options.prefix}:${toQueue}`;
         const packet = this.pack(data);
-        const cb = (error: any) => {
+        const cb = (error: any, op: string) => {
             // istanbul ignore next
-            if (error && errorHandler) {
-                errorHandler(error);
+            if (error) {
+                this.verbose(`Writer ${ op } error: ${ error }`);
+
+                if (errorHandler) {
+                    errorHandler(error as unknown as Error);
+                }
             }
         };
 
         if (delay) {
-            this.writer.zadd(`${key}:delayed`, Date.now() + delay, packet,
-                (err) => {
+            await this.writer.zadd(`${key}:delayed`, Date.now() + delay, packet,
+                (err: any) => {
                     // istanbul ignore next
                     if (err) {
-                        cb(err);
+                        cb(err, 'ZADD');
 
                         return;
                     }
 
                     this.writer.set(`${key}:${id}:ttl`, '', 'PX', delay, 'NX',
-                        cb,
-                    );
+                        (err: any) => {
+                            // istanbul ignore next
+                            if (err) {
+                                cb(err, 'SET');
+
+                                return;
+                            }
+                        },
+                    ).catch((err: any) => cb(err, 'SET'));
                 });
         } else {
-            this.writer.lpush(key, packet, cb);
+            await this.writer.lpush(key, packet, (err: any) => {
+                // istanbul ignore next
+                if (err) {
+                    cb(err, 'LPUSH');
+
+                    return;
+                }
+            });
         }
 
         return id;
@@ -481,15 +551,20 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     @profile()
     public async stop(): Promise<RedisQueue> {
+        this.verbose('Stopping queue...');
+
         if (this.reader) {
+            this.verbose('Destroying reader...');
             this.reader.removeAllListeners();
-            this.reader.quit();
+            await this.reader.quit();
             this.reader.disconnect(false);
 
             delete this.reader;
         }
 
         this.initialized = false;
+
+        this.verbose('Queue stopped!');
 
         return this;
     }
@@ -501,6 +576,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     @profile()
     public async destroy(): Promise<void> {
+        this.verbose('Destroying queue...');
         this.destroyed = true;
         this.removeAllListeners();
         this.cleanSafeCheckInterval();
@@ -509,6 +585,7 @@ export class RedisQueue extends EventEmitter<EventMap>
         await this.clear();
         this.destroyWriter();
         await this.unsubscribe();
+        this.verbose('Queue destroyed!');
     }
 
     /**
@@ -523,16 +600,20 @@ export class RedisQueue extends EventEmitter<EventMap>
         }
 
         try {
+            this.verbose('Clearing expired queue keys...');
+
             await Promise.all([
                 this.writer.del(this.key),
                 this.writer.del(`${ this.key }:delayed`),
             ]);
+
+            this.verbose('Expired queue keys cleared!');
         } catch (err) {
             // istanbul ignore next
             if (this.initialized) {
                 this.logger.error(
-                    `${context.name}: error clearing the redis queue host ${
-                        this.redisKey} on writer, pid ${process.pid}:`,
+                    `${ context.name }: error clearing the redis queue host ${
+                        this.redisKey } on writer, pid ${ process.pid }:`,
                     err,
                 );
             }
@@ -631,7 +712,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      * @returns {string}
      */
     private get lockKey(): string {
-        return `${this.options.prefix}:watch:lock`;
+        return `${ this.options.prefix }:watch:lock`;
     }
 
     /**
@@ -650,12 +731,16 @@ export class RedisQueue extends EventEmitter<EventMap>
      * @access private
      */
     @profile()
-    private destroyWatcher() {
+    private destroyWatcher(): void {
         if (this.watcher) {
+            this.verbose('Destroying watcher...');
             this.watcher.removeAllListeners();
-            this.watcher.quit();
+            this.watcher.quit().catch(e => {
+                this.verbose(`Error quitting watcher: ${ e }`);
+            });
             this.watcher.disconnect(false);
             delete RedisQueue.watchers[this.redisKey];
+            this.verbose('Watcher destroyed!');
         }
     }
 
@@ -665,13 +750,17 @@ export class RedisQueue extends EventEmitter<EventMap>
      * @access private
      */
     @profile()
-    private destroyWriter() {
+    private destroyWriter(): void {
         if (this.writer) {
+            this.verbose('Destroying writer...');
             this.writer.removeAllListeners();
-            this.writer.quit();
+            this.writer.quit().catch(e => {
+                this.verbose(`Error quitting writer: ${ e }`);
+            });
             this.writer.disconnect(false);
 
             delete RedisQueue.writers[this.redisKey];
+            this.verbose('Writer destroyed!');
         }
     }
 
@@ -687,8 +776,10 @@ export class RedisQueue extends EventEmitter<EventMap>
     private async connect(
         channel: RedisConnectionChannel,
         options: IMQOptions,
-        context: any = this,
+        context: RedisQueue = this,
     ): Promise<IRedisClient> {
+        this.verbose(`Connecting to ${ channel } channel...`);
+
         // istanbul ignore next
         if (context[channel]) {
             return context[channel];
@@ -705,7 +796,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 // istanbul ignore next
                 password: options.password,
                 connectionName: this.getChannelName(
-                    context.name,
+                    context.name + '',
                     options.prefix || '',
                     channel,
                 ),
@@ -719,9 +810,25 @@ export class RedisQueue extends EventEmitter<EventMap>
             context[channel] = makeRedisSafe(redis);
             context[channel].__imq = true;
 
-            redis.setMaxListeners(10000);
+            for (const event of [
+                'wait',
+                'reconnecting',
+                'connecting',
+                'connect',
+                'close',
+            ]) {
+                redis.on(event, () => {
+                    context.verbose(`Redis Event fired: ${ event }`);
+                });
+            }
+
+            redis.setMaxListeners(IMQ_REDIS_MAX_LISTENERS_LIMIT);
             redis.on('ready',
-                this.onReadyHandler(context, channel, resolve),
+                this.onReadyHandler(
+                    context,
+                    channel,
+                    resolve,
+                ) as unknown as () => void,
             );
             redis.on('error',
                 this.onErrorHandler(context, channel, reject),
@@ -748,6 +855,8 @@ export class RedisQueue extends EventEmitter<EventMap>
                 return null;
             }
 
+            this.verbose('Redis connection error, retrying...');
+
             return 200;
         };
     }
@@ -766,6 +875,8 @@ export class RedisQueue extends EventEmitter<EventMap>
         channel: RedisConnectionChannel,
         resolve: (...args: any[]) => void,
     ): () => Promise<void> {
+        this.verbose(`Redis ${ channel } channel ready!`);
+
         return (async () => {
             this.logger.info(
                 '%s: %s channel connected, host %s, pid %s',
@@ -796,9 +907,9 @@ export class RedisQueue extends EventEmitter<EventMap>
         prefix: string,
         name: RedisConnectionChannel,
     ): string {
-        const uniqueSuffix = `pid:${process.pid}:host:${ os.hostname()}`;
+        const uniqueSuffix = `pid:${ process.pid }:host:${ os.hostname() }`;
 
-        return`${prefix}:${contextName}:${name}:${uniqueSuffix}`;
+        return`${ prefix }:${ contextName }:${ name }:${ uniqueSuffix }`;
     }
 
     /**
@@ -817,6 +928,8 @@ export class RedisQueue extends EventEmitter<EventMap>
     ): (err: Error) => void {
         // istanbul ignore next
         return ((err: Error & { code: string }) => {
+            this.verbose(`Redis Error: ${ err }`);
+
             if (this.destroyed) {
                 return;
             }
@@ -847,6 +960,8 @@ export class RedisQueue extends EventEmitter<EventMap>
         context: RedisQueue,
         channel: RedisConnectionChannel,
     ): (...args: any[]) => any {
+        this.verbose(`Redis ${ channel } is closing...`);
+
         // istanbul ignore next
         return (() => {
             this.initialized = false;
@@ -865,6 +980,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      * @returns {RedisQueue}
      */
     private process(msg: [any, any]): RedisQueue {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const [queue, data] = msg;
 
         // istanbul ignore next
@@ -873,14 +989,16 @@ export class RedisQueue extends EventEmitter<EventMap>
         }
 
         try {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment,@typescript-eslint/no-unsafe-argument
             const { id, message, from } = this.unpack(data);
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
             this.emit('message', message, id, from);
         } catch (err) {
             // istanbul ignore next
             this.emitError(
                 'OnMessage',
                 'process error - message is invalid',
-                err,
+                err as unknown as Error,
             );
         }
 
@@ -923,14 +1041,14 @@ export class RedisQueue extends EventEmitter<EventMap>
             if (this.scripts.moveDelayed.checksum) {
                 await this.writer.evalsha(
                     this.scripts.moveDelayed.checksum,
-                    2, `${key}:delayed`, key, Date.now(),
+                    2, `${ key }:delayed`, key, Date.now(),
                 );
             }
         } catch (err) {
             this.emitError(
                 'OnProcessDelayed',
                 'error processing delayed queue',
-                err,
+                err as unknown as Error,
             );
         }
     }
@@ -951,7 +1069,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 const data = await this.writer.scan(
                     cursor,
                     'MATCH',
-                    `${this.options.prefix}:*:worker:*`,
+                    `${ this.options.prefix }:*:worker:*`,
                     'COUNT',
                     '1000',
                 );
@@ -969,7 +1087,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 this.emitError(
                     'OnSafeDelivery',
                     'safe queue message delivery problem',
-                    err,
+                    err as unknown as Error,
                 );
                 this.cleanSafeCheckInterval();
 
@@ -992,6 +1110,10 @@ export class RedisQueue extends EventEmitter<EventMap>
             return;
         }
 
+        this.verbose(`Watching ${ keys.length } keys: ${
+            keys.map(key => `"${ key }"`).join(', ')
+        }`);
+
         for (const key of keys) {
             const kp: string[] = key.split(':');
 
@@ -999,7 +1121,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 continue;
             }
 
-            await this.writer.rpoplpush(key, `${kp.shift()}:${kp.shift()}`);
+            await this.writer.rpoplpush(key, `${ kp.shift() }:${ kp.shift() }`);
         }
     }
 
@@ -1013,7 +1135,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     private async onWatchMessage(...args: any[]): Promise<void> {
         try {
-            const key = (args.pop() || '').split(':');
+            const key = ((args.pop() || '') + '').split(':');
 
             if (key.pop() !== 'ttl') {
                 return;
@@ -1023,7 +1145,11 @@ export class RedisQueue extends EventEmitter<EventMap>
 
             await this.processDelayed(key.join(':'));
         } catch (err) {
-            this.emitError('OnWatch', 'watch error', err);
+            this.emitError(
+                'OnWatch',
+                'watch error',
+                err as unknown as Error,
+            );
         }
     }
 
@@ -1035,7 +1161,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     private cleanSafeCheckInterval(): void {
         if (this.safeCheckInterval) {
-            clearInterval(this.safeCheckInterval);
+            clearInterval(this.safeCheckInterval as number);
             delete this.safeCheckInterval;
         }
     }
@@ -1053,33 +1179,53 @@ export class RedisQueue extends EventEmitter<EventMap>
         }
 
         try {
-            this.writer.config('SET', 'notify-keyspace-events', 'Ex');
+            this.writer.config(
+                'SET',
+                'notify-keyspace-events',
+                'Ex',
+            ).catch(err => {
+                this.emitError(
+                    'OnConfig',
+                    'events config error',
+                    err as unknown as Error,
+                );
+            });
         } catch (err) {
-            this.emitError('OnConfig', 'events config error', err);
+            this.emitError(
+                'OnConfig',
+                'events config error',
+                err as unknown as Error,
+            );
         }
 
-        this.watcher.on('pmessage', this.onWatchMessage.bind(this));
-        this.watcher.psubscribe('__keyevent@0__:expired',
-            `${this.options.prefix}:delayed:*`,
+        this.watcher.on(
+            'pmessage',
+            this.onWatchMessage.bind(this) as unknown as () => void,
         );
+        this.watcher.psubscribe(
+            '__keyevent@0__:expired',
+            `${ this.options.prefix }:delayed:*`,
+        ).catch(err => {
+            this.verbose(`Error subscribing to watcher channel: ${ err }`);
+        });
 
         // watch for expired unhandled safe queues
         if (!this.safeCheckInterval) {
-            // tslint:disable-next-line:triple-equals no-null-keyword
             if (this.options.safeDeliveryTtl != null) {
-                this.safeCheckInterval = setInterval(async () => {
-                    if (!this.writer) {
-                        this.cleanSafeCheckInterval();
+                this.safeCheckInterval = setInterval(
+                    (async (): Promise<void> => {
+                        if (!this.writer) {
+                            this.cleanSafeCheckInterval();
 
-                        return;
-                    }
+                            return ;
+                        }
 
-                    if (this.options.safeDelivery) {
-                        await this.processWatch();
-                    }
+                        if (this.options.safeDelivery) {
+                            await this.processWatch();
+                        }
 
-                    await this.processCleanup();
-                }, this.options.safeDeliveryTtl);
+                        await this.processCleanup();
+                }) as unknown as () => void, this.options.safeDeliveryTtl);
             }
         }
 
@@ -1095,6 +1241,8 @@ export class RedisQueue extends EventEmitter<EventMap>
      * @returns {Promise<RedisQueue | undefined>}
      */
     private async processCleanup(): Promise<RedisQueue | undefined> {
+        this.verbose('Cleaning up orphaned keys...');
+
         try {
             if (!this.options.cleanup) {
                 return;
@@ -1105,6 +1253,9 @@ export class RedisQueue extends EventEmitter<EventMap>
                 (this.options.cleanupFilter || '*').replace(/\*/g, '.*'),
                 'i',
             );
+
+            this.verbose(`Cleaning up keys matching ${ filter }`);
+
             const clients = await this.writer.client('LIST') as string || '';
             const connectedKeys = (clients.match(RX_CLIENT_NAME) || [])
                 .filter((name: string) =>
@@ -1119,6 +1270,10 @@ export class RedisQueue extends EventEmitter<EventMap>
                 );
             const keysToRemove: string[] = [];
             let cursor = '0';
+
+            this.verbose(`Found connected keys:  ${
+                connectedKeys.map(k => `"${ k }"`).join(', ')
+            }`);
 
             while (true) {
                 const data = await this.writer.scan(
@@ -1153,6 +1308,10 @@ export class RedisQueue extends EventEmitter<EventMap>
 
             if (keysToRemove.length) {
                 await this.writer.del(...keysToRemove);
+
+                this.verbose(`Keys ${
+                    keysToRemove.map(k => `"${ k }"`).join(', ')
+                } were successfully removed!`);
             }
         } catch (err) {
             this.logger.warn('Clean-up error occurred:', err);
@@ -1194,7 +1353,11 @@ export class RedisQueue extends EventEmitter<EventMap>
             }
         } catch (err) {
             // istanbul ignore next
-            this.emitError('OnReadUnsafe', 'unsafe reader failed', err);
+            this.emitError(
+                'OnReadUnsafe',
+                'unsafe reader failed',
+                err as unknown as Error,
+            );
         }
     }
 
@@ -1244,8 +1407,7 @@ export class RedisQueue extends EventEmitter<EventMap>
             this.emitError(
                 'OnReadSafe',
                 'safe reader failed',
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-                err,
+                err as unknown as Error,
             );
         }
     }
@@ -1327,13 +1489,16 @@ export class RedisQueue extends EventEmitter<EventMap>
      * @param {string} message
      * @param {Error} err
      */
-    private emitError(eventName: string, message: string, err: Error) {
+    private emitError(eventName: string, message: string, err: Error): void {
         this.emit('error', err, eventName);
         this.logger.error(
-            `${this.name}: ${message}, pid ${
-                process.pid} on redis host ${this.redisKey}:`,
+            `${this.name}: ${ message }, pid ${
+                process.pid } on redis host ${ this.redisKey }:`,
             err,
         );
+        this.verbose(`Error in event ${
+            eventName }: ${ message }, pid ${
+            process.pid } on redis host ${ this.redisKey }: ${ err }`);
     }
 
     /**
@@ -1346,6 +1511,8 @@ export class RedisQueue extends EventEmitter<EventMap>
         const owned = await this.lock();
 
         if (owned) {
+            this.verbose('Watcher connection lock acquired!');
+
             for (const script of Object.keys(this.scripts)) {
                 try {
                     const checksum = sha1(this.scripts[script].code);
@@ -1365,7 +1532,11 @@ export class RedisQueue extends EventEmitter<EventMap>
                         );
                     }
                 } catch (err) {
-                    this.emitError('OnScriptLoad', 'script load error', err);
+                    this.emitError(
+                        'OnScriptLoad',
+                        'script load error',
+                        err as unknown as Error,
+                    );
                 }
             }
 
@@ -1377,7 +1548,7 @@ export class RedisQueue extends EventEmitter<EventMap>
 
     // istanbul ignore next
     /**
-     * This method returns watcher lock resolver function
+     * This method returns a watcher lock resolver function
      *
      * @access private
      * @param {(...args: any[]) => void} resolve
@@ -1412,32 +1583,45 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     // istanbul ignore next
     private async initWatcher(): Promise<void> {
-        return new Promise<void>(async (resolve, reject) => {
-            try {
-                if (!await this.watcherCount()) {
-                    await this.ownWatch();
+        return new Promise<void>(
+            (async (
+                resolve: (...args: any[]) => void,
+                reject: (...args: any[]) => void,
+            ): Promise<void> => {
+                try {
+                    if (!await this.watcherCount()) {
+                        this.verbose('Initializing watcher...');
 
-                    if (this.watchOwner && this.watcher) {
-                        resolve();
+                        await this.ownWatch();
+
+                        if (this.watchOwner && this.watcher) {
+                            resolve();
+                        } else {
+                            // check for possible deadlock to resolve
+                            setTimeout(
+                                this.watchLockResolver(
+                                    resolve,
+                                    reject,
+                                ) as unknown as () => void,
+                                intrand(1, 50),
+                            );
+                        }
                     } else {
-                        // check for possible deadlock to resolve
-                        setTimeout(
-                            this.watchLockResolver(resolve, reject),
-                            intrand(1, 50),
-                        );
+                        resolve();
                     }
-                } else {
-                    resolve();
-                }
-            } catch (err) {
-                this.logger.error(
-                    `${this.name}: error initializing watcher, pid ${
-                        process.pid} on redis host ${this.redisKey}`,
-                    err,
-                );
+                } catch (err) {
+                    this.logger.error(
+                        `${ this.name }: error initializing watcher, pid ${
+                            process.pid } on redis host ${ this.redisKey }`,
+                        err,
+                    );
 
-                reject(err);
-            }
-        });
+                    reject(err);
+                }
+            }) as unknown as (
+                resolve: (...args: any[]) => void,
+                reject: (...args: any[]) => void,
+            ) => void,
+        );
     }
 }

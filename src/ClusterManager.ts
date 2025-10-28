@@ -42,7 +42,10 @@ export abstract class ClusterManager {
     protected constructor() {}
 
     public init(cluster: ICluster): InitializedCluster {
-        const initializedCluster = Object.assign(cluster, { id: uuid() });
+        const initializedCluster = Object.assign(
+            cluster,
+            { id: uuid() },
+        ) as InitializedCluster;
 
         this.clusters.push(initializedCluster);
 

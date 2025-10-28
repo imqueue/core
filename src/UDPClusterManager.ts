@@ -186,7 +186,7 @@ export class UDPClusterManager extends ClusterManager {
             return;
         }
 
-        return new Promise(resolve => {
+        return new Promise<void>(resolve => {
             const timeout = setTimeout(() => {
                 worker.terminate();
                 resolve();

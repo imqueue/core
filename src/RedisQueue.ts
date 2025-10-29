@@ -348,7 +348,7 @@ export class RedisQueue extends EventEmitter<EventMap>
             this.verbose('Initialize unsubscribing...');
 
             if (this.subscriptionName) {
-                await this.subscription.unsubscribe(
+                this.subscription.unsubscribe(
                     `${this.options.prefix}:${this.subscriptionName}`,
                 );
 
@@ -358,7 +358,7 @@ export class RedisQueue extends EventEmitter<EventMap>
 
             this.subscription.removeAllListeners();
             this.subscription.disconnect(false);
-            await this.subscription.quit();
+            this.subscription.quit();
         }
 
         this.subscriptionName = undefined;
@@ -510,7 +510,7 @@ export class RedisQueue extends EventEmitter<EventMap>
         };
 
         if (delay) {
-            await this.writer.zadd(`${key}:delayed`, Date.now() + delay, packet,
+            this.writer.zadd(`${key}:delayed`, Date.now() + delay, packet,
                 (err: any) => {
                     // istanbul ignore next
                     if (err) {
@@ -531,7 +531,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                     ).catch((err: any) => cb(err, 'SET'));
                 });
         } else {
-            await this.writer.lpush(key, packet, (err: any) => {
+            this.writer.lpush(key, packet, (err: any) => {
                 // istanbul ignore next
                 if (err) {
                     cb(err, 'LPUSH');
@@ -556,7 +556,7 @@ export class RedisQueue extends EventEmitter<EventMap>
         if (this.reader) {
             this.verbose('Destroying reader...');
             this.reader.removeAllListeners();
-            await this.reader.quit();
+            this.reader.quit();
             this.reader.disconnect(false);
 
             delete this.reader;
@@ -1135,7 +1135,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     private async onWatchMessage(...args: any[]): Promise<void> {
         try {
-            const key = ((args.pop() || '') + '').split(':');
+            const key = (args.pop() || '').split(':');
 
             if (key.pop() !== 'ttl') {
                 return;

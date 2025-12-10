@@ -40,6 +40,7 @@ import {
     uuid,
 } from '.';
 import Redis from './redis';
+import { logger } from '../test/mocks';
 
 const RX_CLIENT_NAME = /name=(\S+)/g;
 const RX_CLIENT_TEST = /:(reader|writer|watcher)/;
@@ -807,7 +808,10 @@ export class RedisQueue extends EventEmitter<EventMap>
                 autoResendUnfulfilledCommands: true,
             });
 
-            context[channel] = makeRedisSafe(redis);
+            context[channel] = makeRedisSafe(
+                redis,
+                options.verbose ? options.logger : undefined,
+            );
             context[channel].__imq = true;
 
             for (const event of [

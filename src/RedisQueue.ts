@@ -804,6 +804,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                 enableOfflineQueue: true,
                 autoResendUnfulfilledCommands: true,
                 offlineQueue: true,
+                maxRetriesPerRequest: null,
             });
 
             context[channel] = redis;
@@ -856,7 +857,7 @@ export class RedisQueue extends EventEmitter<EventMap>
 
             this.verbose('Redis connection error, retrying...');
 
-            return 200;
+            return null;
         };
     }
 

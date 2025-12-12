@@ -23,7 +23,6 @@
  */
 /* tslint:disable */
 import Redis from 'ioredis';
-import { ILogger } from './IMessageQueue';
 
 /**
  * Extends default Redis  type to allow dynamic properties access on it
@@ -33,41 +32,6 @@ import { ILogger } from './IMessageQueue';
 export interface IRedisClient extends Redis {
     __ready__?: boolean;
     __imq?: boolean;
-}
-
-// istanbul ignore next
-export function makeRedisSafe(
-    redis: IRedisClient,
-    logger?: ILogger,
-): IRedisClient {
-    return new Proxy(redis, {
-        get(target, property, receiver) {
-            const original = Reflect.get(target, property, receiver);
-
-            if (typeof original === 'function') {
-                return async (...args: unknown[]) => {
-                    try {
-                        if (target.status !== 'ready') {
-                            logger?.warn(
-                                'Redis client is not ready yet, while ',
-                                `executing command: "${ String(property) }"`,
-                            );
-
-                            return null;
-                        }
-
-                        return await original.apply(target, args);
-                    } catch (err: unknown) {
-                        logger?.error(err);
-
-                        return null;
-                    }
-                };
-            }
-
-            return original;
-        },
-    });
 }
 
 export { Redis };

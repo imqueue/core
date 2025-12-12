@@ -34,13 +34,11 @@ import {
     ILogger,
     IMQMode,
     EventMap,
-    makeRedisSafe,
     buildOptions,
     profile,
     uuid,
 } from '.';
 import Redis from './redis';
-import { logger } from '../test/mocks';
 
 const RX_CLIENT_NAME = /name=(\S+)/g;
 const RX_CLIENT_TEST = /:(reader|writer|watcher)/;
@@ -806,12 +804,10 @@ export class RedisQueue extends EventEmitter<EventMap>
                 enableReadyCheck: true,
                 enableOfflineQueue: true,
                 autoResendUnfulfilledCommands: true,
+                offlineQueue: true,
             });
 
-            context[channel] = makeRedisSafe(
-                redis,
-                options.verbose ? options.logger : undefined,
-            );
+            context[channel] = redis;
             context[channel].__imq = true;
 
             for (const event of [

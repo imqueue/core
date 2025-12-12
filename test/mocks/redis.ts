@@ -60,14 +60,16 @@ export class RedisClientMock extends EventEmitter {
     // noinspection JSUnusedGlobalSymbols
     public end() {}
     // noinspection JSUnusedGlobalSymbols
-    public quit() {}
+    public quit() {
+        return new Promise(resolve => resolve(undefined));
+    }
 
     // noinspection JSMethodCanBeStatic
-    public set(...args: any[]): number {
+    public set(...args: any[]): Promise<number> {
         const [key, val] = args;
         RedisClientMock.__keys[key] = val;
         this.cbExecute(args.pop(), null, 1);
-        return 1;
+        return new Promise(resolve => resolve(1));
     }
 
     // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
@@ -230,14 +232,14 @@ export class RedisClientMock extends EventEmitter {
     }
 
     // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
-    public psubscribe(...args: any[]): number {
+    public psubscribe(...args: any[]): Promise<number> {
         this.cbExecute(args.pop(), null, 1);
-        return 1;
+        return new Promise(resolve => resolve(1));
     }
 
-    public punsubscribe(...args: any[]): number {
+    public punsubscribe(...args: any[]): Promise<number> {
         this.cbExecute(args.pop(), null, 1);
-        return 1;
+        return new Promise(resolve => resolve(1));
     }
 
     // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
@@ -247,7 +249,7 @@ export class RedisClientMock extends EventEmitter {
     }
 
     // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
-    public del(...args: any[]): number {
+    public del(...args: any[]): Promise<number> {
         const self = RedisClientMock;
         let count = 0;
         for (let key of args) {
@@ -261,7 +263,7 @@ export class RedisClientMock extends EventEmitter {
             }
         }
         this.cbExecute(args.pop(), count);
-        return count;
+        return new Promise(resolve => resolve(count));
     }
 
     // noinspection JSUnusedGlobalSymbols
@@ -303,8 +305,8 @@ export class RedisClientMock extends EventEmitter {
     }
 
     // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
-    public config(): boolean {
-        return true;
+    public config(): Promise<boolean> {
+        return new Promise(resolve => resolve(true));
     }
 
     private cbExecute(cb: any, ...args: any[]): void {

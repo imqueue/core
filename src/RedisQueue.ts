@@ -801,7 +801,6 @@ export class RedisQueue extends EventEmitter<EventMap>
                 ),
                 retryStrategy: this.retryStrategy(context),
                 autoResubscribe: true,
-                enableReadyCheck: true,
                 enableOfflineQueue: true,
                 autoResendUnfulfilledCommands: true,
                 offlineQueue: true,
@@ -1174,7 +1173,7 @@ export class RedisQueue extends EventEmitter<EventMap>
      */
     // istanbul ignore next
     private watch(): RedisQueue {
-        if (!this.watcher || this.watcher.__ready__) {
+        if (!this.writer || !this.watcher || this.watcher.__ready__) {
             return this;
         }
 

@@ -811,59 +811,63 @@ export class RedisQueue extends EventEmitter<EventMap>
             return context[channel];
         }
 
-        return new Promise((resolve, reject) => {
-            const redis = new Redis({
-                // istanbul ignore next
-                port: options.port || 6379,
-                // istanbul ignore next
-                host: options.host || 'localhost',
-                // istanbul ignore next
-                username: options.username,
-                // istanbul ignore next
-                password: options.password,
-                connectionName: this.getChannelName(
-                    context.name + '',
-                    options.prefix || '',
-                    channel,
-                ),
-                retryStrategy: this.retryStrategy(),
-                autoResubscribe: true,
-                enableOfflineQueue: true,
-                autoResendUnfulfilledCommands: true,
-                offlineQueue: true,
-                maxRetriesPerRequest: null,
-            });
-
-            context[channel] = redis;
-            context[channel].__imq = true;
-
-            for (const event of [
-                'wait',
-                'reconnecting',
-                'connecting',
-                'connect',
-                'close',
-            ]) {
-                redis.on(event, () => {
-                    context.verbose(`Redis Event fired: ${ event }`);
-                });
-            }
-
-            redis.setMaxListeners(IMQ_REDIS_MAX_LISTENERS_LIMIT);
-            redis.on('ready',
-                this.onReadyHandler(
-                    context,
-                    channel,
-                    resolve,
-                ) as unknown as () => void,
-            );
-            redis.on('error',
-                this.onErrorHandler(context, channel, reject),
-            );
-            redis.on('end',
-                this.onCloseHandler(context, channel),
-            );
+        const redis = new Redis({
+            // istanbul ignore next
+            port: options.port || 6379,
+            // istanbul ignore next
+            host: options.host || 'localhost',
+            // istanbul ignore next
+            username: options.username,
+            // istanbul ignore next
+            password: options.password,
+            connectionName: this.getChannelName(
+                context.name + '',
+                options.prefix || '',
+                channel,
+            ),
+            retryStrategy: this.retryStrategy(),
+            autoResubscribe: true,
+            enableOfflineQueue: true,
+            autoResendUnfulfilledCommands: true,
+            offlineQueue: true,
+            maxRetriesPerRequest: null,
+            enableReadyCheck: channel !== 'subscription',
+            lazyConnect: true,
         });
+
+        context[channel] = redis;
+        context[channel].__imq = true;
+
+        for (const event of [
+            'wait',
+            'reconnecting',
+            'connecting',
+            'connect',
+            'close',
+        ]) {
+            redis.on(event, () => {
+                context.verbose(`Redis Event fired: ${ event }`);
+            });
+        }
+
+        redis.setMaxListeners(IMQ_REDIS_MAX_LISTENERS_LIMIT);
+        redis.on('error', this.onErrorHandler(context, channel));
+        redis.on('end', this.onCloseHandler(context, channel));
+
+        await redis.connect();
+
+        this.logger.info(
+            '%s: %s channel connected, host %s, pid %s',
+            context.name, channel, this.redisKey, process.pid,
+        );
+
+        switch (channel) {
+            case 'reader': this.read(); break;
+            case 'writer': await this.processDelayed(this.key); break;
+            case 'watcher': await this.initWatcher(); break;
+        }
+
+        return context[channel];
     }
 
     // istanbul ignore next
@@ -956,38 +960,6 @@ export class RedisQueue extends EventEmitter<EventMap>
         }, delay);
     }
 
-    /**
-     * Builds and returns connection ready state handler
-     *
-     * @access private
-     * @param {RedisQueue} context
-     * @param {RedisConnectionChannel} channel
-     * @param {(...args: any[]) => void} resolve
-     * @return {() => Promise<void>}
-     */
-    private onReadyHandler(
-        context: RedisQueue,
-        channel: RedisConnectionChannel,
-        resolve: (...args: any[]) => void,
-    ): () => Promise<void> {
-        this.verbose(`Redis ${ channel } channel ready!`);
-
-        return (async () => {
-            this.logger.info(
-                '%s: %s channel connected, host %s, pid %s',
-                context.name, channel, this.redisKey, process.pid,
-            );
-
-            switch (channel) {
-                case 'reader': this.read(); break;
-                case 'writer': await this.processDelayed(this.key); break;
-                case 'watcher': await this.initWatcher(); break;
-            }
-
-            resolve(context[channel]);
-        });
-    }
-
     // noinspection JSMethodCanBeStatic
     /**
      * Generates channel name
@@ -1013,17 +985,15 @@ export class RedisQueue extends EventEmitter<EventMap>
      * @access private
      * @param {RedisQueue} context
      * @param {RedisConnectionChannel} channel
-     * @param {(...args: any[]) => void} reject
      * @return {(err: Error) => void}
      */
     private onErrorHandler(
         context: RedisQueue,
         channel: RedisConnectionChannel,
-        reject: (...args: any[]) => void,
-    ): (err: Error) => void {
+    ): (error: Error) => void {
         // istanbul ignore next
-        return ((err: Error & { code: string }) => {
-            this.verbose(`Redis Error: ${ err }`);
+        return ((error: Error & { code: string }) => {
+            this.verbose(`Redis Error: ${ error }`);
 
             if (this.destroyed) {
                 return;
@@ -1033,13 +1003,14 @@ export class RedisQueue extends EventEmitter<EventMap>
                 `${context.name}: error connecting redis host ${
                     this.redisKey} on ${
                     channel}, pid ${process.pid}:`,
-                err,
+                error,
             );
 
-            if (!this.initialized) {
-                reject(err);
-            } else {
-                // Try to recover the channel using our reconnection routine
+            if (
+                error.code === 'ECONNREFUSED' ||
+                error.code === 'ETIMEDOUT' ||
+                context[channel]?.status !== 'ready'
+            ) {
                 this.scheduleReconnect(channel);
             }
         });

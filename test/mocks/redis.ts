@@ -64,6 +64,10 @@ export class RedisClientMock extends EventEmitter {
         return new Promise(resolve => resolve(undefined));
     }
 
+    public connect() {
+        return new Promise(resolve => resolve(undefined));
+    }
+
     // noinspection JSMethodCanBeStatic
     public set(...args: any[]): Promise<number> {
         const [key, val] = args;

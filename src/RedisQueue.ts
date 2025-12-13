@@ -202,6 +202,14 @@ export class RedisQueue extends EventEmitter<EventMap>
     private safeCheckInterval: any;
 
     /**
+     * Internal per-channel reconnection state
+     */
+    private reconnectTimers: Partial<Record<RedisConnectionChannel, any>> = {};
+    private reconnectAttempts: Partial<Record<RedisConnectionChannel, number>>
+        = {};
+    private reconnecting: Partial<Record<RedisConnectionChannel, boolean>> = {};
+
+    /**
      * This queue instance unique key (identifier), for internal use
      */
     public readonly redisKey: string;
@@ -558,9 +566,7 @@ export class RedisQueue extends EventEmitter<EventMap>
 
         if (this.reader) {
             this.verbose('Destroying reader...');
-            this.reader.removeAllListeners();
-            this.reader.quit();
-            this.reader.disconnect(false);
+            this.destroyChannel('reader', this);
 
             delete this.reader;
         }
@@ -737,11 +743,7 @@ export class RedisQueue extends EventEmitter<EventMap>
     private destroyWatcher(): void {
         if (this.watcher) {
             this.verbose('Destroying watcher...');
-            this.watcher.removeAllListeners();
-            this.watcher.quit().catch(e => {
-                this.verbose(`Error quitting watcher: ${ e }`);
-            });
-            this.watcher.disconnect(false);
+            this.destroyChannel('watcher', this);
             delete RedisQueue.watchers[this.redisKey];
             this.verbose('Watcher destroyed!');
         }
@@ -756,14 +758,35 @@ export class RedisQueue extends EventEmitter<EventMap>
     private destroyWriter(): void {
         if (this.writer) {
             this.verbose('Destroying writer...');
-            this.writer.removeAllListeners();
-            this.writer.quit().catch(e => {
-                this.verbose(`Error quitting writer: ${ e }`);
-            });
-            this.writer.disconnect(false);
-
+            this.destroyChannel('writer', this);
             delete RedisQueue.writers[this.redisKey];
             this.verbose('Writer destroyed!');
+        }
+    }
+
+    /**
+     * Destroys any channel
+     *
+     * @access private
+     */
+    @profile()
+    private destroyChannel(
+        channel: RedisConnectionChannel,
+        context: RedisQueue = this,
+    ): void {
+        const client = context[channel];
+
+        if (client) {
+            try {
+                client.removeAllListeners();
+                client.quit().then(() => {
+                    client.disconnect(false);
+                }).catch(e => {
+                    this.verbose(`Error quitting ${ channel }: ${ e }`);
+                });
+            } catch (error) {
+                this.verbose(`Error destroying ${ channel }: ${ error }`);
+            }
         }
     }
 
@@ -803,7 +826,7 @@ export class RedisQueue extends EventEmitter<EventMap>
                     options.prefix || '',
                     channel,
                 ),
-                retryStrategy: this.retryStrategy(context),
+                retryStrategy: this.retryStrategy(),
                 autoResubscribe: true,
                 enableOfflineQueue: true,
                 autoResendUnfulfilledCommands: true,
@@ -847,22 +870,90 @@ export class RedisQueue extends EventEmitter<EventMap>
     /**
      * Builds and returns redis reconnection strategy
      *
-     * @param {RedisQueue} context
      * @returns {() => (number | void | null)}
      * @private
      */
-    private retryStrategy(
-        context: RedisQueue,
-    ): () => number | void | null {
+    private retryStrategy(): () => null {
         return () => {
-            if (context.destroyed) {
-                return null;
-            }
-
-            this.verbose('Redis connection error, retrying...');
-
             return null;
         };
+    }
+
+    /**
+     * Schedules custom reconnection for a given channel with capped
+     * exponential backoff
+     *
+     * @param {RedisConnectionChannel} channel
+     * @private
+     */
+    private scheduleReconnect(channel: RedisConnectionChannel): void {
+        if (this.destroyed) {
+            return;
+        }
+
+        if (this.reconnecting[channel]) {
+            return;
+        }
+
+        this.reconnecting[channel] = true;
+
+        const attempts = (this.reconnectAttempts[channel] || 0) + 1;
+        this.reconnectAttempts[channel] = attempts;
+
+        const base = Math.min(30000, 1000 * Math.pow(2, attempts - 1));
+        const jitter = Math.floor(base * 0.2 * Math.random());
+        const delay = base + jitter;
+
+        this.verbose(`Scheduling ${ channel } reconnect in ${
+            delay } ms (attempt ${ attempts })`);
+
+        if (this.reconnectTimers[channel]) {
+            clearTimeout(this.reconnectTimers[channel] as any);
+        }
+
+        this.reconnectTimers[channel] = setTimeout(async () => {
+            if (this.destroyed) {
+                this.reconnecting[channel] = false;
+
+                return;
+            }
+
+            try {
+                switch (channel) {
+                    case 'watcher':
+                        this.destroyWatcher();
+                        break;
+                    case 'writer':
+                        this.destroyWriter();
+                        break;
+                    case 'reader':
+                        this.destroyChannel(channel, this);
+                        this.reader = undefined;
+
+                        break;
+                    case 'subscription':
+                        this.destroyChannel(channel, this);
+                        this.subscription = undefined;
+
+                        break;
+                }
+
+                await this.connect(channel, this.options);
+                this.reconnectAttempts[channel] = 0;
+                this.reconnecting[channel] = false;
+
+                if (this.reconnectTimers[channel]) {
+                    clearTimeout(this.reconnectTimers[channel] as any);
+                    this.reconnectTimers[channel] = undefined;
+                }
+
+                this.verbose(`Reconnected ${ channel } channel`);
+            } catch (err) {
+                this.reconnecting[channel] = false;
+                this.verbose(`Reconnect ${ channel } failed: ${ err }`);
+                this.scheduleReconnect(channel);
+            }
+        }, delay);
     }
 
     /**
@@ -946,8 +1037,10 @@ export class RedisQueue extends EventEmitter<EventMap>
             );
 
             if (!this.initialized) {
-                this.initialized = false;
                 reject(err);
+            } else {
+                // Try to recover the channel using our reconnection routine
+                this.scheduleReconnect(channel);
             }
         });
     }
@@ -969,10 +1062,15 @@ export class RedisQueue extends EventEmitter<EventMap>
         // istanbul ignore next
         return (() => {
             this.initialized = false;
+
             this.logger.warn(
                 '%s: redis connection %s closed on host %s, pid %s!',
                 context.name, channel, this.redisKey, process.pid,
             );
+
+            if (!this.destroyed) {
+                this.scheduleReconnect(channel);
+            }
         });
     }
 

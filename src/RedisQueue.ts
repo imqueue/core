@@ -346,18 +346,22 @@ export class RedisQueue extends EventEmitter<EventMap>
         if (this.subscription) {
             this.verbose('Initialize unsubscribing...');
 
-            if (this.subscriptionName) {
-                this.subscription.unsubscribe(
-                    `${this.options.prefix}:${this.subscriptionName}`,
-                );
+            try {
+                if (this.subscriptionName) {
+                    await this.subscription.unsubscribe(
+                        `${this.options.prefix}:${this.subscriptionName}`,
+                    );
 
-                this.verbose(`Unsubscribed from ${
-                    this.subscriptionName } channel`);
+                    this.verbose(`Unsubscribed from ${
+                        this.subscriptionName } channel`);
+                }
+
+                this.subscription.removeAllListeners();
+                this.subscription.quit();
+                this.subscription.disconnect(false);
+            } catch (error) {
+                this.verbose(`Unsubscribe error: ${ error }`);
             }
-
-            this.subscription.removeAllListeners();
-            this.subscription.disconnect(false);
-            this.subscription.quit();
         }
 
         this.subscriptionName = undefined;

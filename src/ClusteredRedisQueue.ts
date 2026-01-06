@@ -169,6 +169,8 @@ export class ClusteredRedisQueue implements IMessageQueue,
         }
 
         if (this.options.clusterManagers?.length) {
+            this.verbose('Initializing cluster managers...');
+
             for (const manager of this.options.clusterManagers) {
                 this.initializedClusters.push(manager.init({
                     add: this.addServer.bind(this),
@@ -297,6 +299,14 @@ export class ClusteredRedisQueue implements IMessageQueue,
         return lengths.reduce((total, length) => total + length, 0);
     }
 
+    private verbose(message: string): void {
+        if (this.options.verbose) {
+            this.logger.info(`[IMQ-CORE][ClusteredRedisQueue][${ 
+                this.name
+            }]: ${ message }`);
+        }
+    }
+
     /**
      * Batch imq action processing on all registered imqs at once
      *
@@ -306,7 +316,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
      * @return {Promise<this>}
      */
     private async batch(action: string, message: string): Promise<this> {
-        this.logger.log(message);
+        this.logger.info(message);
 
         const promises = [];
 
@@ -498,6 +508,8 @@ export class ClusteredRedisQueue implements IMessageQueue,
      * @returns {void}
      */
     protected addServer(server: IServerInput): ClusterServer {
+        this.verbose(`Adding new server: ${ JSON.stringify(server) }`);
+
         return this.addServerWithQueueInitializing(server, true);
     }
 
@@ -508,6 +520,8 @@ export class ClusteredRedisQueue implements IMessageQueue,
      * @returns {void}
      */
     protected removeServer(server: IServerInput): void {
+        this.verbose(`Removing the server: ${ JSON.stringify(server) }`);
+
         const remove = this.findServer(server);
 
         if (!remove) {
@@ -580,6 +594,9 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
     private async initializeQueue(imq: RedisQueue): Promise<void> {
         copyEventEmitter(this.templateEmitter, imq);
+        this.verbose(`Initializing queue with state: ${ 
+            JSON.stringify(this.state) 
+        }`);
 
         if (this.state.started) {
            await imq.start();

@@ -899,14 +899,11 @@ export class RedisQueue extends EventEmitter<EventMap>
             return;
         }
 
-        this.reconnecting[channel] = true;
-
         const attempts = (this.reconnectAttempts[channel] || 0) + 1;
-        this.reconnectAttempts[channel] = attempts;
+        const delay = Math.min(30000, 1000 * Math.pow(2, attempts - 1));
 
-        const base = Math.min(30000, 1000 * Math.pow(2, attempts - 1));
-        const jitter = Math.floor(base * 0.2 * Math.random());
-        const delay = base + jitter;
+        this.reconnecting[channel] = true;
+        this.reconnectAttempts[channel] = attempts;
 
         this.verbose(`Scheduling ${ channel } reconnect in ${
             delay } ms (attempt ${ attempts })`);

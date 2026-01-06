@@ -49,7 +49,7 @@ interface Message {
     timeout: number;
 }
 
-class UDPClusterWorker {
+class UDPWorker {
     private readonly socket: Socket;
     private readonly servers = new Map<string, string>();
 
@@ -91,16 +91,19 @@ class UDPClusterWorker {
     private addServer(message: Message): void {
         this.messagePort.postMessage({
             type: 'cluster:add',
-            server: UDPClusterWorker.mapMessage(message),
+            server: UDPWorker.mapMessage(message),
         });
-        this.serverAliveWait(message);
+
+        if (this.options.useAliveCheck) {
+            this.serverAliveWait(message);
+        }
     }
 
     private removeServer(message: Message): void {
-        this.servers.delete(UDPClusterWorker.getServerKey(message));
+        this.servers.delete(UDPWorker.getServerKey(message));
         this.messagePort.postMessage({
             type: 'cluster:remove',
-            server: UDPClusterWorker.mapMessage(message),
+            server: UDPWorker.mapMessage(message),
         });
     }
 
@@ -119,7 +122,7 @@ class UDPClusterWorker {
         const stamp = uuid();
         const correction = this.options.aliveTimeoutCorrection ?? 0;
         const effectiveTimeout = message.timeout + correction + 1;
-        const key = UDPClusterWorker.getServerKey(message);
+        const key = UDPWorker.getServerKey(message);
 
         this.servers.set(key, stamp);
 
@@ -223,5 +226,5 @@ class UDPClusterWorker {
 }
 
 if (!isMainThread && parentPort) {
-    new UDPClusterWorker(workerData, parentPort);
+    new UDPWorker(workerData, parentPort);
 }

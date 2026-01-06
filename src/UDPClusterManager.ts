@@ -59,12 +59,28 @@ export interface UDPClusterManagerOptions {
      * @type {number}
      */
     aliveTimeoutCorrection: number;
+
+    /**
+     * Message queue alive-server check flag. If set to false, the server will
+     * not be checked for liveness on each broadcast message with a timeout.
+     * Can be specified by the environment variable if the given option is not
+     * bypassed: IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK
+     *
+     * @default true
+     * @type {boolean}
+     */
+    useAliveCheck: boolean;
 }
+
+const IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK = !!+(
+    process.env.IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK || 1
+);
 
 export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS: UDPClusterManagerOptions = {
     port: 63000,
     address: '255.255.255.255',
     aliveTimeoutCorrection: 5000,
+    useAliveCheck: IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK,
 };
 
 export class UDPClusterManager extends ClusterManager {

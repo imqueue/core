@@ -24,81 +24,138 @@
 import { execSync as exec } from 'child_process';
 import * as os from 'os';
 import * as fs from 'fs';
-import * as yargs from 'yargs';
+import { parseArgs } from 'node:util';
 import { run } from './redis-test';
-import { resolve }  from 'path';
+import { resolve } from 'path';
 import { uuid, AnyJson } from '..';
 import { setAffinity } from './affinity';
 
 const cluster: any = require('cluster');
 
 /**
- * Command line args
- * @type {yargs.Arguments}
+ * Command line options: canonical long name -> parseArgs config + description
+ * used to render `--help`.
  */
-const ARGV: any = yargs
-.help('h')
-.alias('h', 'help')
+const OPTIONS: {
+    [name: string]: {
+        type: 'string' | 'boolean';
+        short: string;
+        describe: string;
+    };
+} = {
+    help: {
+        type: 'boolean',
+        short: 'h',
+        describe: 'Show this help.',
+    },
+    children: {
+        type: 'string',
+        short: 'c',
+        describe: 'Number of children test process to fork.',
+    },
+    delay: {
+        type: 'string',
+        short: 'd',
+        describe:
+            'Number of milliseconds to delay message delivery for ' +
+            'delayed messages. By default delayed messages is off and this ' +
+            'argument is equal to 0.',
+    },
+    messages: {
+        type: 'string',
+        short: 'm',
+        describe:
+            'Number of messages to be sent by a child process ' +
+            'during test execution.',
+    },
+    gzip: {
+        type: 'boolean',
+        short: 'z',
+        describe: 'Use gzip for message encoding/decoding.',
+    },
+    safe: {
+        type: 'boolean',
+        short: 's',
+        describe: 'Use safe (guaranteed) message delivery algorithm.',
+    },
+    'example-message': {
+        type: 'string',
+        short: 'e',
+        describe:
+            'Path to a file containing JSON of example message to ' +
+            'use during the tests.',
+    },
+    port: {
+        type: 'string',
+        short: 'p',
+        describe: 'Redis server port to connect to.',
+    },
+    'message-multiply-times': {
+        type: 'string',
+        short: 't',
+        describe:
+            'Increase sample message data given number of times per ' +
+            'request.',
+    },
+};
 
-.alias('c', 'children')
-.describe('c', 'Number of children test process to fork')
+/**
+ * Command line args
+ */
+const ARGV: any = parseArgs({
+    options: Object.fromEntries(
+        Object.entries(OPTIONS).map(([name, { type, short }]) => [
+            name,
+            { type, short },
+        ]),
+    ) as any,
+    allowPositionals: true,
+}).values;
 
-.alias('d', 'delay')
-.describe('d', 'Number of milliseconds to delay message delivery for ' +
-    'delayed messages. By default delayed messages is of and this ' +
-    'argument is equal to 0.')
+if (ARGV.help) {
+    const help = Object.entries(OPTIONS)
+        .map(([name, o]) => `  -${o.short}, --${name}\n        ${o.describe}`)
+        .join('\n\n');
 
-.alias('m', 'messages')
-.describe('m', 'Number of messages to be sent by a child process ' +
-    'during test execution.')
+    process.stdout.write(
+        `Usage: node benchmark [options]\n\nOptions:\n${help}\n`,
+    );
+    process.exit(0);
+}
 
-.alias('z', 'gzip')
-.describe('z', 'Use gzip for message encoding/decoding.')
-
-.alias('s', 'safe')
-.describe('s', 'Use safe (guaranteed) message delivery algorithm.')
-
-.alias('e', 'example-message')
-.describe('e', 'Path to a file containing JSON of example message to ' +
-    'use during the tests.')
-
-.alias('p', 'port')
-.describe('p', 'Redis server port to connect to.')
-
-.alias('t', 'message-multiply-times')
-.describe('t', 'Increase sample message data given number of times per ' +
-    'request.')
-
-.boolean(['h', 'z', 's'])
-    .argv;
-
-let maxChildren = Number(ARGV.c) || 1;
+let maxChildren = Number(ARGV.children) || 1;
 
 const METRICS_DELAY = 100;
 const CPUS = os.cpus();
 const numCpus = CPUS.length;
 const CPU_NAMES = ['Redis Process, CPU Used, %'];
-const STEPS = Number(ARGV.m) || 10000;
-const MSG_DELAY = Number(ARGV.d) || 0;
-const USE_GZIP: boolean = !!ARGV.z;
-const MSG_MULTIPLIER = Number(ARGV.t) || 0;
-const SAFE_DELIVERY: boolean = !!ARGV.s;
-const REDIS_PORT: number = Number(ARGV.p) || 6379;
+const STEPS = Number(ARGV.messages) || 10000;
+const MSG_DELAY = Number(ARGV.delay) || 0;
+const USE_GZIP: boolean = !!ARGV.gzip;
+const MSG_MULTIPLIER = Number(ARGV['message-multiply-times']) || 0;
+const SAFE_DELIVERY: boolean = !!ARGV.safe;
+const REDIS_PORT: number = Number(ARGV.port) || 6379;
 
 let SAMPLE_MESSAGE: AnyJson;
 
-if (ARGV.e) {
+if (ARGV['example-message']) {
     try {
-        SAMPLE_MESSAGE = JSON.parse(fs.readFileSync(ARGV.e + '').toString());
+        SAMPLE_MESSAGE = JSON.parse(
+            fs.readFileSync(ARGV['example-message'] + '').toString(),
+        );
 
         if (MSG_MULTIPLIER) {
-            SAMPLE_MESSAGE = new Array(MSG_MULTIPLIER)
-            .fill(SAMPLE_MESSAGE);
+            SAMPLE_MESSAGE = Array.from(
+                { length: MSG_MULTIPLIER },
+                () => SAMPLE_MESSAGE,
+            );
         }
     } catch (err) {
-        console.warn('Given example message is invalid, ' +
-            'proceeding test execution with with standard ' +
-            'example message.');
+        console.warn(
+            'Given example message is invalid, ' +
+                'proceeding test execution with with standard ' +
+                'example message.',
+        );
     }
 }
 
@@ -134,7 +191,7 @@ function cpuAvg(i: number) {
 
     return {
         idle: totalIdle / cpus.length,
-        total: totalTick / cpus.length
+        total: totalTick / cpus.length,
     };
 }
 
@@ -150,9 +207,7 @@ interface MachineStats {
  * @param {any} memusage
  * @return {MachineStats}
  */
-function buildStats(
-    { metrics, memusage }: any
-): MachineStats {
+function buildStats({ metrics, memusage }: any): MachineStats {
     const stats: any[] = [];
     const memStats: any[] = ['System Memory Used, %'];
 
@@ -165,12 +220,12 @@ function buildStats(
                 stats[cpu] = [CPU_NAMES[cpu]];
             }
 
-            stats[cpu].push(100 - ~~(100 * idle / total));
+            stats[cpu].push(100 - ~~((100 * idle) / total));
         }
     }
 
     for (let i = 0, s = memusage.length; i < s; i++) {
-        memStats.push(100 - ~~(100 * memusage[i].free / memusage[i].total));
+        memStats.push(100 - ~~((100 * memusage[i].free) / memusage[i].total));
     }
 
     return { stats, memStats };
@@ -187,30 +242,33 @@ function buildChartConfig(id: string, stats: any[]) {
     return {
         bindto: `#${id}`,
         data: {
-            columns: stats
+            columns: stats,
         },
         point: { show: false },
         axis: {
             x: {
                 type: 'category',
-                categories: stats[0].slice(1).map((v: any, i: number) =>
-                    ((i * 100) / 1000).toFixed(1) + 's' as any
-                ),
+                categories: stats[0]
+                    .slice(1)
+                    .map(
+                        (v: any, i: number) =>
+                            (((i * 100) / 1000).toFixed(1) + 's') as any,
+                    ),
                 tick: {
                     centered: true,
                     fit: false,
                     culling: { max: 20 },
-                    outer: false
-                }
+                    outer: false,
+                },
             },
             y: {
                 max: 100,
-                tick: { outer: false }
-            }
+                tick: { outer: false },
+            },
         },
         zoom: {
-            enabled: true
-        }
+            enabled: true,
+        },
     };
 }
 
@@ -223,9 +281,11 @@ function buildChartConfig(id: string, stats: any[]) {
  * @return {string}
  */
 function bytesCount(data: any[], fmt: Intl.NumberFormat, key: string) {
-    return fmt.format(Math.round(data.reduce((prev, next) =>
-        prev + next[key], 0
-    ) / data.length))
+    return fmt.format(
+        Math.round(
+            data.reduce((prev, next) => prev + next[key], 0) / data.length,
+        ),
+    );
 }
 
 /**
@@ -234,13 +294,11 @@ function bytesCount(data: any[], fmt: Intl.NumberFormat, key: string) {
  * @param {{ metrics: any, memusage: any }} stats
  * @param {any} data
  */
-function saveStats({ metrics,  memusage }: any, data: any[]) {
+function saveStats({ metrics, memusage }: any, data: any[]) {
     const { stats, memStats } = buildStats({ metrics, memusage });
     const config = buildChartConfig('cpu-usage', stats);
     const memConfig = buildChartConfig('memory-usage', [memStats]);
-    const fmt = new Intl.NumberFormat(
-        'en-US', { maximumSignificantDigits: 3 }
-    );
+    const fmt = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 3 });
 
     // language=HTML
     let html = `<!doctype html>
@@ -267,44 +325,55 @@ function saveStats({ metrics,  memusage }: any, data: any[]) {
     </p>
     <h2 class="title">Test Execution Information</h2>
     <ul>
-        <li>Execution Datetime: <i>${ new Date().toISOString() }</i></li>
+        <li>Execution Datetime: <i>${new Date().toISOString()}</i></li>
         <li>System Info:
             <ul>
-                <li>CPU: ${CPUS[0].model} &times; ${ numCpus } cores</li>
-                <li>CPU Clock Speed: ${ CPUS[0].speed }Mhz</li>
-                <li>RAM: ${ Math.ceil(os.totalmem() / Math.pow(1024, 3)) }GB</li>
-                <li>OS Architecture: ${ os.arch() }</li>
-                <li>OS Platform: ${ os.platform() }</li>
-                <li>Node Version: ${ process.versions.node }</li>
+                <li>CPU: ${CPUS[0].model} &times; ${numCpus} cores</li>
+                <li>CPU Clock Speed: ${CPUS[0].speed}Mhz</li>
+                <li>RAM: ${Math.ceil(os.totalmem() / Math.pow(1024, 3))}GB</li>
+                <li>OS Architecture: ${os.arch()}</li>
+                <li>OS Platform: ${os.platform()}</li>
+                <li>Node Version: ${process.versions.node}</li>
             </ul>
         </li>
         <li>Number of workers: ${fmt.format(maxChildren)}</li>
         <li>Number of messages per worker: ${fmt.format(STEPS)}</li>
         <li>Total messages executed: ${fmt.format(STEPS * maxChildren)}</li>
-        <li>Round-trip ratio across all workers is: <b>${
-        fmt.format(data.reduce((prev, next) =>
-            prev + next.ratio, 0
-        ))
-    } msg/sec</b></li>
-        <li>Average message payload to redis is: ${
-        bytesCount(data, fmt, 'bytesLen')
-    } bytes</li>
-        <li>Average source message payload is: ${
-        bytesCount(data, fmt, 'srcBytesLen')
-    } bytes</li>
-        <li>Average time of all messages delivery is: ${
-        fmt.format(Number((data.reduce((prev, next) =>
-            prev + next.time, 0
-        ) / 1000 / data.length).toFixed(2)))
-    } sec ±10 ms</li>
-        <li>Max delivery time is: ${
-        fmt.format(
-            Number((Math.max.apply(null, data.map((item => item.time)))
-                / 1000).toFixed(2)))
-    } sec ±10 ms</li>
+        <li>Round-trip ratio across all workers is: <b>${fmt.format(
+            data.reduce((prev, next) => prev + next.ratio, 0),
+        )} msg/sec</b></li>
+        <li>Average message payload to redis is: ${bytesCount(
+            data,
+            fmt,
+            'bytesLen',
+        )} bytes</li>
+        <li>Average source message payload is: ${bytesCount(
+            data,
+            fmt,
+            'srcBytesLen',
+        )} bytes</li>
+        <li>Average time of all messages delivery is: ${fmt.format(
+            Number(
+                (
+                    data.reduce((prev, next) => prev + next.time, 0) /
+                    1000 /
+                    data.length
+                ).toFixed(2),
+            ),
+        )} sec ±10 ms</li>
+        <li>Max delivery time is: ${fmt.format(
+            Number(
+                (
+                    Math.max.apply(
+                        null,
+                        data.map(item => item.time),
+                    ) / 1000
+                ).toFixed(2),
+            ),
+        )} sec ±10 ms</li>
         ${MSG_DELAY ? '<li>Message delivery delay used: ' + MSG_DELAY + '</li>' : ''}
-        <li>Gzip compression for messages is: <b>${ USE_GZIP ? 'On' : 'Off' }</b></li>
-        <li>Safe delivery is: <b>${ SAFE_DELIVERY ? 'On' : 'Off' }</b></li>
+        <li>Gzip compression for messages is: <b>${USE_GZIP ? 'On' : 'Off'}</b></li>
+        <li>Safe delivery is: <b>${SAFE_DELIVERY ? 'On' : 'Off'}</b></li>
     </ul>
     <h2 class="title">CPU Usage</h2>
     <div class="chart">
@@ -350,7 +419,7 @@ if (cluster.isMaster) {
     const data: any[] = [];
 
     statsWorker.on('message', (msg: any) => {
-        if (/^metrics:/.test(msg)) {
+        if (msg.startsWith('metrics:')) {
             saveStats(JSON.parse(msg.split('metrics:').pop() || ''), data);
             process.exit(0);
         }
@@ -361,7 +430,7 @@ if (cluster.isMaster) {
 
         worker.send(`imq ${i}`);
         worker.on('message', (msg: string) => {
-            if (/^data:/.test(msg)) {
+            if (msg.startsWith('data:')) {
                 done++;
                 data.push(JSON.parse(msg.split('data:').pop() || ''));
 
@@ -371,15 +440,13 @@ if (cluster.isMaster) {
             }
         });
     }
-}
-
-else {
+} else {
     const metrics: any[] = [];
     const memusage: any[] = [];
     let metricsInterval: any;
 
     process.on('message', async (msg: string) => {
-        if (/^imq/.test(msg)) {
+        if (msg.startsWith('imq')) {
             const index = parseInt(String(msg.split(/\s+/).pop()), 10);
             const core = numCpus <= 2 ? 1 : index + 2;
 
@@ -392,53 +459,56 @@ else {
                     MSG_DELAY,
                     USE_GZIP,
                     SAFE_DELIVERY,
-                    SAMPLE_MESSAGE
+                    SAMPLE_MESSAGE,
                 );
                 (<any>process).send('data:' + JSON.stringify(data));
-            }
-
-            catch (err) {
+            } catch (err) {
                 (<any>process).send('data:' + JSON.stringify(null));
-                console.error(err.stack);
+                console.error(err instanceof Error ? err.stack : err);
                 process.exit(1);
             }
-        }
-
-        else if (msg === 'stats') {
+        } else if (msg === 'stats') {
             setAffinity(1);
 
             const redisProcess = exec('ps ax|grep redis-server')
-            .toString('utf8')
-            .split(/\r?\n/)[0];
+                .toString('utf8')
+                .split(/\r?\n/)[0];
             const core = numCpus > 1 ? 1 : 0;
 
-            if (core && os.platform() === 'linux' &&
+            if (
+                core &&
+                os.platform() === 'linux' &&
                 /redis-server/.test(redisProcess) &&
                 !/grep/.test(redisProcess)
             ) {
                 const redisPid = parseInt(redisProcess.split(/\s+/)[0], 10);
-                redisPid && exec(`taskset -cp ${core} ${redisPid}`);
+                if (redisPid) {
+                    exec(`taskset -cp ${core} ${redisPid}`);
+                }
             }
 
             metricsInterval = setInterval(() => {
                 metrics.push(
-                    CPU_NAMES.map((name: string, i: number) => cpuAvg(i + 1))
+                    CPU_NAMES.map((name: string, i: number) => cpuAvg(i + 1)),
                 );
                 memusage.push({
                     total: os.totalmem(),
-                    free: os.freemem()
+                    free: os.freemem(),
                 });
             }, METRICS_DELAY);
-        }
-
-        else if (msg === 'stop') {
-            metricsInterval && clearInterval(metricsInterval);
+        } else if (msg === 'stop') {
+            if (metricsInterval) {
+                clearInterval(metricsInterval);
+            }
             metricsInterval = null;
             console.log('Finalizing...');
-            (<any>process).send('metrics:' + JSON.stringify({
-                metrics,
-                memusage
-            }));
+            (<any>process).send(
+                'metrics:' +
+                    JSON.stringify({
+                        metrics,
+                        memusage,
+                    }),
+            );
 
             process.exit(0);
         }

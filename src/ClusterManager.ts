@@ -25,11 +25,9 @@ import { IMessageQueueConnection, IServerInput } from './IMessageQueue';
 import { uuid } from './uuid';
 
 export interface ICluster {
-    add: <T extends IMessageQueueConnection>(server: IServerInput) => T;
+    add: (server: IServerInput) => IMessageQueueConnection;
     remove: (server: IServerInput) => void;
-    find: <T extends IMessageQueueConnection>(
-        server: IServerInput,
-    ) => T | undefined;
+    find: (server: IServerInput) => IMessageQueueConnection | undefined;
 }
 
 export interface InitializedCluster extends ICluster {
@@ -42,10 +40,9 @@ export abstract class ClusterManager {
     protected constructor() {}
 
     public init(cluster: ICluster): InitializedCluster {
-        const initializedCluster = Object.assign(
-            cluster,
-            { id: uuid() },
-        ) as InitializedCluster;
+        const initializedCluster = Object.assign(cluster, {
+            id: uuid(),
+        }) as InitializedCluster;
 
         this.clusters.push(initializedCluster);
 
@@ -67,9 +64,9 @@ export abstract class ClusterManager {
         this.clusters = this.clusters.filter(cluster => cluster.id !== id);
 
         if (
-            this.clusters.length === 0
-            && destroy
-            && typeof this.destroy === 'function'
+            this.clusters.length === 0 &&
+            destroy &&
+            typeof this.destroy === 'function'
         ) {
             await this.destroy();
         }

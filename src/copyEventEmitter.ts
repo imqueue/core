@@ -40,8 +40,8 @@ export function copyEventEmitter(
 
         for (const originalListener of listeners) {
             if (util.inspect(originalListener).includes('onceWrapper')) {
-                const realListener = originalListener?.listener
-                    || originalListener;
+                const realListener =
+                    originalListener?.listener || originalListener;
 
                 target.once(event, realListener);
             } else {

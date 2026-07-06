@@ -37,4 +37,4 @@ export const networkInterfaces = () => {
     };
 };
 
-mock('os', Object.assign(os, { networkInterfaces }));
+mock('os', { ...os, networkInterfaces });

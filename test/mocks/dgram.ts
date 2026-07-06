@@ -25,7 +25,7 @@ import mock = require('mock-require');
 import { EventEmitter } from 'events';
 
 class Socket extends EventEmitter {
-    public bindArgs: any[];
+    public bindArgs: any[] = [];
 
     constructor() {
         super();

@@ -21,36 +21,41 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { logger } from './mocks';
-import { expect } from 'chai';
-import { RedisQueue, uuid, IMQMode } from '../src';
+import { logger } from '../../mocks';
+import { describe, it, beforeEach } from 'node:test';
+import * as assert from 'node:assert/strict';
+import { RedisQueue, uuid, IMQMode } from '../../../src';
 import Redis from 'ioredis';
 
 process.setMaxListeners(100);
 
-describe('RedisQueue', function() {
-    this.timeout(30000);
-
+describe('RedisQueue', () => {
     it('should be a class', () => {
-        expect(typeof RedisQueue).to.equal('function');
+        assert.equal(typeof RedisQueue, 'function');
     });
 
     it('should implement IMessageQueue interface', () => {
-        expect(typeof RedisQueue.prototype.start).to.equal('function');
-        expect(typeof RedisQueue.prototype.stop).to.equal('function');
-        expect(typeof RedisQueue.prototype.send).to.equal('function');
-        expect(typeof RedisQueue.prototype.destroy).to.equal('function');
+        assert.equal(typeof RedisQueue.prototype.start, 'function');
+        assert.equal(typeof RedisQueue.prototype.stop, 'function');
+        assert.equal(typeof RedisQueue.prototype.send, 'function');
+        assert.equal(typeof RedisQueue.prototype.destroy, 'function');
     });
 
     describe('constructor()', () => {
         it('should not throw', async () => {
             const instances: RedisQueue[] = [];
-            expect(() => instances.push(new (<any>RedisQueue)())).not.to.throw(Error);
-            expect(() => instances.push(new RedisQueue('IMQUnitTests'))).not.to.throw(Error);
-            expect(() => instances.push(new RedisQueue('IMQUnitTests', {})))
-                .not.to.throw(Error);
-            expect(() => instances.push(new RedisQueue('IMQUnitTests', { useGzip: true })))
-                .not.to.throw(Error);
+            assert.doesNotThrow(() => instances.push(new (<any>RedisQueue)()));
+            assert.doesNotThrow(() =>
+                instances.push(new RedisQueue('IMQUnitTests')),
+            );
+            assert.doesNotThrow(() =>
+                instances.push(new RedisQueue('IMQUnitTests', {})),
+            );
+            assert.doesNotThrow(() =>
+                instances.push(
+                    new RedisQueue('IMQUnitTests', { useGzip: true }),
+                ),
+            );
 
             await Promise.all(instances.map(instance => instance.destroy()));
         });
@@ -59,8 +64,11 @@ describe('RedisQueue', function() {
     describe('start()', () => {
         it('should throw if no name provided', async () => {
             const rq = new (<any>RedisQueue)();
-            try { await rq.start() }
-            catch (err) { expect(err).to.be.instanceof(TypeError) }
+            try {
+                await rq.start();
+            } catch (err) {
+                assert.ok(err instanceof TypeError);
+            }
             rq.destroy().catch();
         });
 
@@ -68,17 +76,17 @@ describe('RedisQueue', function() {
             try {
                 const rq: any = new RedisQueue(uuid(), { logger });
                 await rq.start();
-                expect(rq.reader).to.be.instanceof(Redis);
+                assert.ok(rq.reader instanceof Redis);
                 await rq.destroy();
+            } catch (err) {
+                console.error(err);
             }
-
-            catch (err) { console.error(err) }
         });
 
         it('should create shared writer connection', async () => {
             const rq: any = new RedisQueue(uuid(), { logger });
             await rq.start();
-            expect(rq.writer).to.be.instanceof(Redis);
+            assert.ok(rq.writer instanceof Redis);
             await rq.destroy();
         });
 
@@ -87,8 +95,8 @@ describe('RedisQueue', function() {
             const rq2: any = new RedisQueue(uuid(), { logger });
             await rq1.start();
             await rq2.start();
-            expect(await rq1.watcherCount()).to.be.equal(1);
-            expect(await rq2.watcherCount()).to.be.equal(1);
+            assert.equal(await rq1.watcherCount(), 1);
+            assert.equal(await rq2.watcherCount(), 1);
             await rq1.destroy();
             await rq2.destroy();
         });
@@ -98,7 +106,7 @@ describe('RedisQueue', function() {
             await rq.start();
             await rq.stop();
             await rq.start();
-            expect(rq.reader).to.be.instanceof(Redis);
+            assert.ok(rq.reader instanceof Redis);
             await rq.destroy();
         });
 
@@ -108,8 +116,10 @@ describe('RedisQueue', function() {
             try {
                 await rq.start();
                 await rq.start();
-            } catch (err) { passed = false }
-            expect(passed).to.be.true;
+            } catch (err) {
+                passed = false;
+            }
+            assert.equal(passed, true);
             await rq.destroy();
         });
     });
@@ -117,46 +127,49 @@ describe('RedisQueue', function() {
     describe('stop()', () => {
         it('should stop reading messages from queue', async () => {
             const name = uuid();
-            const rq: any =  new RedisQueue(name, { logger });
+            const rq: any = new RedisQueue(name, { logger });
             await rq.start();
-            expect(rq.reader).to.be.instanceof(Redis);
+            assert.ok(rq.reader instanceof Redis);
             await rq.stop();
-            expect(rq.reader).not.to.be.ok;
+            assert.ok(!rq.reader);
             await rq.destroy();
         });
     });
 
     describe('send()', () => {
-        it('should send given message to a given queue', (done) => {
+        it('should send given message to a given queue', (t, done) => {
             const message: any = { hello: 'world' };
             const rqFrom = new RedisQueue('IMQUnitTestsFrom', { logger });
             const rqTo = new RedisQueue('IMQUnitTestsTo', { logger });
 
             rqTo.on('message', (msg, id, from) => {
-                expect(msg).to.deep.equal(message);
-                expect(id).not.to.be.undefined;
-                expect(from).to.equal('IMQUnitTestsFrom');
+                assert.deepEqual(msg, message);
+                assert.notEqual(id, undefined);
+                assert.equal(from, 'IMQUnitTestsFrom');
                 rqFrom.destroy().catch();
                 rqTo.destroy().catch();
                 done();
             });
 
-            rqFrom.start().then(() => { rqTo.start().then(() => {
-                rqFrom.send('IMQUnitTestsTo', message).catch();
-            });});
+            rqFrom.start().then(() => {
+                rqTo.start().then(() => {
+                    rqFrom.send('IMQUnitTestsTo', message).catch();
+                });
+            });
         });
 
-        it('should guaranty message delivery if safeDelivery is on', (done) => {
+        it('should guaranty message delivery if safeDelivery is on', (t, done) => {
             // it is hard to emulate mq crash at a certain time of
             // its runtime execution, so we simply assume delivery works itself
             // for the moment. dumb test but better than nothing :(
             const message: any = { hello: 'safe delivery' };
             const rq = new RedisQueue('IMQSafe', {
-                logger, safeDelivery: true,
+                logger,
+                safeDelivery: true,
             });
 
-            rq.on('message', (msg) => {
-                expect(msg).to.deep.equal(message);
+            rq.on('message', msg => {
+                assert.deepEqual(msg, message);
                 rq.destroy().catch();
                 done();
             });
@@ -164,7 +177,7 @@ describe('RedisQueue', function() {
             rq.start().then(async () => rq.send('IMQSafe', message));
         });
 
-        it('should deliver message with the given delay', (done) => {
+        it('should deliver message with the given delay', (t, done) => {
             const message: any = { hello: 'world' };
             const delay: number = 1000;
             const rqFrom = new RedisQueue('IMQUnitTestsFromD', { logger });
@@ -173,22 +186,24 @@ describe('RedisQueue', function() {
             let start: number;
 
             rqTo.on('message', (msg, id, from) => {
-                expect(Date.now() - start).to.be.gte(delay);
-                expect(msg).to.deep.equal(message);
-                expect(id).not.to.be.undefined;
-                expect(from).to.equal('IMQUnitTestsFromD');
+                assert.ok(Date.now() - start >= delay);
+                assert.deepEqual(msg, message);
+                assert.notEqual(id, undefined);
+                assert.equal(from, 'IMQUnitTestsFromD');
                 rqFrom.destroy().catch();
                 rqTo.destroy().catch();
                 done();
             });
 
-            rqFrom.start().then(() => { rqTo.start().then(() => {
-                start = Date.now();
-                rqFrom.send('IMQUnitTestsToD', message, delay).catch();
-            });});
+            rqFrom.start().then(() => {
+                rqTo.start().then(() => {
+                    start = Date.now();
+                    rqFrom.send('IMQUnitTestsToD', message, delay).catch();
+                });
+            });
         });
 
-        it('should trigger an error in case of redis error', (done) => {
+        it('should trigger an error in case of redis error', (t, done) => {
             const lrange = Redis.prototype.lrange;
             let wasDone = false;
             Redis.prototype.lrange = async (): Promise<string[]> =>
@@ -196,13 +211,17 @@ describe('RedisQueue', function() {
 
             const message: any = { hello: 'safe delivery' };
             const rq = new RedisQueue('IMQSafe', {
-                logger, safeDelivery: true
+                logger,
+                safeDelivery: true,
             });
 
-            process.on('unhandledRejection', function(e) {
-                expect((e as any).message).to.be.equal('Wrong messages count');
+            rq.on('error', function (e) {
+                assert.equal((e as any).message, 'Wrong messages count');
                 Redis.prototype.lrange = lrange;
-                !wasDone && done();
+                if (!wasDone) {
+                    rq.destroy().catch();
+                    done();
+                }
                 wasDone = true;
             });
 
@@ -214,32 +233,30 @@ describe('RedisQueue', function() {
         let rq: any;
 
         beforeEach(async () => {
-            rq =  new RedisQueue(uuid(), { logger });
+            rq = new RedisQueue(uuid(), { logger });
             await rq.start();
         });
 
         it('should destroy all connections', async () => {
             await rq.destroy();
-            expect(rq.watcher).not.to.be.ok;
-            expect(rq.reader).not.to.be.ok;
-            expect(rq.writer).not.to.be.ok;
+            assert.ok(!rq.watcher);
+            assert.ok(!rq.reader);
+            assert.ok(!rq.writer);
         });
 
         it('should remove all event listeners', async () => {
             await rq.destroy();
-            expect(rq.listenerCount()).to.equal(0);
+            assert.equal(rq.listenerCount(), 0);
         });
     });
 
     describe('clear()', () => {
         it('should clean-up queue data in redis', async () => {
-            const rq: any =  new RedisQueue(uuid(), { logger });
+            const rq: any = new RedisQueue(uuid(), { logger });
             await rq.start();
             rq.clear();
-            expect(await rq.writer.exists(rq.key))
-                .not.to.be.ok;
-            expect(await rq.writer.exists(`${rq.key}:delayed`))
-                .not.to.be.ok;
+            assert.ok(!(await rq.writer.exists(rq.key)));
+            assert.ok(!(await rq.writer.exists(`${rq.key}:delayed`)));
             rq.destroy().catch();
         });
     });
@@ -249,13 +266,13 @@ describe('RedisQueue', function() {
             const rq: any = new RedisQueue(uuid(), {
                 logger,
                 cleanup: true,
-                cleanupFilter: 'test*'
+                cleanupFilter: 'test*',
             });
             await rq.start();
 
             // Call processCleanup directly
             const result = await rq.processCleanup();
-            expect(result).to.equal(rq);
+            assert.equal(result, rq);
 
             await rq.destroy();
         });
@@ -263,12 +280,12 @@ describe('RedisQueue', function() {
         it('should return early when cleanup option is disabled', async () => {
             const rq: any = new RedisQueue(uuid(), {
                 logger,
-                cleanup: false
+                cleanup: false,
             });
             await rq.start();
 
             const result = await rq.processCleanup();
-            expect(result).to.be.undefined;
+            assert.equal(result, undefined);
 
             await rq.destroy();
         });
@@ -280,13 +297,13 @@ describe('RedisQueue', function() {
             // Don't start, so writer will be null
 
             const lockResult = await rq.lock();
-            expect(lockResult).to.be.false;
+            assert.equal(lockResult, false);
 
             const unlockResult = await rq.unlock();
-            expect(unlockResult).to.be.false;
+            assert.equal(unlockResult, false);
 
             const isLockedResult = await rq.isLocked();
-            expect(isLockedResult).to.be.false;
+            assert.equal(isLockedResult, false);
 
             await rq.destroy();
         });
@@ -297,15 +314,15 @@ describe('RedisQueue', function() {
 
             // Test locking
             const lockResult = await rq.lock();
-            expect(lockResult).to.be.a('boolean');
+            assert.equal(typeof lockResult, 'boolean');
 
             // Test checking if locked
             const isLockedResult = await rq.isLocked();
-            expect(isLockedResult).to.be.a('boolean');
+            assert.equal(typeof isLockedResult, 'boolean');
 
             // Test unlocking
             const unlockResult = await rq.unlock();
-            expect(unlockResult).to.be.a('boolean');
+            assert.equal(typeof unlockResult, 'boolean');
 
             await rq.destroy();
         });
@@ -313,14 +330,22 @@ describe('RedisQueue', function() {
 
     describe('utility methods', () => {
         it('should test isPublisher and isWorker methods', async () => {
-            const publisherQueue = new RedisQueue(uuid(), { logger }, IMQMode.PUBLISHER);
-            const workerQueue = new RedisQueue(uuid(), { logger }, IMQMode.WORKER);
+            const publisherQueue = new RedisQueue(
+                uuid(),
+                { logger },
+                IMQMode.PUBLISHER,
+            );
+            const workerQueue = new RedisQueue(
+                uuid(),
+                { logger },
+                IMQMode.WORKER,
+            );
 
-            expect(publisherQueue.isPublisher()).to.be.true;
-            expect(publisherQueue.isWorker()).to.be.false;
+            assert.equal(publisherQueue.isPublisher(), true);
+            assert.equal(publisherQueue.isWorker(), false);
 
-            expect(workerQueue.isPublisher()).to.be.false;
-            expect(workerQueue.isWorker()).to.be.true;
+            assert.equal(workerQueue.isPublisher(), false);
+            assert.equal(workerQueue.isWorker(), true);
 
             await workerQueue.destroy();
             await publisherQueue.destroy();
@@ -330,11 +355,11 @@ describe('RedisQueue', function() {
             const name = uuid();
             const rq: any = new RedisQueue(name, { logger });
 
-            expect(rq.key).to.be.a('string');
-            expect(rq.key).to.include(name);
+            assert.equal(typeof rq.key, 'string');
+            assert.ok(String(rq.key).includes(name));
 
-            expect(rq.lockKey).to.be.a('string');
-            expect(rq.lockKey).to.include('watch:lock');
+            assert.equal(typeof rq.lockKey, 'string');
+            assert.ok(String(rq.lockKey).includes('watch:lock'));
 
             await rq.destroy();
         });

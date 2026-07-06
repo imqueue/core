@@ -64,9 +64,8 @@ class UDPWorker {
             reuseAddr: true,
             reusePort: true,
         }).bind(this.options.port, this.selectNetworkInterface());
-        this.socket.on(
-            'message',
-            message => this.processMessage(this.parseMessage(message)),
+        this.socket.on('message', message =>
+            this.processMessage(this.parseMessage(message)),
         );
     }
 
@@ -126,17 +125,23 @@ class UDPWorker {
 
         this.servers.set(key, stamp);
 
-        const t: any = setTimeout(() => setImmediate(() => {
-            if (this.servers.get(key) === stamp) {
-                this.removeServer(message);
-            }
-        }), effectiveTimeout);
+        const t: any = setTimeout(
+            () =>
+                setImmediate(() => {
+                    if (this.servers.get(key) === stamp) {
+                        this.removeServer(message);
+                    }
+                }),
+            effectiveTimeout,
+        );
         // Avoid keeping the event loop alive due to pending timers
         try {
             if (t && typeof t.unref === 'function') {
                 t.unref();
             }
-        } catch {/* ignore */}
+        } catch {
+            /* ignore */
+        }
     }
 
     private processMessage(message: Message): void {
@@ -151,13 +156,13 @@ class UDPWorker {
 
     private selectNetworkInterface(): string {
         const interfaces = networkInterfaces();
-        const broadcastAddress = this.options.address
-            || this.options.limitedAddress;
+        const broadcastAddress =
+            this.options.address || this.options.limitedAddress;
         const defaultAddress = '0.0.0.0';
 
         if (
-            !broadcastAddress
-            || broadcastAddress === this.options.limitedAddress
+            !broadcastAddress ||
+            broadcastAddress === this.options.limitedAddress
         ) {
             return defaultAddress;
         }
@@ -168,8 +173,9 @@ class UDPWorker {
             }
 
             for (const net of interfaces[key]) {
-                const shouldBeSelected = net.family === 'IPv4'
-                    && net.address.startsWith(
+                const shouldBeSelected =
+                    net.family === 'IPv4' &&
+                    net.address.startsWith(
                         broadcastAddress.replace(/\.255/g, ''),
                     );
 
@@ -183,13 +189,9 @@ class UDPWorker {
     }
 
     private parseMessage(input: Buffer): Message {
-        const [
-            name,
-            id,
-            type,
-            address = '',
-            timeout = '0',
-        ] = input.toString().split('\t');
+        const [name, id, type, address = '', timeout = '0'] = input
+            .toString()
+            .split('\t');
         const [host, port] = address.split(':');
 
         return {

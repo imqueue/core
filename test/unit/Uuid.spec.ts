@@ -21,33 +21,32 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import './mocks';
-import { expect } from 'chai';
-import { uuid } from '..';
+import '../mocks';
+import { describe, it } from 'node:test';
+import * as assert from 'node:assert/strict';
+import { uuid } from '../..';
 
-describe('uuid()', function() {
-    this.timeout(10000); // 10 seconds
-
+describe('uuid()', () => {
     const steps = 100000;
 
     it('should always match RFC4122 spec', () => {
         const regex = new RegExp(
             '^' +
-            '[0-9a-f]{8}' +
-            '-' +
-            '[0-9a-f]{4}' +
-            '-' +
-            '[1-5][0-9a-f]{3}' +
-            '-' +
-            '[89ab][0-9a-f]{3}' +
-            '-' +
-            '[0-9a-f]{12}' +
-            '$',
+                '[0-9a-f]{8}' +
+                '-' +
+                '[0-9a-f]{4}' +
+                '-' +
+                '[1-5][0-9a-f]{3}' +
+                '-' +
+                '[89ab][0-9a-f]{3}' +
+                '-' +
+                '[0-9a-f]{12}' +
+                '$',
             'i',
         );
 
         for (let i = 0; i < 1000; i++) {
-            expect(regex.test(uuid())).to.be.true;
+            assert.equal(regex.test(uuid()), true);
         }
     });
 
@@ -58,7 +57,7 @@ describe('uuid()', function() {
             keyStore[uuid()] = 1;
         }
 
-        expect(Object.keys(keyStore).length).to.be.equal(steps);
+        assert.equal(Object.keys(keyStore).length, steps);
     });
 
     it('should generate 100,000 identifiers in less than a second', () => {
@@ -68,6 +67,6 @@ describe('uuid()', function() {
             uuid();
         }
 
-        expect(Date.now() - start).to.be.below(1000);
+        assert.ok(Date.now() - start < 1000);
     });
 });

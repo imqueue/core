@@ -55,9 +55,9 @@ interface ClusterState {
  *  Implements the possibility to scale queues horizontally between several
  * redis instances.
  */
-export class ClusteredRedisQueue implements IMessageQueue,
-    EventEmitter<EventMap> {
-
+export class ClusteredRedisQueue
+    implements IMessageQueue, EventEmitter<EventMap>
+{
     /**
      * Logger instance associated with this queue instance
      *
@@ -154,13 +154,14 @@ export class ClusteredRedisQueue implements IMessageQueue,
         this.logger = this.options.logger || console;
 
         if (!this.options.cluster && !this.options.clusterManagers?.length) {
-            throw new TypeError('ClusteredRedisQueue: cluster ' +
-                'configuration is missing!');
+            throw new TypeError(
+                'ClusteredRedisQueue: cluster ' + 'configuration is missing!',
+            );
         }
 
         this.mqOptions = { ...this.options };
 
-        const cluster = [...this.mqOptions.cluster || []];
+        const cluster = [...(this.mqOptions.cluster || [])];
 
         delete this.mqOptions.cluster;
 
@@ -172,11 +173,13 @@ export class ClusteredRedisQueue implements IMessageQueue,
             this.verbose('Initializing cluster managers...');
 
             for (const manager of this.options.clusterManagers) {
-                this.initializedClusters.push(manager.init({
-                    add: this.addServer.bind(this),
-                    remove: this.removeServer.bind(this),
-                    find: this.findServer.bind(this),
-                }));
+                this.initializedClusters.push(
+                    manager.init({
+                        add: this.addServer.bind(this),
+                        remove: this.removeServer.bind(this),
+                        find: this.findServer.bind(this),
+                    }),
+                );
             }
         }
     }
@@ -190,8 +193,10 @@ export class ClusteredRedisQueue implements IMessageQueue,
     public async start(): Promise<ClusteredRedisQueue> {
         this.state.started = true;
 
-        return await this.batch('start',
-            'Starting clustered redis message queue...');
+        return await this.batch(
+            'start',
+            'Starting clustered redis message queue...',
+        );
     }
 
     /**
@@ -203,8 +208,10 @@ export class ClusteredRedisQueue implements IMessageQueue,
     public async stop(): Promise<ClusteredRedisQueue> {
         this.state.started = false;
 
-        return await this.batch('stop',
-            'Stopping clustered redis message queue...');
+        return await this.batch(
+            'stop',
+            'Stopping clustered redis message queue...',
+        );
     }
 
     /**
@@ -226,17 +233,13 @@ export class ClusteredRedisQueue implements IMessageQueue,
         errorHandler?: (err: Error) => void,
     ): Promise<string> {
         if (!this.imqLength) {
-            return await new Promise(resolve => this.clusterEmitter.once(
-                'initialized',
-                async ({ imq }) => {
-                    resolve(await imq.send(
-                        toQueue,
-                        message,
-                        delay,
-                        errorHandler,
-                    ));
-                },
-            ));
+            return await new Promise(resolve =>
+                this.clusterEmitter.once('initialized', async ({ imq }) => {
+                    resolve(
+                        await imq.send(toQueue, message, delay, errorHandler),
+                    );
+                }),
+            );
         }
 
         if (this.currentQueue >= this.imqLength) {
@@ -261,8 +264,10 @@ export class ClusteredRedisQueue implements IMessageQueue,
     public async destroy(): Promise<void> {
         this.state.started = false;
 
-        await this.batch('destroy',
-            'Destroying clustered redis message queue...');
+        await this.batch(
+            'destroy',
+            'Destroying clustered redis message queue...',
+        );
 
         if (!this.options.clusterManagers?.length) {
             return;
@@ -283,8 +288,10 @@ export class ClusteredRedisQueue implements IMessageQueue,
      * @returns {Promise<ClusteredRedisQueue>}
      */
     public async clear(): Promise<ClusteredRedisQueue> {
-        return await this.batch('clear',
-            'Clearing clustered redis message queue...');
+        return await this.batch(
+            'clear',
+            'Clearing clustered redis message queue...',
+        );
     }
 
     public async queueLength(): Promise<number> {
@@ -301,9 +308,9 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
     private verbose(message: string): void {
         if (this.options.verbose) {
-            this.logger.info(`[IMQ-CORE][ClusteredRedisQueue][${ 
-                this.name
-            }]: ${ message }`);
+            this.logger.info(
+                `[IMQ-CORE][ClusteredRedisQueue][${this.name}]: ${message}`,
+            );
         }
     }
 
@@ -329,136 +336,134 @@ export class ClusteredRedisQueue implements IMessageQueue,
         return this;
     }
 
-    /* tslint:disable */
     // EventEmitter interface
     // istanbul ignore next
-    public on(...args: any[]) {
+    /**
+     * Applies the named EventEmitter method to every underlying emitter,
+     * forwarding the call across the whole cluster. Dispatch is reflective
+     * (method chosen by name), so a single contained cast bridges the dynamic
+     * call while the public method signatures below stay fully typed.
+     *
+     * @param {K} method
+     * @param {any[]} args
+     * @return {unknown[]}
+     */
+    private applyToEmitters<K extends keyof EventEmitter>(
+        method: K,
+        args: any[],
+    ): unknown[] {
+        const results: unknown[] = [];
+
         for (const imq of this.eventEmitters()) {
-            imq.on.apply(imq, args);
+            const fn = imq[method] as unknown as (...a: any[]) => unknown;
+
+            results.push(fn.apply(imq, args));
         }
+
+        return results;
+    }
+
+    // istanbul ignore next
+    public on(...args: any[]): this {
+        this.applyToEmitters('on', args);
 
         return this;
     }
 
     // istanbul ignore next
     // noinspection JSUnusedGlobalSymbols
-    public off(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.off.apply(imq, args);
-        }
+    public off(...args: any[]): this {
+        this.applyToEmitters('off', args);
 
         return this;
     }
 
     // istanbul ignore next
-    public once(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.once.apply(imq, args);
-        }
+    public once(...args: any[]): this {
+        this.applyToEmitters('once', args);
 
         return this;
     }
 
     // istanbul ignore next
-    public addListener(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.addListener.apply(imq, args);
-        }
+    public addListener(...args: any[]): this {
+        this.applyToEmitters('addListener', args);
 
         return this;
     }
 
     // istanbul ignore next
-    public removeListener(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.removeListener.apply(imq, args);
-        }
+    public removeListener(...args: any[]): this {
+        this.applyToEmitters('removeListener', args);
 
         return this;
     }
 
     // istanbul ignore next
-    public removeAllListeners(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.removeAllListeners.apply(imq, args);
-        }
+    public removeAllListeners(...args: any[]): this {
+        this.applyToEmitters('removeAllListeners', args);
 
         return this;
     }
 
     // istanbul ignore next
-    public prependListener(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.prependListener.apply(imq, args);
-        }
+    public prependListener(...args: any[]): this {
+        this.applyToEmitters('prependListener', args);
 
         return this;
     }
 
     // istanbul ignore next
-    public prependOnceListener(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.prependOnceListener.apply(imq, args);
-        }
+    public prependOnceListener(...args: any[]): this {
+        this.applyToEmitters('prependOnceListener', args);
 
         return this;
     }
 
     // istanbul ignore next
-    public setMaxListeners(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.setMaxListeners.apply(imq, args);
-        }
+    public setMaxListeners(...args: any[]): this {
+        this.applyToEmitters('setMaxListeners', args);
 
         return this;
     }
 
     // istanbul ignore next
-    public listeners(...args: any[]) {
-        let listeners: any[] = [];
-
-        for (const imq of this.eventEmitters()) {
-            listeners = listeners.concat(imq.listeners.apply(imq, args));
-        }
-
-        return listeners;
+    // Aggregates listeners across every underlying emitter, so the result is
+    // an untyped union rather than Node's per-emitter conditional listener type.
+    public listeners(...args: any[]): any[] {
+        return this.applyToEmitters('listeners', args).flat();
     }
 
     // istanbul ignore next
-    public rawListeners(...args: any[]) {
-        let rawListeners: any[] = [];
-
-        for (const imq of this.eventEmitters()) {
-            rawListeners = rawListeners.concat(
-                imq.rawListeners.apply(imq, args),
-            );
-        }
-
-        return rawListeners;
+    public rawListeners(...args: any[]): any[] {
+        return this.applyToEmitters('rawListeners', args).flat();
     }
 
     // istanbul ignore next
-    public getMaxListeners() {
+    public getMaxListeners(): number {
         return this.templateEmitter.getMaxListeners();
     }
 
     // istanbul ignore next
-    public emit(...args: any[]) {
-        for (const imq of this.eventEmitters()) {
-            imq.emit.apply(imq, args);
-        }
+    public emit(...args: any[]): boolean {
+        this.applyToEmitters('emit', args);
 
         return true;
     }
 
     // istanbul ignore next
-    public eventNames(...args: any[]) {
-        return this.templateEmitter.eventNames.apply(this.imqs[0], args);
+    public eventNames(): (keyof EventMap)[] {
+        const source = this.imqs[0] || this.templateEmitter;
+
+        return source.eventNames() as (keyof EventMap)[];
     }
 
     // istanbul ignore next
-    public listenerCount(...args: any[]) {
-        return this.templateEmitter.listenerCount.apply(this.imqs[0], args);
+    public listenerCount(...args: any[]): number {
+        const source = this.imqs[0] || this.templateEmitter;
+        const fn = source.listenerCount as (...a: any[]) => number;
+
+        return fn.apply(source, args);
     }
 
     // istanbul ignore next
@@ -508,7 +513,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
      * @returns {void}
      */
     protected addServer(server: IServerInput): ClusterServer {
-        this.verbose(`Adding new server: ${ JSON.stringify(server) }`);
+        this.verbose(`Adding new server: ${JSON.stringify(server)}`);
 
         return this.addServerWithQueueInitializing(server, true);
     }
@@ -520,7 +525,7 @@ export class ClusteredRedisQueue implements IMessageQueue,
      * @returns {void}
      */
     protected removeServer(server: IServerInput): void {
-        this.verbose(`Removing the server: ${ JSON.stringify(server) }`);
+        this.verbose(`Removing the server: ${JSON.stringify(server)}`);
 
         const remove = this.findServer(server);
 
@@ -532,17 +537,14 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
         if (imqToRemove) {
             this.imqs = this.imqs.filter(
-                imq => imqToRemove.redisKey !== imq.redisKey
+                imq => imqToRemove.redisKey !== imq.redisKey,
             );
             imqToRemove.destroy().catch();
         }
 
         this.imqLength = this.imqs.length;
         this.servers = this.servers.filter(
-            existing => !ClusteredRedisQueue.matchServers(
-                existing,
-                server,
-            ),
+            existing => !ClusteredRedisQueue.matchServers(existing, server),
         );
         this.clusterEmitter.emit('remove', {
             server: remove,
@@ -594,12 +596,12 @@ export class ClusteredRedisQueue implements IMessageQueue,
 
     private async initializeQueue(imq: RedisQueue): Promise<void> {
         copyEventEmitter(this.templateEmitter, imq);
-        this.verbose(`Initializing queue with state: ${ 
-            JSON.stringify(this.state) 
-        }`);
+        this.verbose(
+            `Initializing queue with state: ${JSON.stringify(this.state)}`,
+        );
 
         if (this.state.started) {
-           await imq.start();
+            await imq.start();
         }
 
         if (this.state.subscription) {
@@ -611,11 +613,8 @@ export class ClusteredRedisQueue implements IMessageQueue,
     }
 
     private findServer(server: IServerInput): ClusterServer | undefined {
-        return this.servers.find(
-            existing => ClusteredRedisQueue.matchServers(
-                existing,
-                server,
-            ),
+        return this.servers.find(existing =>
+            ClusteredRedisQueue.matchServers(existing, server),
         );
     }
 
@@ -623,8 +622,8 @@ export class ClusteredRedisQueue implements IMessageQueue,
         source: IServerInput,
         target: IServerInput,
     ): boolean {
-        const sameAddress = target.host === source.host
-            && target.port === source.port;
+        const sameAddress =
+            target.host === source.host && target.port === source.port;
 
         if (!target.id && !source.id) {
             return sameAddress;

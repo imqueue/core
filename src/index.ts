@@ -40,7 +40,6 @@ export function buildOptions<T>(
 export * from './IMQMode';
 export * from './profile';
 export * from './uuid';
-export * from './promisify';
 export * from './redis';
 export * from './IMessageQueue';
 export * from './RedisQueue';

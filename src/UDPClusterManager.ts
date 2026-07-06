@@ -87,15 +87,15 @@ export class UDPClusterManager extends ClusterManager {
     private static workers: Record<string, Worker> = {};
     public static sockets: Record<string, any> = {};
     private readonly options: UDPClusterManagerOptions;
-    private workerKey: string;
-    private worker: Worker;
+    private workerKey!: string;
+    private worker!: Worker;
 
     constructor(options?: Partial<UDPClusterManagerOptions>) {
         super();
 
         this.options = {
             ...DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS,
-            ...options || {},
+            ...options,
         };
 
         this.startWorkerListener();
@@ -108,16 +108,18 @@ export class UDPClusterManager extends ClusterManager {
     private static async free(): Promise<void> {
         const workerKeys = Object.keys(UDPClusterManager.workers);
 
-        await Promise.all(workerKeys.map(
-            workerKey => UDPClusterManager.destroyWorker(
-                workerKey,
-                UDPClusterManager.workers[workerKey],
-            )),
+        await Promise.all(
+            workerKeys.map(workerKey =>
+                UDPClusterManager.destroyWorker(
+                    workerKey,
+                    UDPClusterManager.workers[workerKey],
+                ),
+            ),
         );
     }
 
     private startWorkerListener(): void {
-        this.workerKey = `${ this.options.address }:${ this.options.port }`;
+        this.workerKey = `${this.options.address}:${this.options.port}`;
 
         if (UDPClusterManager.workers[this.workerKey]) {
             this.worker = UDPClusterManager.workers[this.workerKey];
@@ -129,7 +131,7 @@ export class UDPClusterManager extends ClusterManager {
             workerData: this.options,
         });
         this.worker.on('message', message => {
-            const [className, method] = message.type?.split(':');
+            const [className, method] = (message.type ?? '').split(':');
 
             if (className !== 'cluster') {
                 return;
@@ -138,16 +140,21 @@ export class UDPClusterManager extends ClusterManager {
             return this.anyCluster(cluster => {
                 if (method === 'add') {
                     try {
-                        const existing = typeof (cluster as any).find === 'function'
-                            ? (cluster as any).find(message.server, true)
-                            : undefined;
+                        const existing =
+                            typeof (cluster as any).find === 'function'
+                                ? (cluster as any).find(message.server, true)
+                                : undefined;
                         if (existing) {
                             return;
                         }
-                    } catch {/* ignore */}
+                    } catch {
+                        /* ignore */
+                    }
                 }
 
-                const clusterMethod = (cluster as any)[method as keyof ICluster];
+                const clusterMethod = (cluster as any)[
+                    method as keyof ICluster
+                ];
 
                 if (!clusterMethod) {
                     return;
@@ -164,29 +171,31 @@ export class UDPClusterManager extends ClusterManager {
         await UDPClusterManager.destroyWorker(this.workerKey, this.worker);
     }
 
-    public static async destroySocket(key: string, socket?: any): Promise<void> {
+    public static async destroySocket(
+        key: string,
+        socket?: any,
+    ): Promise<void> {
         if (!socket) {
             return;
         }
 
-        try {
-            if (typeof socket.removeAllListeners === 'function') {
-                socket.removeAllListeners();
-            }
-        } catch (e) {
-            throw e;
+        if (typeof socket.removeAllListeners === 'function') {
+            socket.removeAllListeners();
         }
 
         if (typeof socket.close !== 'function') {
             return;
         }
 
-        await new Promise<void>((resolve) => {
+        await new Promise<void>(resolve => {
             socket.close(() => {
                 if (typeof socket.unref === 'function') {
                     socket.unref();
                 }
-                if (UDPClusterManager.sockets && key in UDPClusterManager.sockets) {
+                if (
+                    UDPClusterManager.sockets &&
+                    key in UDPClusterManager.sockets
+                ) {
                     delete UDPClusterManager.sockets[key];
                 }
                 resolve();
@@ -209,7 +218,7 @@ export class UDPClusterManager extends ClusterManager {
             }, 5000);
 
             worker.postMessage({ type: 'stop' });
-            worker.once('message', (message) => {
+            worker.once('message', message => {
                 if (message.type === 'stopped') {
                     clearTimeout(timeout);
                     worker.terminate();

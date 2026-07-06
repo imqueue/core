@@ -27,7 +27,7 @@
  *
  * @param {string} name
  * @param {number} defaultValue
- * @return {number}
+ * @returns {number}
  */
 export function envInt(name: string, defaultValue: number): number {
     const value = Number(process.env[name] || defaultValue);

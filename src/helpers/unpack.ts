@@ -24,11 +24,13 @@
 import { gunzipSync } from 'zlib';
 
 /**
- * Decompress binary string and returns plain data
+ * Decompresses a binary string and returns the decompressed data
  *
- * @param {string} data
- * @returns {any}
+ * @param {string} data - compressed data string
+ * @returns {unknown} - decompressed data
  */
-export function unpack(data: string): any {
-    return JSON.parse(gunzipSync(Buffer.from(data, 'binary')).toString());
+export function unpack(data: string): unknown {
+    return JSON.parse(
+        gunzipSync(Buffer.from(data, 'binary')).toString(),
+    ) as unknown;
 }

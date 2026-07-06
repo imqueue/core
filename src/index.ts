@@ -20,9 +20,9 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 export * from './helpers';
-export * from './IMQMode';
 export * from './profile';
 export * from './redis';
+export * from './IMQMode';
 export * from './IMessageQueue';
 export * from './RedisQueue';
 export * from './ClusteredRedisQueue';

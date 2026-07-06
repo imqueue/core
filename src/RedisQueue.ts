@@ -63,7 +63,7 @@ const SCAN_COUNT = '1000';
  * ioredis retry strategy that disables the built-in reconnection — this
  * queue performs its own capped-backoff reconnection instead.
  *
- * @return {null}
+ * @returns {null}
  */
 function noRetryStrategy(): null {
     return null;
@@ -73,7 +73,7 @@ function noRetryStrategy(): null {
  * Resolves after the given number of milliseconds.
  *
  * @param {number} ms
- * @return {Promise<void>}
+ * @returns {Promise<void>}
  */
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -204,9 +204,9 @@ export class RedisQueue
      * Subscription handlers registered through subscribe(). Kept to be
      * able to restore the subscription after a connection replacement.
      *
-     * @type {Array<(data: JsonObject) => any>}
+     * @type {Array<(data: JsonObject) => void>}
      */
-    private subscriptionHandlers: Array<(data: JsonObject) => any> = [];
+    private subscriptionHandlers: Array<(data: JsonObject) => void> = [];
 
     /**
      * Will store check interval reference
@@ -276,20 +276,20 @@ export class RedisQueue
     };
 
     /**
-     * Serializes given data object into string
+     * Serializes a given data object into string
      *
-     * @param {any} data
+     * @param {unknown} data
      * @returns {string}
      */
-    private readonly pack: (data: any) => string;
+    private readonly pack: (data: unknown) => string;
 
     /**
-     * Deserialize string data into object
+     * Deserialize string data into an object
      *
      * @param {string} data
-     * @returns {any}
+     * @returns {unknown}
      */
-    private readonly unpack: (data: string) => any;
+    private readonly unpack: (data: string) => unknown;
 
     /**
      * @constructor
@@ -338,12 +338,12 @@ export class RedisQueue
      * data read handler
      *
      * @param {string} channel
-     * @param {(data: JsonObject) => any} handler
-     * @return {Promise<void>}
+     * @param {(data: JsonObject) => void} handler
+     * @returns {Promise<void>}
      */
     public async subscribe(
         channel: string,
-        handler: (data: JsonObject) => any,
+        handler: (data: JsonObject) => void,
     ): Promise<void> {
         if (!channel) {
             throw new TypeError(
@@ -377,11 +377,11 @@ export class RedisQueue
      *
      * @access private
      * @param {IRedisClient} chan
-     * @param {(data: JsonObject) => any} handler
+     * @param {(data: JsonObject) => void} handler
      */
     private attachSubscriptionHandler(
         chan: IRedisClient,
-        handler: (data: JsonObject) => any,
+        handler: (data: JsonObject) => void,
     ): void {
         const fcn = `${this.options.prefix}:${this.subscriptionName}`;
 
@@ -399,12 +399,12 @@ export class RedisQueue
     }
 
     /**
-     * Restores subscription state on a freshly created subscription
-     * connection. Used after a connection replacement on reconnect,
+     * Restores the subscription state on a freshly created subscription
+     * connection. Used after a connection replacement on reconnection,
      * otherwise the new connection would silently stay unsubscribed.
      *
      * @access private
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private async restoreSubscription(): Promise<void> {
         const chan = this.subscription;
@@ -431,7 +431,7 @@ export class RedisQueue
     /**
      * Closes subscription channel
      *
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     public async unsubscribe(): Promise<void> {
         if (this.subscription) {
@@ -566,7 +566,7 @@ export class RedisQueue
      * the process, forcing exit after IMQ_SHUTDOWN_TIMEOUT at the latest.
      *
      * @access private
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private static async freeAndExit(): Promise<void> {
         let exitCode = 0;
@@ -592,7 +592,7 @@ export class RedisQueue
     /**
      * Starts a periodic check ensuring a watcher connection exists across
      * the queue network, re-electing an owner when the previous one died.
-     * Also serves as a polling fallback moving due delayed messages when
+     * Also serves as a polling fallback moving due to delayed messages when
      * keyspace notifications are unavailable.
      *
      * @access private
@@ -611,11 +611,11 @@ export class RedisQueue
 
     /**
      * A single watcher-existence check tick: re-elects a watcher owner when
-     * none exists and moves due delayed messages as a keyspace-notification
+     * none exists and moves due to delayed messages as a keyspace-notification
      * fallback. Errors are contained so the interval never crashes.
      *
      * @access private
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private async runWatcherCheck(): Promise<void> {
         if (this.watcherCheckBusy || this.destroyed || !this.writer) {
@@ -730,7 +730,7 @@ export class RedisQueue
                 `${key}:delayed`,
                 Date.now() + delay,
                 packet,
-                (err: any) => {
+                (err?: Error | null) => {
                     if (err) {
                         onWriteError(err, 'ZADD');
 
@@ -744,7 +744,7 @@ export class RedisQueue
                             'PX',
                             delay,
                             'NX',
-                            (err: any) => {
+                            (err?: Error | null) => {
                                 if (err) {
                                     onWriteError(err, 'SET');
 
@@ -752,22 +752,24 @@ export class RedisQueue
                                 }
                             },
                         )
-                        .catch((err: any) => onWriteError(err, 'SET'));
+                        .catch((err: unknown) => onWriteError(err, 'SET'));
                 },
             );
         } else {
-            const result: any = this.writer.lpush(key, packet, (err: any) => {
-                if (err) {
-                    onWriteError(err, 'LPUSH');
-
-                    return;
-                }
-            });
+            const result = this.writer.lpush(
+                key,
+                packet,
+                (err?: Error | null) => {
+                    if (err) {
+                        onWriteError(err, 'LPUSH');
+                    }
+                },
+            );
 
             // guard against unhandled rejections from promise-returning
             // client implementations in fire-and-forget mode
             if (result && typeof result.catch === 'function') {
-                result.catch((err: any) => onWriteError(err, 'LPUSH'));
+                result.catch((err: unknown) => onWriteError(err, 'LPUSH'));
             }
         }
 
@@ -800,7 +802,7 @@ export class RedisQueue
     /**
      * Gracefully destroys this queue handle. Does not remove queue data
      * from redis unless clearData is explicitly set to true, so that
-     * destroying one handle (e.g. on scale-down) never wipes messages
+     * destroying one handle (e.g., on scale-down) never wipes messages
      * still pending for other producers/consumers.
      *
      * @param {boolean} [clearData] - when true, also clears queue data
@@ -885,7 +887,7 @@ export class RedisQueue
     /**
      * Returns true if publisher mode is enabled on this queue, false otherwise.
      *
-     * @return {boolean}
+     * @returns {boolean}
      */
     public isPublisher(): boolean {
         return this.mode === IMQMode.BOTH || this.mode === IMQMode.PUBLISHER;
@@ -894,10 +896,23 @@ export class RedisQueue
     /**
      * Returns true if worker mode is enabled on this queue, false otherwise.
      *
-     * @return {boolean}
+     * @returns {boolean}
      */
     public isWorker(): boolean {
         return this.mode === IMQMode.BOTH || this.mode === IMQMode.WORKER;
+    }
+
+    /**
+     * Returns false only when this queue is known to be unable to accept
+     * writes right now — i.e., it has a writer connection currently
+     * in a non-ready (reconnecting/closed) state. A queue that has not yet
+     * connected is considered available, since a sending lazily connects it.
+     * Used for health-aware routing in the clustered queue.
+     *
+     * @returns {boolean}
+     */
+    public get available(): boolean {
+        return !this.writer || this.writer.status === 'ready';
     }
 
     /**
@@ -942,7 +957,7 @@ export class RedisQueue
      *
      * @access private
      * @param {RedisConnectionChannel} channel
-     * @return {IRedisClient | undefined}
+     * @returns {IRedisClient | undefined}
      */
     private connectionOf(
         channel: RedisConnectionChannel,
@@ -1209,12 +1224,12 @@ export class RedisQueue
 
     /**
      * Performs a single reconnection attempt for the given channel,
-     * rescheduling itself on failure. Errors are handled internally so the
+     * rescheduling itself on failure. Errors are handled internally, so the
      * scheduled timer never produces an unhandled rejection.
      *
      * @access private
      * @param {RedisConnectionChannel} channel
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private async reconnectNow(channel: RedisConnectionChannel): Promise<void> {
         if (this.destroyed) {
@@ -1266,7 +1281,7 @@ export class RedisQueue
      * @param {string} contextName
      * @param {string} prefix
      * @param {RedisConnectionChannel} name
-     * @return {string}
+     * @returns {string}
      */
     private getChannelName(
         contextName: string,
@@ -1283,7 +1298,7 @@ export class RedisQueue
      *
      * @access private
      * @param {RedisConnectionChannel} channel
-     * @return {(err: Error) => void}
+     * @returns {(err: Error) => void}
      */
     private onErrorHandler(
         channel: RedisConnectionChannel,
@@ -1317,7 +1332,7 @@ export class RedisQueue
      *
      * @access private
      * @param {RedisConnectionChannel} channel
-     * @return {() => void}
+     * @returns {() => void}
      */
     private onCloseHandler(channel: RedisConnectionChannel): () => void {
         this.verbose(`Redis ${channel} is closing...`);
@@ -1343,11 +1358,10 @@ export class RedisQueue
      * Processes given redis-queue message
      *
      * @access private
-     * @param {[any, any]} msg
+     * @param {[string, string]} msg
      * @returns {RedisQueue}
      */
-    private process(msg: [any, any]): RedisQueue {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    private process(msg: [string, string]): RedisQueue {
         const [queue, data] = msg;
 
         if (!queue || queue !== this.key) {
@@ -1355,9 +1369,8 @@ export class RedisQueue
         }
 
         try {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment,@typescript-eslint/no-unsafe-argument
-            const { id, message, from } = this.unpack(data);
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+            const { id, message, from } = this.unpack(data) as IMessage;
+
             this.emit('message', message, id, from);
         } catch (err) {
             this.emitError(
@@ -1382,11 +1395,9 @@ export class RedisQueue
         }
 
         const rx = new RegExp(
-            `\\bname=${escapeRegExp(
-                this.options.prefix || '',
-            )}:[\\S]+?:watcher:`,
+            `\\bname=${escapeRegExp(this.options.prefix || '')}:\\S+?:watcher:`,
         );
-        const list = <string>await this.writer.client('LIST');
+        const list = (await this.writer.client('LIST')) as string;
 
         if (!list || !list.split) {
             return 0;
@@ -1418,7 +1429,7 @@ export class RedisQueue
                 );
             } catch (err) {
                 // the script may not be cached on the redis host (fresh
-                // host, restart, non-owner instance) - fall back to EVAL
+                // host, restart, non-owner instance) - fall back to EVAL,
                 // which caches it as a side effect
                 if (err instanceof Error && /NOSCRIPT/.test(err.message)) {
                     await this.writer.eval(
@@ -1445,7 +1456,7 @@ export class RedisQueue
      * Watch routine
      *
      * @access private
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private async processWatch(): Promise<void> {
         const now = Date.now();
@@ -1453,7 +1464,7 @@ export class RedisQueue
 
         while (true) {
             try {
-                const data = await this.writer.scan(
+                const [next, keys] = await this.writer.scan(
                     cursor,
                     'MATCH',
                     `${this.options.prefix}:*:worker:*`,
@@ -1461,9 +1472,7 @@ export class RedisQueue
                     SCAN_COUNT,
                 );
 
-                cursor = data.shift() as string;
-
-                const keys = (data.shift() as string[]) || [];
+                cursor = next;
 
                 await this.processKeys(keys, now);
 
@@ -1489,7 +1498,7 @@ export class RedisQueue
      * @access private
      * @param {string[]} keys
      * @param {number} now
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private async processKeys(keys: string[], now: number): Promise<void> {
         if (!keys.length) {
@@ -1527,7 +1536,7 @@ export class RedisQueue
      *
      * @access private
      * @param {...any[]} args
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private async onWatchMessage(...args: any[]): Promise<void> {
         try {
@@ -1608,7 +1617,7 @@ export class RedisQueue
      * workers (when safe delivery is on) and prunes orphaned keys.
      *
      * @access private
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private async runSafeCheck(): Promise<void> {
         if (!this.writer) {
@@ -1665,8 +1674,8 @@ export class RedisQueue
                         a.indexOf(name) === i,
                 );
             // clients seen connected during the previous sweep get one
-            // sweep of grace: a client that is merely reconnecting (the
-            // backoff can reach tens of seconds) must not have its keys
+            // sweep of grace: a client merely reconnecting (the
+            // backoff can reach tens of seconds) must not have any keys
             // deleted from under it
             const knownKeys = connectedKeys.concat(
                 this.lastConnectedKeys.filter(
@@ -1686,7 +1695,7 @@ export class RedisQueue
             );
 
             while (true) {
-                const data = await this.writer.scan(
+                const [next, keys] = await this.writer.scan(
                     cursor,
                     'MATCH',
                     `${this.options.prefix}:${
@@ -1696,9 +1705,7 @@ export class RedisQueue
                     SCAN_COUNT,
                 );
 
-                cursor = data.shift() as string;
-
-                const keys = (data.shift() as string[]) || [];
+                cursor = next;
 
                 keysToRemove.push(
                     ...keys.filter(
@@ -1966,7 +1973,7 @@ export class RedisQueue
      * ownership. Used to resolve a possible watcher deadlock.
      *
      * @access private
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     private async resolveWatchLock(): Promise<void> {
         const noWatcher = !(await this.watcherCount());

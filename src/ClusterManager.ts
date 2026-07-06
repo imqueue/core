@@ -40,9 +40,11 @@ export abstract class ClusterManager {
     protected constructor() {}
 
     public init(cluster: ICluster): InitializedCluster {
-        const initializedCluster = Object.assign(cluster, {
+        // build a new object rather than mutating the caller's cluster
+        const initializedCluster: InitializedCluster = {
+            ...cluster,
             id: randomUUID(),
-        }) as InitializedCluster;
+        };
 
         this.clusters.push(initializedCluster);
 

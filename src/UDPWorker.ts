@@ -125,7 +125,7 @@ class UDPWorker {
 
         this.servers.set(key, stamp);
 
-        const t: any = setTimeout(
+        const timer: NodeJS.Timeout = setTimeout(
             () =>
                 setImmediate(() => {
                     if (this.servers.get(key) === stamp) {
@@ -134,14 +134,9 @@ class UDPWorker {
                 }),
             effectiveTimeout,
         );
-        // Avoid keeping the event loop alive due to pending timers
-        try {
-            if (t && typeof t.unref === 'function') {
-                t.unref();
-            }
-        } catch {
-            /* ignore */
-        }
+
+        // a pending liveness timer must not keep the worker alive on its own
+        timer.unref();
     }
 
     private processMessage(message: Message): void {
@@ -218,13 +213,15 @@ class UDPWorker {
         this.messagePort.postMessage({ type: 'stopped' });
     }
 
-    private cleanup(): void {
+    // arrow field so the bound reference can be passed to process signal
+    // handlers without losing `this`
+    private readonly cleanup = (): void => {
         this.servers.clear();
 
         if (this.socket) {
             this.socket.removeAllListeners();
         }
-    }
+    };
 }
 
 if (!isMainThread && parentPort) {

@@ -40,19 +40,19 @@ export interface ProfileDecoratorOptions {
      */
     enableDebugArgs?: boolean;
     /**
-     * Defines log/level for logger
-     * By default is log
+     * Defines log/level for logger,
+     * By default, is a log
      */
     logLevel?: LogLevel;
 }
 
 /**
- * Checks if the log level is set to the proper value or returns the default one
+ * Validates a log level value or returns the default
  *
- * @param {*} level
- * @return {LogLevel}
+ * @param {unknown} level - the level to validate
+ * @returns {LogLevel} - validated log level or INFO if invalid
  */
-export function verifyLogLevel(level: any): LogLevel {
+export function verifyLogLevel(level: unknown): LogLevel {
     switch (level) {
         case LogLevel.LOG:
         case LogLevel.INFO:
@@ -73,27 +73,25 @@ const DEFAULT_OPTIONS: ProfileDecoratorOptions = {
 export type AllowedTimeFormat = 'microseconds' | 'milliseconds' | 'seconds';
 
 /**
- * Environment variable IMQ_LOG_TIME=[1, 0] - enables/disables profiled
- * timings logging
+ * Environment variable IMQ_LOG_TIME=[1, 0]. Enable or disable profiled
+ * timing logging.
  *
  * @type {boolean}
  */
 export const IMQ_LOG_TIME: boolean = !!+(process.env.IMQ_LOG_TIME || 0);
 
 /**
- * Environment variable IMQ_LOG_ARGS=[1, 0] - enables/disables profiled
- * call arguments to be logged
+ * Environment variable IMQ_LOG_ARGS=[1, 0]. Enable or disable logging of
+ * profiled call arguments.
  *
  * @type {boolean}
  */
 export const IMQ_LOG_ARGS: boolean = !!+(process.env.IMQ_LOG_ARGS || 0);
 
 /**
- * Environment variable IMQ_LOG_TIME_FORMAT=[
- *   'microseconds',
- *   'milliseconds',
- *   'seconds'
- * ]. Specifies profiled time logging format, by default is 'microseconds'
+ * Environment variable IMQ_LOG_TIME_FORMAT. Specifies the format for profiled
+ * time logging. Values: 'microseconds', 'milliseconds', 'seconds'.
+ * Default: 'microseconds'
  *
  * @type {AllowedTimeFormat | string}
  */
@@ -102,11 +100,11 @@ export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
 
 export interface DebugInfoOptions {
     /**
-     * Turns on/off time debugging
+     * Enable or disable execution time debugging
      */
     debugTime: boolean;
     /**
-     * Turns on/off args debugging
+     * Enable or disable call arguments debugging
      */
     debugArgs: boolean;
     /**
@@ -116,19 +114,19 @@ export interface DebugInfoOptions {
     /**
      * Call arguments
      */
-    args: any[];
+    args: unknown[];
     /**
      * Method name
      */
     methodName: string;
     /**
-     * Execution start timestamp
+     * Execution start timestamp (from process.hrtime.bigint or milliseconds)
      */
-    start: any;
+    start: bigint | number;
     /**
-     * Logger implementation
+     * Logger implementation (absent when the target carries no logger)
      */
-    logger: ILogger;
+    logger?: ILogger;
     /**
      * Log level to use for the call
      */
@@ -136,16 +134,9 @@ export interface DebugInfoOptions {
 }
 
 /**
- * Prints debug information
+ * Logs debug information about a function call
  *
- * @param {boolean} debugTime
- * @param {boolean} debugArgs
- * @param {string} className
- * @param {any[]} args
- * @param {string} methodName
- * @param {number} start
- * @param {ILogger} logger
- * @param {LogLevel} logLevel
+ * @param {DebugInfoOptions} options - debug information options
  */
 export function logDebugInfo({
     debugTime,
@@ -185,17 +176,17 @@ export function logDebugInfo({
 
     if (debugArgs) {
         let argStr: string = '';
-        const cache: any[] = [];
+        const cache: unknown[] = [];
 
         try {
             argStr = JSON.stringify(
                 args,
-                (key: string, value: any) => {
+                (_key: string, value: unknown) => {
                     if (typeof value === 'object' && value !== null) {
                         if (~cache.indexOf(value)) {
                             try {
                                 return JSON.parse(JSON.stringify(value));
-                            } catch (error) {
+                            } catch {
                                 return;
                             }
                         }
@@ -208,13 +199,63 @@ export function logDebugInfo({
                 2,
             );
         } catch (err) {
-            logger.error(err);
+            logger?.error(err);
         }
 
         if (log) {
             log(`${className}.${methodName}() called with args: ${argStr}`);
         }
     }
+}
+
+/**
+ * Resolves the class name of a decorated call target — the class itself for
+ * a static call, or the instance's constructor for an instance call.
+ *
+ * @param {unknown} target
+ * @returns {string}
+ */
+function resolveClassName(target: unknown): string {
+    if (typeof target === 'function') {
+        return target.name;
+    }
+
+    if (typeof target === 'object' && target !== null) {
+        return (
+            (target as { constructor?: { name?: string } }).constructor?.name ??
+            ''
+        );
+    }
+
+    return '';
+}
+
+/**
+ * Extracts the logger instance from a decorated target, if present.
+ *
+ * @param {unknown} target - the decorated target object
+ * @returns {ILogger | undefined} - the logger instance or undefined
+ */
+function resolveLogger(target: unknown): ILogger | undefined {
+    if (typeof target === 'object' && target !== null) {
+        return (target as { logger?: ILogger }).logger;
+    }
+
+    return undefined;
+}
+
+/**
+ * Type guard detecting a thenable (promise-like) value.
+ *
+ * @param {unknown} value
+ * @returns {value is PromiseLike<unknown>}
+ */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+    return (
+        (typeof value === 'object' || typeof value === 'function') &&
+        value !== null &&
+        typeof (value as { then?: unknown }).then === 'function'
+    );
 }
 
 /**
@@ -226,25 +267,25 @@ export function logDebugInfo({
  *
  * class MyClass {
  *
- *     @profile(true) // forced profiling
- *     public myMethod() {
- *         // ...
- *     }
+ @profile(true) // forced profiling
+ public myMethod() {
+ // ...
+ }
  *
- *     @profile() // profiling happened only depending on env DEBUG flag
- *     private innerMethod() {
- *         // ...
- *     }
+ @profile() // profiling happened only depending on env DEBUG flag
+ private innerMethod() {
+ // ...
+ }
  * }
  * ~~~
  *
- * @return {(
- *  target: any,
- *  methodName: (string),
- *  descriptor: TypedPropertyDescriptor<(...args: any[]) => any>
+ * @returns {(
+ target: any,
+ methodName: (string),
+ descriptor: TypedPropertyDescriptor<(...args: any[]) => any>
  * ) => void}
  */
-export function profile<This, Args extends any[], Return>(
+export function profile<This, Args extends unknown[], Return>(
     options?: ProfileDecoratorOptions,
 ): (
     original: (this: This, ...args: Args) => Return,
@@ -281,12 +322,8 @@ export function profile<This, Args extends any[], Return>(
                 return original.apply(this, args);
             }
 
-            const self = this as any;
-            const className = self
-                ? typeof self === 'function'
-                    ? self.name // static
-                    : self.constructor && self.constructor.name // dynamic
-                : '';
+            const className = resolveClassName(this);
+            const logger = resolveLogger(this);
             const start = process.hrtime.bigint();
             const result = original.apply(this, args);
             const debugOptions: DebugInfoOptions = {
@@ -295,22 +332,16 @@ export function profile<This, Args extends any[], Return>(
                 debugArgs,
                 debugTime,
                 logLevel: logLevel ? verifyLogLevel(logLevel) : IMQ_LOG_LEVEL,
-                logger: self && self.logger,
+                logger,
                 methodName,
                 start,
             };
 
-            if (result && typeof (result as any).then === 'function') {
-                // async call detected
-                (result as any)
-                    .then((res: any) => {
-                        logDebugInfo(debugOptions);
+            if (isThenable(result)) {
+                // async call detected — log once it settles either way
+                const logAfter = (): void => logDebugInfo(debugOptions);
 
-                        return res;
-                    })
-                    .catch(() => {
-                        logDebugInfo(debugOptions);
-                    });
+                result.then(logAfter, logAfter);
 
                 return result;
             }

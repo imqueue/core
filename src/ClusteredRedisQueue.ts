@@ -38,6 +38,12 @@ import {
 } from '.';
 import { InitializedCluster } from './ClusterManager';
 
+/**
+ * Default time (ms) send() waits for the first cluster server to become
+ * available before rejecting, when the cluster is still empty.
+ */
+const SEND_INIT_TIMEOUT = 30000;
+
 interface ClusterServer extends IMessageQueueConnection {
     imq?: RedisQueue;
 }
@@ -46,13 +52,13 @@ interface ClusterState {
     started: boolean;
     subscription: {
         channel: string;
-        handler: (data: JsonObject) => any;
+        handler: (data: JsonObject) => void;
     } | null;
 }
 
 /**
  * Class ClusteredRedisQueue
- *  Implements the possibility to scale queues horizontally between several
+ Implements the possibility to scale queues horizontally between several
  * redis instances.
  */
 export class ClusteredRedisQueue
@@ -102,6 +108,11 @@ export class ClusteredRedisQueue
     private currentQueue: number = 0;
 
     /**
+     * Time (ms) send() waits for the first server when the cluster is empty
+     */
+    private readonly sendInitTimeout: number = SEND_INIT_TIMEOUT;
+
+    /**
      * Total length of RedisQueue instances
      *
      * @type {number}
@@ -137,12 +148,12 @@ export class ClusteredRedisQueue
      * @constructor
      * @param {string} name
      * @param {Partial<IMQOptions>} options
-     * @param {IMQMode} [mode]
+     * @param {IMQMode} [_mode]
      */
     public constructor(
         public name: string,
         options?: Partial<IMQOptions>,
-        mode: IMQMode = IMQMode.BOTH,
+        _mode: IMQMode = IMQMode.BOTH,
     ) {
         this.templateEmitter = new EventEmitter();
         this.clusterEmitter = new EventEmitter();
@@ -212,15 +223,15 @@ export class ClusteredRedisQueue
     }
 
     /**
-     * Sends a message to given queue name with the given data.
+     * Sends a message to a given queue name with the given data.
      * Supposed to be an async function.
      *
-     * @param {string} toQueue - queue name to which message should be sent to
+     * @param {string} toQueue - queue name to which a message should be sent to
      * @param {JsonObject} message - message data
      * @param {number} [delay] - if specified, a message will be handled in the
-     *        target queue after a specified period of time in milliseconds.
+ target queue after a specified period of time in milliseconds.
      * @param {(err: Error) => void} [errorHandler] - callback called only when
-     *        internal error occurs during message send execution.
+ internal error occurs during message send execution.
      * @returns {Promise<string>} - message identifier
      */
     public async send(
@@ -230,25 +241,86 @@ export class ClusteredRedisQueue
         errorHandler?: (err: Error) => void,
     ): Promise<string> {
         if (!this.imqLength) {
-            return await new Promise(resolve =>
-                this.clusterEmitter.once('initialized', async ({ imq }) => {
-                    resolve(
-                        await imq.send(toQueue, message, delay, errorHandler),
-                    );
-                }),
+            return this.sendWhenInitialized(
+                toQueue,
+                message,
+                delay,
+                errorHandler,
             );
         }
 
-        if (this.currentQueue >= this.imqLength) {
-            this.currentQueue = 0;
+        const imq = this.selectQueue();
+
+        return imq.send(toQueue, message, delay, errorHandler);
+    }
+
+    /**
+     * Picks the next queue for a round-robin send, preferring an instance
+     * whose redis connection is currently ready so messages are not routed
+     * to a host that is known to be down. Falls back to the plain
+     * round-robin pick when no instance reports are ready.
+     *
+     * @access private
+     * @returns {RedisQueue}
+     */
+    private selectQueue(): RedisQueue {
+        const count = this.imqLength;
+        const start = this.currentQueue % count;
+
+        for (let offset = 0; offset < count; offset++) {
+            const index = (start + offset) % count;
+            const candidate = this.imqs[index];
+
+            if (candidate.available) {
+                this.currentQueue = index + 1;
+
+                return candidate;
+            }
         }
 
-        const imq: any = this.imqs[this.currentQueue];
-        const id = await imq.send(toQueue, message, delay, errorHandler);
+        this.currentQueue = start + 1;
 
-        this.currentQueue++;
+        return this.imqs[start];
+    }
 
-        return id;
+    /**
+     * Sends a message once the first cluster server becomes available.
+     * Rejects (rather than hanging forever) if none appears within the
+     * configured timeout and propagates any sent failure.
+     *
+     * @access private
+     * @returns {Promise<string>}
+     */
+    private sendWhenInitialized(
+        toQueue: string,
+        message: JsonObject,
+        delay?: number,
+        errorHandler?: (err: Error) => void,
+    ): Promise<string> {
+        return new Promise<string>((resolve, reject) => {
+            const onInitialized = ({ imq }: { imq: RedisQueue }): void => {
+                clearTimeout(timer);
+                imq.send(toQueue, message, delay, errorHandler).then(
+                    resolve,
+                    reject,
+                );
+            };
+
+            const timer = setTimeout(() => {
+                this.clusterEmitter.removeListener(
+                    'initialized',
+                    onInitialized,
+                );
+                reject(
+                    new Error(
+                        'ClusteredRedisQueue: no cluster server became ' +
+                            'available to send the message',
+                    ),
+                );
+            }, this.sendInitTimeout);
+
+            this.clusterEmitter.once('initialized', onInitialized);
+        });
     }
 
     /**
@@ -270,8 +342,8 @@ export class ClusteredRedisQueue
             return;
         }
 
-        for await (const manager of this.options.clusterManagers) {
-            for await (const cluster of this.initializedClusters) {
+        for (const manager of this.options.clusterManagers) {
+            for (const cluster of this.initializedClusters) {
                 await manager.remove(cluster);
             }
         }
@@ -316,7 +388,7 @@ export class ClusteredRedisQueue
      * @access private
      * @param {string} action
      * @param {string} message
-     * @return {Promise<this>}
+     * @returns {Promise<this>}
      */
     private async batch(
         action: 'start' | 'stop' | 'destroy' | 'clear',
@@ -344,9 +416,10 @@ export class ClusteredRedisQueue
      * (method chosen by name), so a single contained cast bridges the dynamic
      * call while the public method signatures below stay fully typed.
      *
-     * @param {K} method
-     * @param {any[]} args
-     * @return {unknown[]}
+     * @template K - EventEmitter method name
+     * @param {K} method - name of the EventEmitter method to invoke
+     * @param {any[]} args - arguments to pass to the method
+     * @returns {unknown[]} - results from each emitter call
      */
     private applyToEmitters<K extends keyof EventEmitter>(
         method: K,
@@ -462,7 +535,7 @@ export class ClusteredRedisQueue
 
     public async subscribe(
         channel: string,
-        handler: (data: JsonObject) => any,
+        handler: (data: JsonObject) => void,
     ): Promise<void> {
         this.state.subscription = { channel, handler };
 
@@ -520,7 +593,11 @@ export class ClusteredRedisQueue
             this.imqs = this.imqs.filter(
                 imq => imqToRemove.redisKey !== imq.redisKey,
             );
-            imqToRemove.destroy().catch();
+            imqToRemove
+                .destroy()
+                .catch((err: unknown) =>
+                    this.verbose(`Error destroying removed server: ${err}`),
+                );
         }
 
         this.imqLength = this.imqs.length;
@@ -552,6 +629,8 @@ export class ClusteredRedisQueue
         const opts = { ...this.mqOptions, ...newServer };
         const imq = new RedisQueue(this.name, opts);
 
+        copyEventEmitter(this.templateEmitter, imq);
+
         if (initializeQueue) {
             this.initializeQueue(imq).then(() => {
                 this.clusterEmitter.emit('initialized', {
@@ -576,7 +655,6 @@ export class ClusteredRedisQueue
     }
 
     private async initializeQueue(imq: RedisQueue): Promise<void> {
-        copyEventEmitter(this.templateEmitter, imq);
         this.verbose(
             `Initializing queue with state: ${JSON.stringify(this.state)}`,
         );

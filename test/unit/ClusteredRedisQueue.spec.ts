@@ -24,7 +24,7 @@
  */
 import { logger } from '../mocks';
 import { describe, it, afterEach, mock, Mock } from 'node:test';
-import * as assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { ClusteredRedisQueue, RedisQueue } from '../../src';
 import { ClusterManager } from '../../src/ClusterManager';
 

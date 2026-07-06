@@ -22,10 +22,22 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { ClusterManager, ICluster } from './ClusterManager';
+import { IServerInput } from './IMessageQueue';
 import { Worker } from 'worker_threads';
-import * as path from 'path';
+import { join } from 'path';
 
-process.setMaxListeners(10000);
+/** Shape of a message posted from the UDP worker thread */
+interface WorkerMessage {
+    type?: string;
+    server?: unknown;
+}
+
+/** Minimal socket surface destroySocket() interacts with */
+interface DisposableSocket {
+    removeAllListeners?: () => void;
+    close?: (callback?: () => void) => void;
+    unref?: () => void;
+}
 
 export interface UDPClusterManagerOptions {
     /**
@@ -44,7 +56,7 @@ export interface UDPClusterManagerOptions {
     address: string;
 
     /**
-     * Message queue limited broadcast address
+     * Message-queue-limited broadcast address
      *
      * @default "255.255.255.255"
      * @type {string}
@@ -85,7 +97,15 @@ export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS: UDPClusterManagerOptions = {
 
 export class UDPClusterManager extends ClusterManager {
     private static workers: Record<string, Worker> = {};
-    public static sockets: Record<string, any> = {};
+
+    /** Number of manager instances sharing each worker (by address:port) */
+    private static workerRefs: Record<string, number> = {};
+
+    public static sockets: Record<string, DisposableSocket> = {};
+
+    /** True once process-level signal handlers have been registered */
+    private static signalsBound: boolean = false;
+
     private readonly options: UDPClusterManagerOptions;
     private workerKey!: string;
     private worker!: Worker;
@@ -99,6 +119,22 @@ export class UDPClusterManager extends ClusterManager {
         };
 
         this.startWorkerListener();
+
+        UDPClusterManager.bindSignals();
+    }
+
+    /**
+     * Registers process-level shutdown handlers exactly once per process,
+     * so multiple manager instances do not accumulate duplicate listeners.
+     *
+     * @access private
+     */
+    private static bindSignals(): void {
+        if (UDPClusterManager.signalsBound) {
+            return;
+        }
+
+        UDPClusterManager.signalsBound = true;
 
         process.on('SIGTERM', UDPClusterManager.free);
         process.on('SIGINT', UDPClusterManager.free);
@@ -120,6 +156,8 @@ export class UDPClusterManager extends ClusterManager {
 
     private startWorkerListener(): void {
         this.workerKey = `${this.options.address}:${this.options.port}`;
+        UDPClusterManager.workerRefs[this.workerKey] =
+            (UDPClusterManager.workerRefs[this.workerKey] || 0) + 1;
 
         if (UDPClusterManager.workers[this.workerKey]) {
             this.worker = UDPClusterManager.workers[this.workerKey];
@@ -127,53 +165,71 @@ export class UDPClusterManager extends ClusterManager {
             return;
         }
 
-        this.worker = new Worker(path.join(__dirname, './UDPWorker.js'), {
+        this.worker = new Worker(join(__dirname, './UDPWorker.js'), {
             workerData: this.options,
         });
-        this.worker.on('message', message => {
-            const [className, method] = (message.type ?? '').split(':');
-
-            if (className !== 'cluster') {
-                return;
-            }
-
-            return this.anyCluster(cluster => {
-                if (method === 'add') {
-                    try {
-                        const existing =
-                            typeof (cluster as any).find === 'function'
-                                ? (cluster as any).find(message.server, true)
-                                : undefined;
-                        if (existing) {
-                            return;
-                        }
-                    } catch {
-                        /* ignore */
-                    }
-                }
-
-                const clusterMethod = (cluster as any)[
-                    method as keyof ICluster
-                ];
-
-                if (!clusterMethod) {
-                    return;
-                }
-
-                clusterMethod(message.server);
-            });
+        this.worker.on('message', (message: WorkerMessage) => {
+            void this.handleWorkerMessage(message);
         });
 
         UDPClusterManager.workers[this.workerKey] = this.worker;
     }
 
+    /**
+     * Applies a worker cluster message (add/remove) to every registered
+     * cluster. Errors from cluster callbacks are contained here, so the
+     * worker message listener can never raise an unhandled rejection.
+     *
+     * @access private
+     * @param {WorkerMessage} message
+     * @returns {Promise<void>}
+     */
+    private async handleWorkerMessage(message: WorkerMessage): Promise<void> {
+        const [className, method] = String(message.type ?? '').split(':');
+
+        if (className !== 'cluster') {
+            return;
+        }
+
+        const action = method as keyof ICluster;
+
+        try {
+            await this.anyCluster(cluster => {
+                const server = message.server as IServerInput;
+
+                if (action === 'add' && cluster.find(server)) {
+                    return;
+                }
+
+                const handler = cluster[action] as
+                    | ((server: IServerInput) => unknown)
+                    | undefined;
+
+                handler?.(server);
+            });
+        } catch {
+            // a failing cluster callback must not crash the listener
+        }
+    }
+
     public async destroy(): Promise<void> {
+        const refs = UDPClusterManager.workerRefs[this.workerKey] ?? 0;
+
+        if (refs > 1) {
+            // the worker is still shared with other manager instances on
+            // the same address:port — just release this reference
+            UDPClusterManager.workerRefs[this.workerKey] = refs - 1;
+
+            return;
+        }
+
+        delete UDPClusterManager.workerRefs[this.workerKey];
         await UDPClusterManager.destroyWorker(this.workerKey, this.worker);
     }
 
     public static async destroySocket(
         key: string,
-        socket?: any,
+        socket?: DisposableSocket,
     ): Promise<void> {
         if (!socket) {
             return;
@@ -183,12 +239,14 @@ export class UDPClusterManager extends ClusterManager {
             socket.removeAllListeners();
         }
 
-        if (typeof socket.close !== 'function') {
+        const close = socket.close;
+
+        if (typeof close !== 'function') {
             return;
         }
 
         await new Promise<void>(resolve => {
-            socket.close(() => {
+            close.call(socket, () => {
                 if (typeof socket.unref === 'function') {
                     socket.unref();
                 }

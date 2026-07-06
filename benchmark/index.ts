@@ -21,9 +21,10 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
+import cluster from 'cluster';
 import { execSync as exec } from 'child_process';
-import * as os from 'os';
-import * as fs from 'fs';
+import { arch, cpus, freemem, platform, totalmem } from 'os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { parseArgs } from 'node:util';
 import { run } from './redis-test';
 import { resolve } from 'path';
@@ -31,10 +32,8 @@ import { randomUUID as uuid } from 'crypto';
 import { AnyJson } from '..';
 import { setAffinity } from './affinity';
 
-const cluster: any = require('cluster');
-
 /**
- * Command line options: canonical long name -> parseArgs config + description
+ * Command line options: canonical long name -> parseArgs config and description
  * used to render `--help`.
  */
 const OPTIONS: {
@@ -127,7 +126,7 @@ if (ARGV.help) {
 let maxChildren = Number(ARGV.children) || 1;
 
 const METRICS_DELAY = 100;
-const CPUS = os.cpus();
+const CPUS = cpus();
 const numCpus = CPUS.length;
 const CPU_NAMES = ['Redis Process, CPU Used, %'];
 const STEPS = Number(ARGV.messages) || 10000;
@@ -142,7 +141,7 @@ let SAMPLE_MESSAGE: AnyJson;
 if (ARGV['example-message']) {
     try {
         SAMPLE_MESSAGE = JSON.parse(
-            fs.readFileSync(ARGV['example-message'] + '').toString(),
+            readFileSync(ARGV['example-message'] + '').toString(),
         );
 
         if (MSG_MULTIPLIER) {
@@ -151,7 +150,7 @@ if (ARGV['example-message']) {
                 () => SAMPLE_MESSAGE,
             );
         }
-    } catch (err) {
+    } catch {
         console.warn(
             'Given example message is invalid, ' +
                 'proceeding test execution with with standard ' +
@@ -178,9 +177,9 @@ for (let i = 0; i < maxChildren; i++) {
  * @param {number} i
  * @returns {{idle: number, total: number}}
  */
-function cpuAvg(i: number) {
-    const cpus = os.cpus();
-    const cpu: any = cpus[i];
+function cpuAvg(i: number): { idle: number; total: number; } {
+    const cpuList = cpus();
+    const cpu: any = cpuList[i];
     let totalIdle = 0;
     let totalTick = 0;
 
@@ -201,14 +200,18 @@ interface MachineStats {
     memStats: any[];
 }
 
+interface BuildStatsInput {
+    metrics: any[];
+    memusage: any[];
+}
+
 /**
- * Does stats aggregation and returns results
+ * Does stat aggregation and returns results
  *
- * @param {any} metrics
- * @param {any} memusage
+ * @param {BuildStatsInput} input
  * @return {MachineStats}
  */
-function buildStats({ metrics, memusage }: any): MachineStats {
+function buildStats({ metrics, memusage }: BuildStatsInput): MachineStats {
     const stats: any[] = [];
     const memStats: any[] = ['System Memory Used, %'];
 
@@ -232,14 +235,34 @@ function buildStats({ metrics, memusage }: any): MachineStats {
     return { stats, memStats };
 }
 
+interface ChartConfig {
+    bindto: string;
+    data: { columns: any[] };
+    point: { show: boolean };
+    axis: {
+        x: {
+            type: string;
+            categories: any;
+            tick: {
+                centered: boolean;
+                fit: boolean;
+                culling: { max: number };
+                outer: boolean
+            }
+        };
+        y: { max: number; tick: { outer: boolean } }
+    };
+    zoom: { enabled: boolean };
+}
+
 /**
  * Returns chart config for given chart id and stats
  *
  * @param {string} id
  * @param {any[]} stats
- * @return {any}
+ * @return {ChartConfig}
  */
-function buildChartConfig(id: string, stats: any[]) {
+function buildChartConfig(id: string, stats: any[]): ChartConfig {
     return {
         bindto: `#${id}`,
         data: {
@@ -252,8 +275,8 @@ function buildChartConfig(id: string, stats: any[]) {
                 categories: stats[0]
                     .slice(1)
                     .map(
-                        (v: any, i: number) =>
-                            (((i * 100) / 1000).toFixed(1) + 's') as any,
+                        (_: any, i: number) =>
+                            (((i * 100) / 1000).toFixed(1) + 's'),
                     ),
                 tick: {
                     centered: true,
@@ -274,14 +297,14 @@ function buildChartConfig(id: string, stats: any[]) {
 }
 
 /**
- * Return bytes count for a given data and bytes key
+ * Return byte count for a given data and bytes key
  *
  * @param {any[]} data
  * @param {Intl.NumberFormat} fmt
  * @param {string} key
  * @return {string}
  */
-function bytesCount(data: any[], fmt: Intl.NumberFormat, key: string) {
+function bytesCount(data: any[], fmt: Intl.NumberFormat, key: string): string {
     return fmt.format(
         Math.round(
             data.reduce((prev, next) => prev + next[key], 0) / data.length,
@@ -303,7 +326,7 @@ function saveStats({ metrics, memusage }: any, data: any[]) {
 
     // language=HTML
     let html = `<!doctype html>
-<html>
+<html lang="en">
 <head>
     <title>IMQ Benchmark results</title>
     <meta charset="utf-8">
@@ -313,13 +336,13 @@ function saveStats({ metrics, memusage }: any, data: any[]) {
 </head>
 <body>
     <h1>IMQ Benchmark Results</h1>
-     <p>This test was executed using CPU affinity assignment for each running 
-    process. Redis server has it's own dedicated CPU core, all worker processes
+     <p>This test was executed using a CPU affinity assignment for each running 
+    process. Redis server has its own dedicated CPU core, all worker processes
     are attached to their own cores as well. Each worker process running a bunch
-    of requests simultaneously in asynchronous manner, so depending on the
-    given test parameters all requests are executed almost at the same time.
+    of requests simultaneously in an asynchronous manner, so depending on the
+    given test parameters, all requests are executed almost at the same time.
     <blockquote>
-    <i>NOTE: In MacOS it is not possible to implement CPU affinity assignment for
+    <i>NOTE: In macOS it is not possible to implement CPU affinity assignment for
     a given process, so there is no way to guaranty a proper process load
     visibility.</i>
     </blockquote>
@@ -331,9 +354,9 @@ function saveStats({ metrics, memusage }: any, data: any[]) {
             <ul>
                 <li>CPU: ${CPUS[0].model} &times; ${numCpus} cores</li>
                 <li>CPU Clock Speed: ${CPUS[0].speed}Mhz</li>
-                <li>RAM: ${Math.ceil(os.totalmem() / Math.pow(1024, 3))}GB</li>
-                <li>OS Architecture: ${os.arch()}</li>
-                <li>OS Platform: ${os.platform()}</li>
+                <li>RAM: ${Math.ceil(totalmem() / Math.pow(1024, 3))}GB</li>
+                <li>OS Architecture: ${arch()}</li>
+                <li>OS Platform: ${platform()}</li>
                 <li>Node Version: ${process.versions.node}</li>
             </ul>
         </li>
@@ -353,7 +376,7 @@ function saveStats({ metrics, memusage }: any, data: any[]) {
             fmt,
             'srcBytesLen',
         )} bytes</li>
-        <li>Average time of all messages delivery is: ${fmt.format(
+        <li>The average time of all messages deliveries is: ${fmt.format(
             Number(
                 (
                     data.reduce((prev, next) => prev + next.time, 0) /
@@ -393,14 +416,14 @@ function saveStats({ metrics, memusage }: any, data: any[]) {
 `;
     const htmlFile = resolve(__dirname, `../benchmark-result/${uuid()}.html`);
 
-    if (!fs.existsSync('./benchmark-result')) {
-        fs.mkdirSync('./benchmark-result');
+    if (!existsSync('./benchmark-result')) {
+        mkdirSync('./benchmark-result');
     }
 
-    fs.writeFileSync(htmlFile, html, { encoding: 'utf8' });
+    writeFileSync(htmlFile, html, { encoding: 'utf8' });
 
-    console.log('Benchmark stats saved!');
-    console.log(`Opening file://${htmlFile}`);
+    console.info('Benchmark stats saved!');
+    console.info(`Opening file://${htmlFile}`);
 
     import('open').then(open =>
         open.default(`file://${htmlFile}`, { wait: false }),
@@ -410,7 +433,7 @@ function saveStats({ metrics, memusage }: any, data: any[]) {
 
 // main program:
 
-if (cluster.isMaster) {
+if (cluster.isPrimary) {
     setAffinity(1);
 
     const statsWorker = cluster.fork();
@@ -478,7 +501,7 @@ if (cluster.isMaster) {
 
             if (
                 core &&
-                os.platform() === 'linux' &&
+                platform() === 'linux' &&
                 /redis-server/.test(redisProcess) &&
                 !/grep/.test(redisProcess)
             ) {
@@ -490,11 +513,11 @@ if (cluster.isMaster) {
 
             metricsInterval = setInterval(() => {
                 metrics.push(
-                    CPU_NAMES.map((name: string, i: number) => cpuAvg(i + 1)),
+                    CPU_NAMES.map((_, i: number) => cpuAvg(i + 1)),
                 );
                 memusage.push({
-                    total: os.totalmem(),
-                    free: os.freemem(),
+                    total: totalmem(),
+                    free: freemem(),
                 });
             }, METRICS_DELAY);
         } else if (msg === 'stop') {
@@ -502,7 +525,7 @@ if (cluster.isMaster) {
                 clearInterval(metricsInterval);
             }
             metricsInterval = null;
-            console.log('Finalizing...');
+            console.info('Finalizing...');
             (<any>process).send(
                 'metrics:' +
                     JSON.stringify({

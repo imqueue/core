@@ -20,7 +20,7 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import mock = require('mock-require');
-import * as os from 'node:os';
+import os from 'node:os';
 
 export const networkInterfaces = () => {
     return {

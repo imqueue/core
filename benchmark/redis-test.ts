@@ -21,14 +21,8 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import IMQ, {
-    IMQOptions,
-    IJson,
-    uuid,
-    pack,
-    JsonObject,
-    AnyJson,
-} from '../index';
+import { randomUUID as uuid } from 'crypto';
+import IMQ, { IMQOptions, IJson, pack, JsonObject, AnyJson } from '../index';
 
 /**
  * Sample message used within tests

@@ -1,5 +1,5 @@
 /*!
- * Copies identical EventEmitter to the target
+ * IMQ Unit Test Helpers
  *
  * I'm Queue Software Project
  * Copyright (C) 2025  imqueue.com <support@imqueue.com>
@@ -21,32 +21,18 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { EventEmitter } from 'events';
-import * as util from 'util';
+import { ILogger } from '../../src';
 
-export function copyEventEmitter(
-    source: EventEmitter & {
-        _maxListeners?: number;
-        _events?: Record<string | symbol, any>;
-    },
-    target: EventEmitter,
-): void {
-    if (typeof source._maxListeners !== 'undefined') {
-        target.setMaxListeners(source.getMaxListeners());
-    }
-
-    for (const event of source.eventNames()) {
-        const listeners = source.rawListeners(event) as any[];
-
-        for (const originalListener of listeners) {
-            if (util.inspect(originalListener).includes('onceWrapper')) {
-                const realListener =
-                    originalListener?.listener || originalListener;
-
-                target.once(event, realListener);
-            } else {
-                target.on(event, originalListener);
-            }
-        }
-    }
+/**
+ * Builds a fresh no-op logger suitable for spying on in unit tests.
+ *
+ * @return {ILogger}
+ */
+export function makeLogger(): ILogger {
+    return {
+        log: (..._args: any[]) => undefined,
+        info: (..._args: any[]) => undefined,
+        warn: (..._args: any[]) => undefined,
+        error: (..._args: any[]) => undefined,
+    } as unknown as ILogger;
 }

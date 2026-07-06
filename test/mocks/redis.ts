@@ -41,7 +41,6 @@ export class RedisClientMock extends EventEmitter {
     private static __keys: any = {};
     private static __scripts: any = {};
     private __name: string = '';
-    // noinspection JSUnusedGlobalSymbols
     public connected: boolean = true;
     public status = 'ready';
 
@@ -57,9 +56,8 @@ export class RedisClientMock extends EventEmitter {
         }
     }
 
-    // noinspection JSUnusedGlobalSymbols
     public end() {}
-    // noinspection JSUnusedGlobalSymbols
+
     public quit() {
         return new Promise(resolve => resolve(undefined));
     }
@@ -68,7 +66,6 @@ export class RedisClientMock extends EventEmitter {
         return new Promise(resolve => resolve(undefined));
     }
 
-    // noinspection JSMethodCanBeStatic
     public set(...args: any[]): Promise<number> {
         const [key, val] = args;
         RedisClientMock.__keys[key] = val;
@@ -76,7 +73,6 @@ export class RedisClientMock extends EventEmitter {
         return new Promise(resolve => resolve(1));
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public setnx(...args: any[]): number {
         const self = RedisClientMock;
         const key = args.shift();
@@ -93,7 +89,6 @@ export class RedisClientMock extends EventEmitter {
         return result;
     }
 
-    // noinspection TypescriptExplicitMemberType,JSMethodCanBeStatic
     public lpush(key: string, value: any, cb?: any): number {
         const self = RedisClientMock;
         if (!self.__queues__[key]) {
@@ -158,7 +153,61 @@ export class RedisClientMock extends EventEmitter {
         }
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
+    public async lmove(
+        from: string,
+        to: string,
+        _fromSide?: string,
+        _toSide?: string,
+        cb?: Function,
+    ): Promise<string | null> {
+        const qs = RedisClientMock.__queues__;
+        const fromQ = (qs[from] = qs[from] || []);
+
+        if (!fromQ.length) {
+            this.cbExecute(cb, null, null);
+
+            return null;
+        }
+
+        const element = fromQ.shift();
+
+        (qs[to] = qs[to] || []).push(element);
+        this.cbExecute(cb, null, element);
+
+        return element;
+    }
+
+    public async blmove(
+        from: string,
+        to: string,
+        _fromSide?: string,
+        _toSide?: string,
+        timeout?: number,
+    ): Promise<string | null> {
+        const deadline = Date.now() + (Number(timeout) || 0.1) * 1000;
+
+        while (true) {
+            const qs = RedisClientMock.__queues__;
+            const fromQ = (qs[from] = qs[from] || []);
+
+            if (fromQ.length) {
+                const element = fromQ.shift();
+
+                (qs[to] = qs[to] || []).push(element);
+
+                return element;
+            }
+
+            if (Date.now() >= deadline) {
+                return null;
+            }
+
+            await new Promise(resolve => {
+                this.__rt = setTimeout(resolve, 25);
+            });
+        }
+    }
+
     public lrange(
         key: string,
         start: number,
@@ -172,7 +221,6 @@ export class RedisClientMock extends EventEmitter {
         return result;
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public scan(...args: any[]): (string | string[])[] {
         const cb = args.pop();
         const qs = RedisClientMock.__queues__;
@@ -187,7 +235,6 @@ export class RedisClientMock extends EventEmitter {
         return result;
     }
 
-    // noinspection JSMethodCanBeStatic
     public script(...args: any[]): unknown {
         const cmd = args.shift();
         const scriptOrHash = args.shift();
@@ -215,7 +262,6 @@ export class RedisClientMock extends EventEmitter {
         return [0];
     }
 
-    // noinspection JSUnusedGlobalSymbols
     public client(...args: any[]): string | boolean {
         const self = RedisClientMock;
         const cmd = args.shift();
@@ -238,7 +284,6 @@ export class RedisClientMock extends EventEmitter {
         return true;
     }
 
-    // noinspection JSMethodCanBeStatic
     public exists(...args: any[]): boolean {
         const key = args.shift();
         const result = RedisClientMock.__keys[key] !== undefined;
@@ -246,7 +291,6 @@ export class RedisClientMock extends EventEmitter {
         return result;
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public psubscribe(...args: any[]): Promise<number> {
         this.cbExecute(args.pop(), null, 1);
         return new Promise(resolve => resolve(1));
@@ -257,13 +301,11 @@ export class RedisClientMock extends EventEmitter {
         return new Promise(resolve => resolve(1));
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public evalsha(...args: any[]): boolean {
         this.cbExecute(args.pop());
         return true;
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public del(...args: any[]): Promise<number> {
         const self = RedisClientMock;
         let count = 0;
@@ -281,7 +323,6 @@ export class RedisClientMock extends EventEmitter {
         return new Promise(resolve => resolve(count));
     }
 
-    // noinspection JSUnusedGlobalSymbols
     public zadd(...args: any[]): boolean {
         const [key, score, value, cb] = args;
         const timeout = score - Date.now();
@@ -293,7 +334,6 @@ export class RedisClientMock extends EventEmitter {
         return true;
     }
 
-    // noinspection JSUnusedGlobalSymbols
     public disconnect(): boolean {
         delete RedisClientMock.__clientList[this.__name];
         if (this.__rt) {
@@ -303,23 +343,19 @@ export class RedisClientMock extends EventEmitter {
         return true;
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public publish(channel: string, message: string, cb?: any): number {
         this.cbExecute(cb, null, 1);
         return 1;
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public subscribe(channel: string, cb?: any): void {
         this.cbExecute(cb, null, 1);
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public unsubscribe(channel?: string, cb?: any): void {
         this.cbExecute(cb, null, 1);
     }
 
-    // noinspection JSUnusedGlobalSymbols,JSMethodCanBeStatic
     public config(): Promise<boolean> {
         return new Promise(resolve => resolve(true));
     }

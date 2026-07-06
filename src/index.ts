@@ -19,30 +19,11 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-// noinspection JSUnusedGlobalSymbols
-/**
- * Safely builds full options definition using default options and
- * partial given options
- *
- * @template T
- * @param {T} defaultOptions
- * @param {Partial<T>} givenOptions
- * @return {T}
- */
-// istanbul ignore next
-export function buildOptions<T>(
-    defaultOptions: T,
-    givenOptions?: Partial<T>,
-): T {
-    return Object.assign({}, defaultOptions, givenOptions);
-}
-
+export * from './helpers';
 export * from './IMQMode';
 export * from './profile';
-export * from './uuid';
 export * from './redis';
 export * from './IMessageQueue';
 export * from './RedisQueue';
 export * from './ClusteredRedisQueue';
 export * from './UDPClusterManager';
-export * from './copyEventEmitter';

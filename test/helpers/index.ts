@@ -21,18 +21,4 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { ILogger } from '../..';
-
-/**
- * Builds a fresh no-op logger suitable for spying on in unit tests.
- *
- * @return {ILogger}
- */
-export function makeLogger(): ILogger {
-    return {
-        log: (..._args: any[]) => undefined,
-        info: (..._args: any[]) => undefined,
-        warn: (..._args: any[]) => undefined,
-        error: (..._args: any[]) => undefined,
-    } as unknown as ILogger;
-}
+export * from './makeLogger';

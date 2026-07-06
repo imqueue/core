@@ -21,7 +21,6 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-/* tslint:disable */
 import Redis from 'ioredis';
 
 /**

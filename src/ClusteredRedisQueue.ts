@@ -92,7 +92,6 @@ export class ClusteredRedisQueue
      *
      * @type {IMessageQueueConnection[]}
      */
-    // tslint:disable-next-line:completed-docs
     private servers: ClusterServer[] = [];
 
     /**
@@ -102,7 +101,6 @@ export class ClusteredRedisQueue
      */
     private currentQueue: number = 0;
 
-    // noinspection TypeScriptFieldCanBeMadeReadonly
     /**
      * Total length of RedisQueue instances
      *
@@ -150,7 +148,6 @@ export class ClusteredRedisQueue
         this.clusterEmitter = new EventEmitter();
         this.options = buildOptions<IMQOptions>(DEFAULT_IMQ_OPTIONS, options);
 
-        // istanbul ignore next
         this.logger = this.options.logger || console;
 
         if (!this.options.cluster && !this.options.clusterManagers?.length) {
@@ -280,7 +277,6 @@ export class ClusteredRedisQueue
         }
     }
 
-    // noinspection JSUnusedGlobalSymbols
     /**
      * Clears queue data in queue host application.
      * Supposed to be an async function.
@@ -322,13 +318,18 @@ export class ClusteredRedisQueue
      * @param {string} message
      * @return {Promise<this>}
      */
-    private async batch(action: string, message: string): Promise<this> {
+    private async batch(
+        action: 'start' | 'stop' | 'destroy' | 'clear',
+        message: string,
+    ): Promise<this> {
         this.logger.info(message);
 
-        const promises = [];
+        const promises: Promise<unknown>[] = [];
 
         for (const imq of this.imqs) {
-            promises.push(imq[action]());
+            const run = imq[action] as () => Promise<unknown>;
+
+            promises.push(run.call(imq));
         }
 
         await Promise.all(promises);
@@ -337,7 +338,6 @@ export class ClusteredRedisQueue
     }
 
     // EventEmitter interface
-    // istanbul ignore next
     /**
      * Applies the named EventEmitter method to every underlying emitter,
      * forwarding the call across the whole cluster. Dispatch is reflective
@@ -363,102 +363,86 @@ export class ClusteredRedisQueue
         return results;
     }
 
-    // istanbul ignore next
     public on(...args: any[]): this {
         this.applyToEmitters('on', args);
 
         return this;
     }
 
-    // istanbul ignore next
-    // noinspection JSUnusedGlobalSymbols
     public off(...args: any[]): this {
         this.applyToEmitters('off', args);
 
         return this;
     }
 
-    // istanbul ignore next
     public once(...args: any[]): this {
         this.applyToEmitters('once', args);
 
         return this;
     }
 
-    // istanbul ignore next
     public addListener(...args: any[]): this {
         this.applyToEmitters('addListener', args);
 
         return this;
     }
 
-    // istanbul ignore next
     public removeListener(...args: any[]): this {
         this.applyToEmitters('removeListener', args);
 
         return this;
     }
 
-    // istanbul ignore next
     public removeAllListeners(...args: any[]): this {
         this.applyToEmitters('removeAllListeners', args);
 
         return this;
     }
 
-    // istanbul ignore next
     public prependListener(...args: any[]): this {
         this.applyToEmitters('prependListener', args);
 
         return this;
     }
 
-    // istanbul ignore next
     public prependOnceListener(...args: any[]): this {
         this.applyToEmitters('prependOnceListener', args);
 
         return this;
     }
 
-    // istanbul ignore next
     public setMaxListeners(...args: any[]): this {
         this.applyToEmitters('setMaxListeners', args);
 
         return this;
     }
 
-    // istanbul ignore next
     // Aggregates listeners across every underlying emitter, so the result is
     // an untyped union rather than Node's per-emitter conditional listener type.
     public listeners(...args: any[]): any[] {
         return this.applyToEmitters('listeners', args).flat();
     }
 
-    // istanbul ignore next
     public rawListeners(...args: any[]): any[] {
         return this.applyToEmitters('rawListeners', args).flat();
     }
 
-    // istanbul ignore next
     public getMaxListeners(): number {
         return this.templateEmitter.getMaxListeners();
     }
 
-    // istanbul ignore next
     public emit(...args: any[]): boolean {
         this.applyToEmitters('emit', args);
 
         return true;
     }
 
-    // istanbul ignore next
     public eventNames(): (keyof EventMap)[] {
         const source = this.imqs[0] || this.templateEmitter;
 
         return source.eventNames() as (keyof EventMap)[];
     }
 
-    // istanbul ignore next
     public listenerCount(...args: any[]): number {
         const source = this.imqs[0] || this.templateEmitter;
         const fn = source.listenerCount as (...a: any[]) => number;
@@ -466,7 +450,6 @@ export class ClusteredRedisQueue
         return fn.apply(source, args);
     }
 
-    // istanbul ignore next
     public async publish(data: JsonObject, toName?: string): Promise<void> {
         const promises: Array<Promise<void>> = [];
 
@@ -477,7 +460,6 @@ export class ClusteredRedisQueue
         await Promise.all(promises);
     }
 
-    // istanbul ignore next
     public async subscribe(
         channel: string,
         handler: (data: JsonObject) => any,
@@ -493,7 +475,6 @@ export class ClusteredRedisQueue
         await Promise.all(promises);
     }
 
-    // istanbul ignore next
     public async unsubscribe(): Promise<void> {
         this.state.subscription = null;
 

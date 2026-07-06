@@ -24,7 +24,6 @@
 import { ILogger } from '.';
 
 export enum LogLevel {
-    // noinspection JSUnusedGlobalSymbols
     LOG = 'log',
     INFO = 'info',
     WARN = 'warn',
@@ -48,7 +47,7 @@ export interface ProfileDecoratorOptions {
 }
 
 /**
- * Checks if log level is set to proper value or returns default one
+ * Checks if the log level is set to the proper value or returns the default one
  *
  * @param {*} level
  * @return {LogLevel}
@@ -79,7 +78,7 @@ export type AllowedTimeFormat = 'microseconds' | 'milliseconds' | 'seconds';
  *
  * @type {boolean}
  */
-export const IMQ_LOG_TIME = !!+(process.env.IMQ_LOG_TIME || 0);
+export const IMQ_LOG_TIME: boolean = !!+(process.env.IMQ_LOG_TIME || 0);
 
 /**
  * Environment variable IMQ_LOG_ARGS=[1, 0] - enables/disables profiled
@@ -87,7 +86,7 @@ export const IMQ_LOG_TIME = !!+(process.env.IMQ_LOG_TIME || 0);
  *
  * @type {boolean}
  */
-export const IMQ_LOG_ARGS = !!+(process.env.IMQ_LOG_ARGS || 0);
+export const IMQ_LOG_ARGS: boolean = !!+(process.env.IMQ_LOG_ARGS || 0);
 
 /**
  * Environment variable IMQ_LOG_TIME_FORMAT=[
@@ -167,7 +166,6 @@ export function logDebugInfo({
         const time = Number(process.hrtime.bigint() - BigInt(start)) / 1000;
         let timeStr: string;
 
-        // istanbul ignore next
         switch (IMQ_LOG_TIME_FORMAT) {
             case 'milliseconds':
                 timeStr = (time / 1000).toFixed(3) + ' ms';
@@ -284,7 +282,6 @@ export function profile<This, Args extends any[], Return>(
             }
 
             const self = this as any;
-            /* istanbul ignore next */
             const className = self
                 ? typeof self === 'function'
                     ? self.name // static
@@ -303,7 +300,6 @@ export function profile<This, Args extends any[], Return>(
                 start,
             };
 
-            /* istanbul ignore next */
             if (result && typeof (result as any).then === 'function') {
                 // async call detected
                 (result as any)

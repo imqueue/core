@@ -31,7 +31,7 @@ import {
 import { createSocket, Socket } from 'dgram';
 import { networkInterfaces } from 'os';
 import { UDPClusterManagerOptions } from './UDPClusterManager';
-import { uuid } from './uuid';
+import { randomUUID } from 'crypto';
 
 process.setMaxListeners(10000);
 
@@ -118,7 +118,7 @@ class UDPWorker {
     }
 
     private serverAliveWait(message: Message): void {
-        const stamp = uuid();
+        const stamp = randomUUID();
         const correction = this.options.aliveTimeoutCorrection ?? 0;
         const effectiveTimeout = message.timeout + correction + 1;
         const key = UDPWorker.getServerKey(message);

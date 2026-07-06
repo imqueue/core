@@ -283,6 +283,28 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     clusterManagers?: ClusterManager[];
 
     /**
+     * Enables/disables process signal handling (SIGTERM, SIGINT, SIGABRT)
+     * by the queue. When enabled, the queue frees its watcher lock and
+     * exits the process on those signals. Disable when the host
+     * application manages its own shutdown sequence.
+     *
+     * @default true
+     * @type {boolean}
+     */
+    handleSignals?: boolean;
+
+    /**
+     * When enabled, send() resolves only after the message write is
+     * confirmed by redis (and rejects on write failures). By default
+     * writes are fire-and-forget for maximum throughput and failures are
+     * reported through the optional errorHandler argument only.
+     *
+     * @default false
+     * @type {boolean}
+     */
+    awaitWrites?: boolean;
+
+    /**
      * Enables/disables verbose logging
      *
      * @default false
@@ -317,7 +339,8 @@ export type IMessageQueueConstructor = new (
  *
  * @example
  * ~~~typescript
- * import { IMessageQueue, EventEmitter, uuid } from '@imqueue/core';
+ * import { IMessageQueue, EventEmitter } from '@imqueue/core';
+ * import { randomUUID } from 'crypto';
  *
  * class SomeMQAdapter implements IMessageQueue extends EventEmitter {
  *      public async start(): Promise<SomeMQAdapter> {
@@ -333,7 +356,7 @@ export type IMessageQueueConstructor = new (
  *          message: JsonObject,
  *          delay?: number
  *      ): Promise<string> {
- *          const messageId = uuid();
+ *          const messageId = randomUUID();
  *          // ... implementation goes here
  *          return messageId;
  *      }
@@ -374,7 +397,7 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
     start(): Promise<IMessageQueue>;
 
     /**
-     * Stops the queue (should stop handle queue messages).
+     * Stops the queue (should stop to handle queue messages).
      * Supposed to be an async function.
      *
      * @returns {Promise<IMessageQueue>}
@@ -382,13 +405,13 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
     stop(): Promise<IMessageQueue>;
 
     /**
-     * Sends a message to given queue name with the given data.
+     * Sends a message to the given queue name with the given data.
      * Supposed to be an async function.
      *
-     * @param {string} toQueue - queue name to which message should be sent to
+     * @param {string} toQueue - queue name to which a message should be sent to
      * @param {JsonObject} message - message data
-     * @param {number} [delay] - if specified, message will be handled in the
-     *        target queue after specified period of time in milliseconds.
+     * @param {number} [delay] - if specified, a message will be handled in the
+     *        target queue after a specified period of time in milliseconds.
      * @param {(err: Error) => void} [errorHandler] - callback called only when
      *        internal error occurs during message send execution.
      * @returns {Promise<string>} - message identifier
@@ -401,7 +424,7 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
     ): Promise<string>;
 
     /**
-     * Creates or uses subscription channel with the given name and sets
+     * Creates or uses a subscription channel with the given name and sets
      * message handler on data receive
      *
      * @param {string} channel - channel name
@@ -420,11 +443,11 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
     unsubscribe(): Promise<void>;
 
     /**
-     * Publishes data to current queue channel
+     * Publishes data to the current queue channel
      *
-     * If toName specified will publish to pubsub with different name. This
+     * If toName specified will publish to pubsub with a different name. This
      * can be used to implement broadcasting some messages to other subscribers
-     * on other pubsub channels. Different name should be in the same namespace
+     * on other pubsub channels. Different names should be in the same namespace
      * (same imq prefix)
      *
      * @param {JsonObject} data - data to publish as channel message
@@ -434,7 +457,7 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
     publish(data: JsonObject, toName?: string): Promise<void>;
 
     /**
-     * Safely destroys current queue, unregistered all set event
+     * Safely destroys the current queue, unregistered all set event
      * listeners and connections.
      * Supposed to be an async function.
      *

@@ -27,7 +27,8 @@ import * as fs from 'fs';
 import { parseArgs } from 'node:util';
 import { run } from './redis-test';
 import { resolve } from 'path';
-import { uuid, AnyJson } from '..';
+import { randomUUID as uuid } from 'crypto';
+import { AnyJson } from '..';
 import { setAffinity } from './affinity';
 
 const cluster: any = require('cluster');

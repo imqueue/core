@@ -22,7 +22,7 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { IMessageQueueConnection, IServerInput } from './IMessageQueue';
-import { uuid } from './uuid';
+import { randomUUID } from 'crypto';
 
 export interface ICluster {
     add: (server: IServerInput) => IMessageQueueConnection;
@@ -41,7 +41,7 @@ export abstract class ClusterManager {
 
     public init(cluster: ICluster): InitializedCluster {
         const initializedCluster = Object.assign(cluster, {
-            id: uuid(),
+            id: randomUUID(),
         }) as InitializedCluster;
 
         this.clusters.push(initializedCluster);

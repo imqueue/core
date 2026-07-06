@@ -39,7 +39,8 @@ With current implementation on RedisQueue:
 # Requirements
 
 Currently this module have only one available adapter which is Redis server
-related. So redis-server > 3.8+ is required.
+related. Redis server 6.2+ is required (the queue relies on `LMOVE`/`BLMOVE`
+commands for safe message delivery).
 
 If config command is disabled on redis it will be required to turn on manually
 keyspace notification events (actual on use with ElasticCache on AWS), like:

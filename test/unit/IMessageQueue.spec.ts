@@ -25,8 +25,6 @@ import * as assert from 'node:assert/strict';
 import { EventEmitter as IMQEventEmitter } from '../../src';
 import { EventEmitter as NodeEventEmitter } from 'events';
 
-// This test ensures the re-exported EventEmitter from IMessageQueue.ts is exercised
-// to cover the function counted by nyc/istanbul for that re-export.
 describe('IMessageQueue EventEmitter re-export', () => {
     it('should re-export Node.js EventEmitter and be usable', () => {
         // Ensure it is the same constructor

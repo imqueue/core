@@ -24,11 +24,11 @@
 import { gzipSync } from 'zlib';
 
 /**
- * Compress given data and returns binary string
+ * Compresses the given data and returns a binary string
  *
- * @param {any} data
- * @returns {string}
+ * @param {unknown} data - data to compress
+ * @returns {string} - compressed data as a binary string
  */
-export function pack(data: any): string {
+export function pack(data: unknown): string {
     return gzipSync(JSON.stringify(data)).toString('binary');
 }

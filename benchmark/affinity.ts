@@ -22,10 +22,10 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { execSync as exec } from 'child_process';
-import * as os from 'os';
+import { platform } from 'os';
 
 export function setAffinity(cpu: number) {
-    if (os.platform() === 'linux') {
+    if (platform() === 'linux') {
         exec(`taskset -cp ${cpu} ${process.pid}`);
     }
 }

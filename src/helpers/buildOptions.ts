@@ -28,7 +28,7 @@
  * @template T
  * @param {T} defaultOptions
  * @param {Partial<T>} givenOptions
- * @return {T}
+ * @returns {T}
  */
 export function buildOptions<T>(
     defaultOptions: T,

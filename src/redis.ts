@@ -24,7 +24,7 @@
 import Redis from 'ioredis';
 
 /**
- * Extends default Redis  type to allow dynamic properties access on it
+ * Extends the default Redis type to allow dynamic properties access on it
  *
  * @type {IRedisClient}
  */

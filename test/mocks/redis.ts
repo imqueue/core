@@ -23,10 +23,10 @@
  */
 import mock from 'mock-require';
 import { EventEmitter } from 'events';
-import * as crypto from 'crypto';
+import { createHash, Hash } from 'crypto';
 
 function sha1(str: string) {
-    let sha: crypto.Hash = crypto.createHash('sha1');
+    let sha: Hash = createHash('sha1');
     sha.update(str);
     return sha.digest('hex');
 }

@@ -21,7 +21,7 @@
  */
 import '../../mocks';
 import { describe, it } from 'node:test';
-import * as assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { EventEmitter } from 'events';
 import { copyEventEmitter } from '../../../src';
 

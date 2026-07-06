@@ -22,7 +22,7 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { randomUUID as uuid } from 'crypto';
-import IMQ, { IMQOptions, IJson, pack, JsonObject, AnyJson } from '../index';
+import IMQ, { IMQOptions, pack, JsonObject, AnyJson } from '../index';
 
 /**
  * Sample message used within tests
@@ -89,7 +89,7 @@ const JSON_EXAMPLE: JsonObject = {
  * @param {boolean} useGzip
  * @returns {number}
  */
-export function bytes(str: string, useGzip: boolean = false) {
+export function bytes(str: string, useGzip: boolean = false): number {
     return Buffer.from(str, useGzip ? 'binary' : 'utf8').length;
 }
 
@@ -101,7 +101,7 @@ export function bytes(str: string, useGzip: boolean = false) {
  * @param {number} [msgDelay]
  * @param {boolean} [useGzip]
  * @param {boolean} safeDelivery
- * @param {IJson} jsonExample
+ * @param {AnyJson} jsonExample
  * @returns {Promise<any>}
  */
 export async function run(
@@ -111,7 +111,7 @@ export async function run(
     useGzip: boolean = false,
     safeDelivery: boolean = false,
     jsonExample: AnyJson = JSON_EXAMPLE,
-) {
+): Promise<any> {
     const bytesLen = bytes(
         (useGzip ? pack : JSON.stringify)(jsonExample),
         useGzip,
@@ -137,13 +137,13 @@ export async function run(
             mq.on('message', () => count++);
 
             if (msgDelay) {
-                console.log(
+                console.info(
                     'Sending %s messages, using %s delay please, wait...',
                     fmt.format(steps),
                     fmt.format(msgDelay),
                 );
             } else {
-                console.log(
+                console.info(
                     'Sending %s messages, please, wait...',
                     fmt.format(steps),
                 );
@@ -160,16 +160,16 @@ export async function run(
                     const time = Date.now() - start;
                     const ratio = count / (time / 1000);
 
-                    console.log(
+                    console.info(
                         '%s is sent/received in %s ±10 ms',
                         fmt.format(count),
                         fmt.format(time),
                     );
-                    console.log(
+                    console.info(
                         'Round-trip ratio: %s messages/sec',
                         fmt.format(ratio),
                     );
-                    console.log(
+                    console.info(
                         'Message payload is: %s bytes',
                         fmt.format(bytesLen),
                     );

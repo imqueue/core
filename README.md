@@ -2,64 +2,63 @@
 
 [![License](https://img.shields.io/badge/license-GPL-blue.svg)](https://rawgit.com/imqueue/core/master/LICENSE)
 
-Simple JSON-based messaging queue for inter service communication
+Simple JSON-based messaging queue for inter-service communication
 
 **Related packages:**
 
- - [@imqueue/rpc](https://github.com/imqueue/rpc) - RPC-like client/service
-   implementation over @imqueue/core.
- - [@imqueue/cli](https://github.com/imqueue/cli) - Command Line Interface
-   for imqueue.
+- [@imqueue/rpc](https://github.com/imqueue/rpc) - RPC-like client/service
+  implementation over @imqueue/core.
+- [@imqueue/cli](https://github.com/imqueue/cli) - Command Line Interface
+  for imqueue.
 
 # Features
 
 With current implementation on RedisQueue:
 
- - **Fast unwarranted** message delivery (if consumer grab the message and dies 
-   message will be lost). Up to ~35-40k of 1Kb messages per second on i7 core by
-   benchmarks.
- - **Fast warranted** message delivery (only 1.5-2 times slower than 
-   unwarranted). If consumer grab a message and dies it will be re-scheduled
-   in queue. Up to ~20-25K of 1Kb messages per second on i7 core by benchmarks.
- - **No timers or constant redis polling** used for implementation, as result -
-   no delays in delivery and low CPU usage on application workers. When idling
-   it does not consume resources!
- - **Supports gzip compression for messages** (decrease traffic usage, but 
-   slower).
- - **Concurrent workers model supported**, the same queue can have multiple
-   consumers.
- - **Delayed messages supported**, fast as ~10K of 1Kb messages per second on i7 
-   core by benchmarks.
- - **Safe predictable scaling of queues**. Scaling number of workers does not 
-   influence traffic usage.
- - **Round-robin message balancing between several redis instances**. This
-   allows easy messaging queue redis horizontal scaling.
- - **TypeScript included!**
+- **Fast, unreliable** message delivery (if a consumer grabs the message and dies,
+  the message will be lost). Up to ~35–40k of 1Kb messages per second on an i7 core
+  by benchmarks.
+- **Fast, guaranteed** message delivery (only 1.5–2 times slower than
+  unreliable mode). If a consumer grabs a message and dies, it will be rescheduled
+  to the queue. Up to ~20–25k of 1Kb messages per second on an i7 core by benchmarks.
+- **No timers or constant Redis polling** used for implementation, resulting in
+  no delays in delivery and low CPU usage on application workers. When idle,
+  it consumes no resources.
+- **Supports Gzip compression for messages** (decreases traffic usage but is slower).
+- **Concurrent workers model supported**, the same queue can have multiple
+  consumers.
+- **Delayed messages supported**, fast as ~10K of 1Kb messages per second on i7
+  core by benchmarks.
+- **Safe, predictable scaling of queues**. Scaling the number of workers does not
+  increase traffic usage.
+- **Round-robin message balancing between multiple Redis instances**. This
+  allows easy horizontal scaling of the messaging queue across Redis instances.
+- **TypeScript included!**
 
 # Requirements
 
-Currently this module have only one available adapter which is Redis server
-related. Redis server 6.2+ is required (the queue relies on `LMOVE`/`BLMOVE`
-commands for safe message delivery).
+Currently this module has only one available adapter, which is Redis. Redis server
+6.2+ is required (the queue relies on `LMOVE`/`BLMOVE` commands for safe message
+delivery).
 
-If config command is disabled on redis it will be required to turn on manually
-keyspace notification events (actual on use with ElasticCache on AWS), like:
+If the config command is disabled on Redis, you must manually enable keyspace
+notification events (particularly when using AWS ElasticCache), like this:
 
-~~~
+```
 notify-keyspace-events Ex
-~~~
+```
 
-Further, more adapters will be added... if needed.
+More adapters will be added in the future as needed.
 
 # Install
 
-~~~bash
+```bash
 npm i --save @imqueue/core
-~~~
+```
 
 # Usage
 
-~~~typescript
+```typescript
 import IMQ, { IMessageQueue, IJson } from '@imqueue/core';
 
 (async () => {
@@ -91,27 +90,27 @@ import IMQ, { IMessageQueue, IJson } from '@imqueue/core';
     const delay = 1000;
     await queueOne.send('QueueOne', { delay }, delay);
 })();
-~~~
+```
 
 # Benchmarking
 
-First of all make sure redis-server is running on the localhost. Current
-version of benchmark supposed to have redis running localhost because
-it is going to measure it's CPU usage stats.
+First, make sure redis-server is running on localhost. The current version of the
+benchmark requires Redis to be running on localhost so it can measure its CPU
+usage statistics.
 
-All workers during benchmark test will have their dedicated CPU affinity
-to make sure collected stats as accurate as possible.
+All workers during the benchmark test will have dedicated CPU affinity to ensure
+the collected statistics are as accurate as possible.
 
-~~~bash
-git clone git@github.com:Mikhus/core.git
-cd imq
+```bash
+git clone git@github.com:imqueue/core.git
+cd core
 node benchmark -c 4 -m 10000
-~~~
+```
 
 Other possible benchmark options:
 
-~~~
-node benchmark -h                                   
+```
+node benchmark -h
 Options:
   --version                     Show version number                    [boolean]
   -h, --help                    Show help                              [boolean]
@@ -129,41 +128,40 @@ Options:
   -p, --port                    Redis server port to connect to.
   -t, --message-multiply-times  Increase sample message data given number of
                                 times.
-~~~
+```
 
-Number of child workers running message queues are limited to a max number
-of CPU in the system -2. First one, which is CPU0 is reserved for OS tasks and
-for stats collector process. Second, which is CPU1 is dedicated to redis
-process running on a local machine, All others are safe to run queue workers.
+The number of child workers running message queues is limited to the number of CPUs
+in the system minus 2. The first CPU (CPU0) is reserved for OS tasks and the stats
+collector process. The second CPU (CPU1) is dedicated to the local Redis process.
+All others are available to run queue workers.
 
-For example, if there is 8 cores on a machine it is safe to run up to 6 workers.
-For 4-core machine this number is limited to 2.
-If there is less cores results will not give good visibility of load.
+For example, on an 8-core machine you can safely run up to 6 workers. On a 4-core
+machine, this limit is 2 workers. If there are fewer cores, the results will not
+provide good visibility of the load.
 
-*NOTE: paragraphs above this note are Linux-only related! On MacOS 
-there is no good way to set process affinity to a CPU core, Windows support is
-not tested and is missing for the moment in benchmarking. I does not mean
-benchmark will not work on Mac & Win but the results won't be accurate and
-predictable.*
+**NOTE:** The paragraphs above apply to Linux only. On macOS there is no reliable way
+to set process CPU affinity, and Windows support is not currently implemented for
+benchmarking. This does not mean the benchmark won't work on macOS or Windows, but
+the results will not be accurate or predictable on those platforms.
 
 ## Running Unit Tests
 
 Tests run on the native Node.js test runner (`node:test`) with `node:assert` and
 no external test framework, so a plain clone and install is all that is needed:
 
-~~~bash
+```bash
 git clone git@github.com:imqueue/core.git
 cd core
 npm install
 npm test
-~~~
+```
 
 To produce a coverage report use:
 
-~~~bash
+```bash
 npm run test-coverage        # prints coverage summary to the console
 npm run test-lcov            # writes coverage/lcov.info
-~~~
+```
 
 ## License
 

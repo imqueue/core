@@ -27,7 +27,7 @@
  */
 import '../mocks';
 import { describe, it, beforeEach, afterEach, mock, Mock } from 'node:test';
-import * as assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { RedisQueue, IMQMode, sha1, escapeRegExp } from '../../src';
 import { logger, RedisClientMock } from '../mocks';
 import { randomUUID as uuid } from 'crypto';

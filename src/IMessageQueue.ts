@@ -52,48 +52,40 @@ export interface JsonObject {
 export interface JsonArray extends Array<AnyJson> {}
 
 /**
- * Alias for JsonObject, legacy, outdated, deprecated, try to avoid using.
- * Stands here for backward-compatibility only
- *
- * @deprecated
- */
-export type IJson = JsonObject;
-
-/**
  * Logger interface
  */
 export interface ILogger {
     /**
      * Log level function
      *
-     * @param {...any[]} args
+     * @param {...unknown[]} args
      */
-    log(...args: any[]): void;
+    log(...args: unknown[]): void;
 
     /**
      * Info level function
      *
-     * @param {...any[]} args
+     * @param {...unknown[]} args
      */
-    info(...args: any[]): void;
+    info(...args: unknown[]): void;
 
     /**
      * Warning level function
      *
-     * @param {...any[]} args
+     * @param {...unknown[]} args
      */
-    warn(...args: any[]): void;
+    warn(...args: unknown[]): void;
 
     /**
      * Error level function
      *
-     * @param {...any[]} args
+     * @param {...unknown[]} args
      */
-    error(...args: any[]): void;
+    error(...args: unknown[]): void;
 }
 
 /**
- * Defines message format.
+ * Defines a message format.
  *
  * @type {IMessage}
  */
@@ -201,8 +193,7 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     cleanup: boolean;
 
     /**
-     * Defines cleanup pattern for the name of the queue
-     * which should be removed during cleanup processing
+     * Cleanup pattern for queue names that should be removed during cleanup
      *
      * @type {string}
      */
@@ -223,45 +214,42 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     prefix?: string;
 
     /**
-     * Logger defined to be used within message queue in runtime
+     * Logger instance to use for message queue logging at runtime
      *
      * @type {ILogger}
      */
     logger?: ILogger;
 
     /**
-     * Watcher check delay period. This is used by a queue watcher
-     * agent to make sure at least one watcher is available for
-     * queue operations.
+     * Delay period (in milliseconds) between watcher availability checks.
+     * Used to ensure at least one watcher is available for queue operations.
      *
      * @type {number}
      */
     watcherCheckDelay?: number;
 
     /**
-     * A way to serialize message using compression. Will increase
-     * load to worker process but can decrease network traffic between worker
-     * and queue host application
+     * Enable message compression for serialization. Increases a worker CPU load
+     * but decreases network traffic between workers and the queue host.
      *
      * @type {boolean}
      */
     useGzip?: boolean;
 
     /**
-     * Enables/disables safe message delivery. When safe message delivery
-     * is turned on it will use more complex algorithm for message handling
-     * by a worker process, guaranteeing that if worker fails the message will
-     * be delivered to another possible worker anyway. In most cases it
-     * is not required unless it is required by a system design.
+     * Enable guaranteed message delivery. When enabled, uses a more complex
+     * algorithm for message handling, ensuring that if a worker fails, the
+     * message will be delivered to another worker. Required only for systems
+     * that demand guaranteed delivery semantics.
      *
      * @type {boolean}
      */
     safeDelivery?: boolean;
 
     /**
-     * Time-to-live of worker queues (after this time messages are back to
-     * main queue for handling if worker died). Only works if safeDelivery
-     * option enabled.
+     * Time-to-live (in milliseconds) for messages in worker queues. After this
+     * period, unacknowledged messages return to the main queue for reprocessing
+     * if the worker died. Only effective when safeDelivery is enabled.
      *
      * @type {number}
      */
@@ -283,10 +271,9 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     clusterManagers?: ClusterManager[];
 
     /**
-     * Enables/disables process signal handling (SIGTERM, SIGINT, SIGABRT)
-     * by the queue. When enabled, the queue frees its watcher lock and
-     * exits the process on those signals. Disable when the host
-     * application manages its own shutdown sequence.
+     * Enable process signal handling (SIGTERM, SIGINT, SIGABRT) by the queue.
+     * When enabled, the queue releases its watcher lock and exits gracefully
+     * on these signals. Disable if the host application manages shutdown.
      *
      * @default true
      * @type {boolean}
@@ -294,9 +281,9 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     handleSignals?: boolean;
 
     /**
-     * When enabled, send() resolves only after the message write is
-     * confirmed by redis (and rejects on write failures). By default
-     * writes are fire-and-forget for maximum throughput and failures are
+     * When enabled, send() resolves only after the message writing is
+     * confirmed by redis (and rejects on writing failures). By default,
+     * writes are fire-and-forget for maximum throughput, and failures are
      * reported through the optional errorHandler argument only.
      *
      * @default false
@@ -324,7 +311,7 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
 }
 
 export interface EventMap {
-    message: [data: any, id: string, from: string];
+    message: [data: JsonObject, id: string, from: string];
     error: [error: Error, eventName: string];
 }
 
@@ -343,78 +330,75 @@ export type IMessageQueueConstructor = new (
  * import { randomUUID } from 'crypto';
  *
  * class SomeMQAdapter implements IMessageQueue extends EventEmitter {
- *      public async start(): Promise<SomeMQAdapter> {
- *          // ... implementation goes here
- *          return this;
- *      }
- *      public async stop(): Promise<SomeMQAdapter> {
- *          // ... implementation goes here
- *          return this;
- *      }
- *      public async send(
- *          toQueue: string,
- *          message: JsonObject,
- *          delay?: number
- *      ): Promise<string> {
- *          const messageId = randomUUID();
- *          // ... implementation goes here
- *          return messageId;
- *      }
- *      public async destroy(): Promise<void> {
- *          // ... implementation goes here
- *      }
- *      public async clear(): Promise<SomeMQAdapter> {
- *          // ... implementation goes here
- *          return this;
- *      }
+ public async start(): Promise<SomeMQAdapter> {
+ // ... implementation goes here
+ return this;
+ }
+ public async stop(): Promise<SomeMQAdapter> {
+ // ... implementation goes here
+ return this;
+ }
+ public async send(
+ toQueue: string,
+ message: JsonObject,
+ delay?: number
+ ): Promise<string> {
+ const messageId = randomUUID();
+ // ... implementation goes here
+ return messageId;
+ }
+ public async destroy(): Promise<void> {
+ // ... implementation goes here
+ }
+ public async clear(): Promise<SomeMQAdapter> {
+ // ... implementation goes here
+ return this;
+ }
  * }
  * ~~~
  */
 export interface IMessageQueue extends EventEmitter<EventMap> {
     /**
-     * Message event. Occurs every time queue got a message.
+     * Message event. Occurs every time the queue receives a message.
      *
      * @event IMessageQueue#message
      * @type {JsonObject} message - message data
      * @type {string} id - message identifier
-     * @type {string} from - source queue produced the message
+     * @type {string} from - source queue that produced the message
      */
 
     /**
-     * Error event. Occurs every time queue caught an error.
+     * Error event. Occurs every time the queue encounters an error.
      *
      * @event IMessageQueue#error
-     * @type {Error} err - error caught by message queue
+     * @type {Error} err - error caught by the message queue
      * @type {string} code - message queue error code
      */
 
     /**
      * Starts the messaging queue.
-     * Supposed to be an async function.
      *
      * @returns {Promise<IMessageQueue>}
      */
     start(): Promise<IMessageQueue>;
 
     /**
-     * Stops the queue (should stop to handle queue messages).
-     * Supposed to be an async function.
+     * Stops the queue from handling messages.
      *
      * @returns {Promise<IMessageQueue>}
      */
     stop(): Promise<IMessageQueue>;
 
     /**
-     * Sends a message to the given queue name with the given data.
-     * Supposed to be an async function.
+     * Sends a message to the specified queue with the given data.
      *
-     * @param {string} toQueue - queue name to which a message should be sent to
-     * @param {JsonObject} message - message data
-     * @param {number} [delay] - if specified, a message will be handled in the
-     *        target queue after a specified period of time in milliseconds.
-     * @param {(err: Error) => void} [errorHandler] - callback called only when
-     *        internal error occurs during message send execution.
-     * @returns {Promise<string>} - message identifier
+     * @param {string} toQueue - name of the destination queue
+     * @param {JsonObject} message - message data to send
+     * @param {number} [delay] - if specified, the message will be handled in
+     * the target queue after the specified delay in milliseconds
+     * @param {(err: Error) => void} [errorHandler] - callback invoked only
+     * when an internal error occurs during message send execution
+     * @returns {Promise<string>} - the message identifier
      */
     send(
         toQueue: string,
@@ -428,46 +412,43 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
      * message handler on data receive
      *
      * @param {string} channel - channel name
-     * @param {(data: JsonObject) => any} handler
+     * @param {(data: JsonObject) => void} handler
      */
     subscribe(
         channel: string,
-        handler: (data: JsonObject) => any,
+        handler: (data: JsonObject) => void,
     ): Promise<void>;
 
     /**
-     * Closes subscription channel
+     * Closes the subscription channel
      *
-     * @return {Promise<void>}
+     * @returns {Promise<void>}
      */
     unsubscribe(): Promise<void>;
 
     /**
      * Publishes data to the current queue channel
      *
-     * If toName specified will publish to pubsub with a different name. This
-     * can be used to implement broadcasting some messages to other subscribers
-     * on other pubsub channels. Different names should be in the same namespace
-     * (same imq prefix)
+     * If toName is specified, publishes to a pubsub with a different name. This
+     * can be used to broadcast messages to other subscribers on different pubsub
+     * channels. Different names must be in the same namespace (same imq prefix).
      *
-     * @param {JsonObject} data - data to publish as channel message
-     * @param {string} [toName] - different name of the pubsub to publish to
-     * @return {Promise<void>}
+     * @param {JsonObject} data - data to publish as a channel message
+     * @param {string} [toName] - optional different pubsub name to publish to
+     * @returns {Promise<void>}
      */
     publish(data: JsonObject, toName?: string): Promise<void>;
 
     /**
-     * Safely destroys the current queue, unregistered all set event
-     * listeners and connections.
-     * Supposed to be an async function.
+     * Safely destroys the current queue, unregistering all event listeners
+     * and closing connections.
      *
      * @returns {Promise<void>}
      */
     destroy(): Promise<void>;
 
     /**
-     * Clears queue data in queue host application.
-     * Supposed to be an async function.
+     * Clears all queue data from the queue host application.
      *
      * @returns {Promise<IMessageQueue>}
      */

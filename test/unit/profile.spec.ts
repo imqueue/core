@@ -24,7 +24,7 @@
  */
 import '../mocks';
 import { describe, it, beforeEach, afterEach, mock, Mock } from 'node:test';
-import * as assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import mockRequire from 'mock-require';
 import {
     profile,

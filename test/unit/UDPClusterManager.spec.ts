@@ -26,7 +26,7 @@
  */
 import '../mocks';
 import { describe, it, afterEach, mock } from 'node:test';
-import * as assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { UDPClusterManager } from '../../src';
 
 const testMessageUp = {

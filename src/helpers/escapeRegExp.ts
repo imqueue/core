@@ -25,7 +25,7 @@
  * Escapes regular expression special characters in a given string
  *
  * @param {string} str
- * @return {string}
+ * @returns {string}
  */
 export function escapeRegExp(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

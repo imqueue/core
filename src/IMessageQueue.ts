@@ -281,17 +281,6 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     handleSignals?: boolean;
 
     /**
-     * When enabled, send() resolves only after the message writing is
-     * confirmed by redis (and rejects on writing failures). By default,
-     * writes are fire-and-forget for maximum throughput, and failures are
-     * reported through the optional errorHandler argument only.
-     *
-     * @default false
-     * @type {boolean}
-     */
-    awaitWrites?: boolean;
-
-    /**
      * Enables/disables verbose logging
      *
      * @default false

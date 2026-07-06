@@ -30,8 +30,14 @@ export { EventEmitter } from 'events';
 /**
  * Represents any JSON-serializable value
  */
-export type AnyJson =  boolean | number | string | null | undefined |
-    JsonArray | JsonObject;
+export type AnyJson =
+    | boolean
+    | number
+    | string
+    | null
+    | undefined
+    | JsonArray
+    | JsonObject;
 
 /**
  * Represents JSON serializable object
@@ -200,7 +206,7 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
      *
      * @type {string}
      */
-    cleanupFilter: string,
+    cleanupFilter: string;
 
     /**
      * Message queue vendor
@@ -296,8 +302,8 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
 }
 
 export interface EventMap {
-    message: [data: any, id: string, from: string],
-    error: [error: Error, eventName: string],
+    message: [data: any, id: string, from: string];
+    error: [error: Error, eventName: string];
 }
 
 export type IMessageQueueConstructor = new (
@@ -387,8 +393,12 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
      *        internal error occurs during message send execution.
      * @returns {Promise<string>} - message identifier
      */
-    send(toQueue: string, message: JsonObject, delay?: number,
-         errorHandler?: (err: Error) => void): Promise<string>;
+    send(
+        toQueue: string,
+        message: JsonObject,
+        delay?: number,
+        errorHandler?: (err: Error) => void,
+    ): Promise<string>;
 
     /**
      * Creates or uses subscription channel with the given name and sets

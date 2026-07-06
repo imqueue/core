@@ -20,11 +20,13 @@
  * If you want to use this code in a closed source (commercial) project, you can
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
+ *
+ * UDPClusterManager unit tests (merged: main suite + missing branches coverage).
  */
-import './mocks';
-import { expect } from 'chai';
-import { UDPClusterManager } from '../src';
-import * as sinon from 'sinon';
+import '../../mocks';
+import { describe, it, afterEach, mock } from 'node:test';
+import * as assert from 'node:assert/strict';
+import { UDPClusterManager } from '../../../src';
 
 const testMessageUp = {
     name: 'IMQUnitTest',
@@ -56,10 +58,13 @@ const emitMessage = (
     });
 };
 
-describe('UDPBroadcastClusterManager', function() {
-    this.timeout(5000);
+describe('UDPBroadcastClusterManager', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
     it('should be a class', () => {
-        expect(typeof UDPClusterManager).to.equal('function');
+        assert.equal(typeof UDPClusterManager, 'function');
     });
 
     it('should call add on cluster', async () => {
@@ -70,12 +75,12 @@ describe('UDPBroadcastClusterManager', function() {
         };
         const manager: any = new UDPClusterManager();
 
-        sinon.spy(cluster, 'add');
+        const add = mock.method(cluster, 'add');
 
         manager.init(cluster);
 
         emitMessage(manager, 'cluster:add');
-        expect(cluster.add.called).to.be.true;
+        assert.equal(add.mock.callCount() > 0, true);
         await manager.destroy();
     });
 
@@ -89,12 +94,12 @@ describe('UDPBroadcastClusterManager', function() {
         };
         const manager: any = new UDPClusterManager();
 
-        sinon.spy(cluster, 'add');
+        const add = mock.method(cluster, 'add');
 
         manager.init(cluster);
 
         emitMessage(manager, 'cluster:add');
-        expect(cluster.add.called).to.be.false;
+        assert.equal(add.mock.callCount() > 0, false);
         await manager.destroy();
     });
 
@@ -108,21 +113,21 @@ describe('UDPBroadcastClusterManager', function() {
         };
         const manager: any = new UDPClusterManager();
 
-        sinon.spy(cluster, 'remove');
+        const remove = mock.method(cluster, 'remove');
 
         manager.init(cluster);
 
         emitMessage(manager, 'cluster:remove');
-        expect(cluster.remove.called).to.be.true;
+        assert.equal(remove.mock.callCount() > 0, true);
         await manager.destroy();
     });
 
-    it('should handle server timeout and removal', (done) => {
+    it('should handle server timeout and removal', (t, done) => {
         let addedServer: any = null;
         const cluster: any = {
             add: () => {},
             remove: async (server: any) => {
-                expect(server).to.equal(addedServer);
+                assert.equal(server, addedServer);
                 await manager.destroy();
             },
             find: (message: any) => {
@@ -190,7 +195,42 @@ describe('UDPBroadcastClusterManager', function() {
             // Should not throw when no sockets exist
             await manager.destroy();
 
-            expect(Object.keys((UDPClusterManager as any).sockets)).to.have.length(0);
+            assert.equal(
+                Object.keys((UDPClusterManager as any).sockets).length,
+                0,
+            );
         });
+    });
+});
+
+describe('UDPClusterManager - cover remaining branches', () => {
+    it('destroySocket should call socket.unref() when socket is present', async () => {
+        // Prepare fake socket with unref
+        const unref = mock.fn();
+        const removeAll = mock.fn();
+        const sock: any = {
+            removeAllListeners: removeAll,
+            close: (cb: (err?: any) => void) => cb(),
+            unref,
+        };
+        const key = 'test-key';
+        (UDPClusterManager as any).sockets[key] = sock;
+        await (UDPClusterManager as any).destroySocket(key, sock);
+        assert.equal(unref.mock.callCount() > 0, true);
+        assert.equal((UDPClusterManager as any).sockets[key], undefined);
+    });
+
+    it('destroySocket should work when socket.unref() is absent (optional chaining negative branch)', async () => {
+        const removeAll = mock.fn();
+        const sock: any = {
+            removeAllListeners: removeAll,
+            close: (cb: (err?: any) => void) => cb(),
+            // no unref method
+        };
+        const key = 'test-key-2';
+        (UDPClusterManager as any).sockets[key] = sock;
+        await (UDPClusterManager as any).destroySocket(key, sock);
+        // should not throw, sockets map cleaned
+        assert.equal((UDPClusterManager as any).sockets[key], undefined);
     });
 });

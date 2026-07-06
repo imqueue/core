@@ -21,44 +21,51 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import './mocks';
-import { expect } from 'chai';
-import IMQ, { RedisQueue, ClusteredRedisQueue } from '..';
+import '../mocks';
+import { describe, it } from 'node:test';
+import * as assert from 'node:assert/strict';
+import IMQ, { RedisQueue, ClusteredRedisQueue } from '../..';
 
 describe('IMQ', () => {
-
     it('should be a class', () => {
-        expect(typeof IMQ).to.equal('function');
+        assert.equal(typeof IMQ, 'function');
     });
 
     describe('create()', () => {
         it('should return proper object', () => {
-            expect(IMQ.create('IMQUnitTest', { vendor: 'Redis' }))
-                .instanceof(RedisQueue);
+            assert.ok(
+                IMQ.create('IMQUnitTest', { vendor: 'Redis' }) instanceof
+                    RedisQueue,
+            );
         });
 
         it('should throw if unknown vendor specified', () => {
-            expect(() => IMQ.create('IMQUnitTest', { vendor: 'JudgmentDay' }))
-                .to.throw(Error);
+            assert.throws(
+                () => IMQ.create('IMQUnitTest', { vendor: 'JudgmentDay' }),
+                Error,
+            );
         });
 
         it('should allow to be called with no options', () => {
-            expect(() => IMQ.create('IMQUnitTest'))
-                .not.to.throw(Error);
+            assert.doesNotThrow(() => IMQ.create('IMQUnitTest'));
         });
 
         it('should return clustered object if cluster options passed', () => {
-            expect(IMQ.create('IMQUnitTest', {
-                vendor: 'Redis',
-                cluster: [{
-                    host: 'localhost',
-                    port: 1111
-                }, {
-                    host: 'localhost',
-                    port: 2222
-                }]
-            })).instanceof(ClusteredRedisQueue);
+            assert.ok(
+                IMQ.create('IMQUnitTest', {
+                    vendor: 'Redis',
+                    cluster: [
+                        {
+                            host: 'localhost',
+                            port: 1111,
+                        },
+                        {
+                            host: 'localhost',
+                            port: 2222,
+                        },
+                    ],
+                }) instanceof ClusteredRedisQueue,
+            );
         });
     });
-
 });

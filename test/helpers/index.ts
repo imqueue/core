@@ -1,4 +1,6 @@
 /*!
+ * IMQ Unit Test Helpers
+ *
  * I'm Queue Software Project
  * Copyright (C) 2025  imqueue.com <support@imqueue.com>
  *
@@ -19,23 +21,18 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import './mocks';
-import { expect } from 'chai';
-import { EventEmitter as IMQEventEmitter } from '../src';
-import { EventEmitter as NodeEventEmitter } from 'events';
+import { ILogger } from '../..';
 
-// This test ensures the re-exported EventEmitter from IMessageQueue.ts is exercised
-// to cover the function counted by nyc/istanbul for that re-export.
-describe('IMessageQueue EventEmitter re-export', () => {
-    it('should re-export Node.js EventEmitter and be usable', () => {
-        // Ensure it is the same constructor
-        expect(IMQEventEmitter).to.equal(NodeEventEmitter);
-
-        // And it works as expected when instantiated
-        const ee = new IMQEventEmitter();
-        let called = 0;
-        ee.on('ping', () => { called++; });
-        ee.emit('ping');
-        expect(called).to.equal(1);
-    });
-});
+/**
+ * Builds a fresh no-op logger suitable for spying on in unit tests.
+ *
+ * @return {ILogger}
+ */
+export function makeLogger(): ILogger {
+    return {
+        log: (..._args: any[]) => undefined,
+        info: (..._args: any[]) => undefined,
+        warn: (..._args: any[]) => undefined,
+        error: (..._args: any[]) => undefined,
+    } as unknown as ILogger;
+}

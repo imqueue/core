@@ -19,12 +19,13 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import './mocks';
+import '../mocks';
+import { describe, it } from 'node:test';
+import * as assert from 'node:assert/strict';
 import { EventEmitter } from 'events';
-import { expect } from 'chai';
-import { copyEventEmitter } from '../src';
+import { copyEventEmitter } from '../../src';
 
-describe('copyEventEmitter()', function() {
+describe('copyEventEmitter()', () => {
     const eventName = 'test';
 
     it('should have the same number of listeners', () => {
@@ -34,7 +35,7 @@ describe('copyEventEmitter()', function() {
         source.on('test', () => {});
         copyEventEmitter(source, target);
 
-        expect(target.listenerCount('test')).to.be.equal(1);
+        assert.equal(target.listenerCount('test'), 1);
     });
 
     it('should copy the same listener on', () => {
@@ -48,7 +49,7 @@ describe('copyEventEmitter()', function() {
         const targetListener = target.listeners(eventName)[0];
         const sourceListener = source.listeners(eventName)[0];
 
-        expect(targetListener).to.be.equal(sourceListener);
+        assert.equal(targetListener, sourceListener);
     });
 
     it('should copy the same listener once', () => {
@@ -61,7 +62,7 @@ describe('copyEventEmitter()', function() {
         const targetListener = target.listeners(eventName)[0];
         const sourceListener = source.listeners(eventName)[0];
 
-        expect(targetListener).to.be.equal(sourceListener);
+        assert.equal(targetListener, sourceListener);
     });
 
     it('should set same max listeners count', () => {
@@ -74,7 +75,7 @@ describe('copyEventEmitter()', function() {
         const targetListenersCount = target.getMaxListeners();
         const sourceListenersCount = source.getMaxListeners();
 
-        expect(targetListenersCount).to.be.equal(sourceListenersCount);
+        assert.equal(targetListenersCount, sourceListenersCount);
     });
 
     it('should handle listeners without listener property', () => {
@@ -82,9 +83,9 @@ describe('copyEventEmitter()', function() {
         const target = new EventEmitter();
 
         // Create a mock listener that looks like onceWrapper but has no listener property
-        const mockListener = function() {};
+        const mockListener = function () {};
         Object.defineProperty(mockListener, 'toString', {
-            value: () => 'function onceWrapper() { ... }'
+            value: () => 'function onceWrapper() { ... }',
         });
 
         // Manually add the listener to simulate the edge case
@@ -104,7 +105,7 @@ describe('copyEventEmitter()', function() {
         // Restore original inspect
         require('util').inspect = originalInspect;
 
-        expect(target.listenerCount(eventName)).to.be.equal(1);
+        assert.equal(target.listenerCount(eventName), 1);
     });
 
     it('should handle source without _maxListeners property', () => {
@@ -117,7 +118,7 @@ describe('copyEventEmitter()', function() {
         source.on(eventName, () => {});
         copyEventEmitter(source, target);
 
-        expect(target.listenerCount(eventName)).to.be.equal(1);
+        assert.equal(target.listenerCount(eventName), 1);
     });
 
     it('should handle once listeners with listener property', () => {
@@ -129,14 +130,14 @@ describe('copyEventEmitter()', function() {
 
         copyEventEmitter(source, target);
 
-        expect(target.listenerCount(eventName)).to.be.equal(1);
+        assert.equal(target.listenerCount(eventName), 1);
     });
     it('should handle onceWrapper-like listener with falsy listener property', () => {
         const source = new EventEmitter();
         const target = new EventEmitter();
 
         // Create a mock listener that looks like onceWrapper and has a falsy listener property
-        const mockListener: any = function() {};
+        const mockListener: any = function () {};
         mockListener.listener = 0; // falsy value present
         const originalInspect = require('util').inspect;
         require('util').inspect = (obj: any) => {
@@ -152,14 +153,14 @@ describe('copyEventEmitter()', function() {
         // Restore original inspect
         require('util').inspect = originalInspect;
 
-        expect(target.listenerCount(eventName)).to.be.equal(1);
+        assert.equal(target.listenerCount(eventName), 1);
     });
 
     it('should handle onceWrapper-like listener with undefined listener property', () => {
         const source = new EventEmitter();
         const target = new EventEmitter();
 
-        const mockListener: any = function() {};
+        const mockListener: any = function () {};
         mockListener.listener = undefined; // explicitly undefined
         const originalInspect = require('util').inspect;
         require('util').inspect = (obj: any) => {
@@ -175,7 +176,7 @@ describe('copyEventEmitter()', function() {
         // Restore original inspect
         require('util').inspect = originalInspect;
 
-        expect(target.listenerCount(eventName)).to.be.equal(1);
+        assert.equal(target.listenerCount(eventName), 1);
     });
 
     it('should handle onceWrapper-like listener with truthy listener property', () => {
@@ -184,8 +185,10 @@ describe('copyEventEmitter()', function() {
 
         // Create a mock listener that looks like onceWrapper and has a truthy listener property
         let called = 0;
-        const realListener = () => { called++; };
-        const mockListener: any = function() {};
+        const realListener = () => {
+            called++;
+        };
+        const mockListener: any = function () {};
         mockListener.listener = realListener; // truthy function
 
         const originalInspect = require('util').inspect;
@@ -203,10 +206,10 @@ describe('copyEventEmitter()', function() {
         require('util').inspect = originalInspect;
 
         // Ensure the listener was attached via once() and is callable exactly once
-        expect(target.listenerCount(eventName)).to.be.equal(1);
+        assert.equal(target.listenerCount(eventName), 1);
         target.emit(eventName);
         target.emit(eventName);
-        expect(called).to.equal(1);
+        assert.equal(called, 1);
     });
 
     it('should handle onceWrapper path when originalListener is undefined', () => {
@@ -218,7 +221,9 @@ describe('copyEventEmitter()', function() {
         };
         const onceCalls: any[] = [];
         const target: any = {
-            once: (ev: any, listener: any) => { onceCalls.push([ev, listener]); },
+            once: (ev: any, listener: any) => {
+                onceCalls.push([ev, listener]);
+            },
             on: () => {},
         };
         const originalInspect = require('util').inspect;
@@ -234,8 +239,8 @@ describe('copyEventEmitter()', function() {
         // Restore original inspect
         require('util').inspect = originalInspect;
 
-        expect(onceCalls.length).to.equal(1);
-        expect(onceCalls[0][0]).to.equal(eventName);
-        expect(onceCalls[0][1]).to.equal(undefined);
+        assert.equal(onceCalls.length, 1);
+        assert.equal(onceCalls[0][0], eventName);
+        assert.equal(onceCalls[0][1], undefined);
     });
 });

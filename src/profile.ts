@@ -21,7 +21,6 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import 'reflect-metadata';
 import { ILogger } from '.';
 
 export enum LogLevel {
@@ -100,7 +99,7 @@ export const IMQ_LOG_ARGS = !!+(process.env.IMQ_LOG_ARGS || 0);
  * @type {AllowedTimeFormat | string}
  */
 export const IMQ_LOG_TIME_FORMAT: AllowedTimeFormat =
-    process.env.IMQ_LOG_TIME_FORMAT as AllowedTimeFormat || 'microseconds';
+    (process.env.IMQ_LOG_TIME_FORMAT as AllowedTimeFormat) || 'microseconds';
 
 export interface DebugInfoOptions {
     /**
@@ -159,15 +158,13 @@ export function logDebugInfo({
     logger,
     logLevel,
 }: DebugInfoOptions) {
-    const log = logger && typeof logger[logLevel] === 'function'
-        ? logger[logLevel].bind(logger) : undefined;
+    const log =
+        logger && typeof logger[logLevel] === 'function'
+            ? logger[logLevel].bind(logger)
+            : undefined;
 
     if (debugTime) {
-        // noinspection TypeScriptUnresolvedFunction
-        const time = parseInt(
-            ((process.hrtime as any).bigint() - BigInt(start)) as any,
-            10,
-        ) / 1000;
+        const time = Number(process.hrtime.bigint() - BigInt(start)) / 1000;
         let timeStr: string;
 
         // istanbul ignore next
@@ -193,21 +190,25 @@ export function logDebugInfo({
         const cache: any[] = [];
 
         try {
-            argStr = JSON.stringify(args, (key: string, value: any) => {
-                if (typeof value === 'object' && value !== null) {
-                    if (~cache.indexOf(value)) {
-                        try {
-                            return JSON.parse(JSON.stringify(value));
-                        } catch (error) {
-                            return;
+            argStr = JSON.stringify(
+                args,
+                (key: string, value: any) => {
+                    if (typeof value === 'object' && value !== null) {
+                        if (~cache.indexOf(value)) {
+                            try {
+                                return JSON.parse(JSON.stringify(value));
+                            } catch (error) {
+                                return;
+                            }
                         }
+
+                        cache.push(value);
                     }
 
-                    cache.push(value);
-                }
-
-                return value;
-            }, 2);
+                    return value;
+                },
+                2,
+            );
         } catch (err) {
             logger.error(err);
         }
@@ -245,11 +246,15 @@ export function logDebugInfo({
  *  descriptor: TypedPropertyDescriptor<(...args: any[]) => any>
  * ) => void}
  */
-export function profile(options?: ProfileDecoratorOptions): (
-    target: any,
-    methodName: string,
-    descriptor: TypedPropertyDescriptor<(...args: any[]) => any>,
-) => void {
+export function profile<This, Args extends any[], Return>(
+    options?: ProfileDecoratorOptions,
+): (
+    original: (this: This, ...args: Args) => Return,
+    context: ClassMethodDecoratorContext<
+        This,
+        (this: This, ...args: Args) => Return
+    >,
+) => (this: This, ...args: Args) => Return {
     options = Object.assign({}, DEFAULT_OPTIONS, options);
 
     const { enableDebugTime, enableDebugArgs, logLevel } = options;
@@ -264,47 +269,52 @@ export function profile(options?: ProfileDecoratorOptions): (
         debugArgs = enableDebugArgs;
     }
 
-    return function wrapper(
-        target: any,
-        methodName: string,
-        descriptor: TypedPropertyDescriptor<(...args: any[]) => any>,
-    ) {
-        /* istanbul ignore next */
-        const original = descriptor.value || target[methodName];
+    return function decorator(
+        original: (this: This, ...args: Args) => Return,
+        context: ClassMethodDecoratorContext<
+            This,
+            (this: This, ...args: Args) => Return
+        >,
+    ): (this: This, ...args: Args) => Return {
+        const methodName = String(context.name);
 
-        descriptor.value = function(...args: any[]) {
+        return function wrapper(this: This, ...args: Args): Return {
             if (!(debugTime || debugArgs)) {
-                return original.apply(this || target, args);
+                return original.apply(this, args);
             }
 
+            const self = this as any;
             /* istanbul ignore next */
-            const className = typeof target === 'function' && target.name
-                ? target.name              // static
-                : target.constructor.name; // dynamic
-            // noinspection TypeScriptUnresolvedFunction
-            const start = (process.hrtime as any).bigint();
-            const result = original.apply(this || target, args);
+            const className = self
+                ? typeof self === 'function'
+                    ? self.name // static
+                    : self.constructor && self.constructor.name // dynamic
+                : '';
+            const start = process.hrtime.bigint();
+            const result = original.apply(this, args);
             const debugOptions: DebugInfoOptions = {
                 args,
                 className,
                 debugArgs,
                 debugTime,
                 logLevel: logLevel ? verifyLogLevel(logLevel) : IMQ_LOG_LEVEL,
-                logger: (this || target).logger,
+                logger: self && self.logger,
                 methodName,
                 start,
             };
 
             /* istanbul ignore next */
-            if (result && typeof result.then === 'function') {
+            if (result && typeof (result as any).then === 'function') {
                 // async call detected
-                result.then((res: any) => {
-                    logDebugInfo(debugOptions);
+                (result as any)
+                    .then((res: any) => {
+                        logDebugInfo(debugOptions);
 
-                    return res;
-                }).catch(() => {
-                    logDebugInfo(debugOptions);
-                });
+                        return res;
+                    })
+                    .catch(() => {
+                        logDebugInfo(debugOptions);
+                    });
 
                 return result;
             }

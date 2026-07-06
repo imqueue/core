@@ -1,8 +1,4 @@
 /*!
- * Unified Unique ID Generator
- * Based on solution inspired by Jeff Ward and the comments to it:
- * @see http://stackoverflow.com/a/21963136/1511662
- *
  * I'm Queue Software Project
  * Copyright (C) 2025  imqueue.com <support@imqueue.com>
  *
@@ -23,17 +19,26 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { randomUUID } from 'crypto';
+import '../mocks';
+import { describe, it } from 'node:test';
+import * as assert from 'node:assert/strict';
+import { EventEmitter as IMQEventEmitter } from '../../src';
+import { EventEmitter as NodeEventEmitter } from 'events';
 
-/**
- * Generates and returns Unified Unique Identifier (RFC 4122 v4).
- *
- * Uses the cryptographically strong native generator, which is both faster
- * and collision-safe under high load compared to a Math.random() based
- * implementation.
- *
- * @returns {string}
- */
-export function uuid(): string {
-    return randomUUID();
-}
+// This test ensures the re-exported EventEmitter from IMessageQueue.ts is exercised
+// to cover the function counted by nyc/istanbul for that re-export.
+describe('IMessageQueue EventEmitter re-export', () => {
+    it('should re-export Node.js EventEmitter and be usable', () => {
+        // Ensure it is the same constructor
+        assert.equal(IMQEventEmitter, NodeEventEmitter);
+
+        // And it works as expected when instantiated
+        const ee = new IMQEventEmitter();
+        let called = 0;
+        ee.on('ping', () => {
+            called++;
+        });
+        ee.emit('ping');
+        assert.equal(called, 1);
+    });
+});

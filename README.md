@@ -147,10 +147,21 @@ predictable.*
 
 ## Running Unit Tests
 
+Tests run on the native Node.js test runner (`node:test`) with `node:assert` and
+no external test framework, so a plain clone and install is all that is needed:
+
 ~~~bash
 git clone git@github.com:imqueue/core.git
-cd imq
+cd core
+npm install
 npm test
+~~~
+
+To produce a coverage report use:
+
+~~~bash
+npm run test-coverage        # prints coverage summary to the console
+npm run test-lcov            # writes coverage/lcov.info
 ~~~
 
 ## License

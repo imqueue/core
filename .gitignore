@@ -4,6 +4,7 @@ tmp/
 out-tsc/
 build/
 .nyc_output/
+.agent-out/
 
 node_modules/
 

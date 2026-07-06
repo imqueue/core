@@ -21,7 +21,6 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import 'reflect-metadata';
 import {
     IMessageQueue,
     IMessageQueueConstructor,
@@ -65,8 +64,9 @@ export default class IMQ {
             ClassName = `Clustered${ClassName}`;
         }
 
-        const Adapter: IMessageQueueConstructor =
-            require(`${__dirname}/src/${ClassName}.js`)[ClassName];
+        const Adapter: IMessageQueueConstructor = require(
+            `${__dirname}/src/${ClassName}.js`,
+        )[ClassName];
 
         return new Adapter(name, options, mode);
     }

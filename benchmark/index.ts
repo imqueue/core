@@ -177,7 +177,7 @@ for (let i = 0; i < maxChildren; i++) {
  * @param {number} i
  * @returns {{idle: number, total: number}}
  */
-function cpuAvg(i: number): { idle: number; total: number; } {
+function cpuAvg(i: number): { idle: number; total: number } {
     const cpuList = cpus();
     const cpu: any = cpuList[i];
     let totalIdle = 0;
@@ -247,10 +247,10 @@ interface ChartConfig {
                 centered: boolean;
                 fit: boolean;
                 culling: { max: number };
-                outer: boolean
-            }
+                outer: boolean;
+            };
         };
-        y: { max: number; tick: { outer: boolean } }
+        y: { max: number; tick: { outer: boolean } };
     };
     zoom: { enabled: boolean };
 }
@@ -276,7 +276,7 @@ function buildChartConfig(id: string, stats: any[]): ChartConfig {
                     .slice(1)
                     .map(
                         (_: any, i: number) =>
-                            (((i * 100) / 1000).toFixed(1) + 's'),
+                            ((i * 100) / 1000).toFixed(1) + 's',
                     ),
                 tick: {
                     centered: true,
@@ -512,9 +512,7 @@ if (cluster.isPrimary) {
             }
 
             metricsInterval = setInterval(() => {
-                metrics.push(
-                    CPU_NAMES.map((_, i: number) => cpuAvg(i + 1)),
-                );
+                metrics.push(CPU_NAMES.map((_, i: number) => cpuAvg(i + 1)));
                 memusage.push({
                     total: totalmem(),
                     free: freemem(),

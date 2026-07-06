@@ -30,10 +30,8 @@ import {
 } from 'worker_threads';
 import { createSocket, Socket } from 'dgram';
 import { networkInterfaces } from 'os';
-import { UDPClusterManagerOptions } from './UDPClusterManager';
+import { UDPWorkerOptions } from './UDPClusterManager';
 import { randomUUID } from 'crypto';
-
-process.setMaxListeners(10000);
 
 enum MessageType {
     Up = 'up',
@@ -49,24 +47,43 @@ interface Message {
     timeout: number;
 }
 
-class UDPWorker {
+export class UDPWorker {
     private readonly socket: Socket;
     private readonly servers = new Map<string, string>();
 
     constructor(
-        private readonly options: UDPClusterManagerOptions,
+        private readonly options: UDPWorkerOptions,
         private readonly messagePort: MessagePort,
     ) {
         this.setupMessageHandlers();
-        this.setupProcessHandlers();
         this.socket = createSocket({
             type: 'udp4',
             reuseAddr: true,
             reusePort: true,
-        }).bind(this.options.port, this.selectNetworkInterface());
-        this.socket.on('message', message =>
-            this.processMessage(this.parseMessage(message)),
-        );
+        });
+        // surface socket failures (bind errors, network errors) to the
+        // main thread instead of crashing the whole process with an
+        // unhandled 'error' event
+        this.socket.on('error', err => {
+            this.messagePort.postMessage({
+                type: 'error',
+                error: err.message,
+            });
+        });
+        this.socket.on('message', input => {
+            // a malformed datagram on the broadcast port must never crash
+            // the worker (and, through it, the host process)
+            try {
+                const message = this.parseMessage(input);
+
+                if (message) {
+                    this.processMessage(message);
+                }
+            } catch {
+                // ignore broken datagrams
+            }
+        });
+        this.socket.bind(this.options.port, this.selectNetworkInterface());
     }
 
     private static getServerKey(message: Message): string {
@@ -79,12 +96,6 @@ class UDPWorker {
                 this.stop();
             }
         });
-    }
-
-    private setupProcessHandlers(): void {
-        process.on('SIGTERM', this.cleanup);
-        process.on('SIGINT', this.cleanup);
-        process.on('SIGABRT', this.cleanup);
     }
 
     private addServer(message: Message): void {
@@ -183,19 +194,44 @@ class UDPWorker {
         return defaultAddress;
     }
 
-    private parseMessage(input: Buffer): Message {
+    /**
+     * Parses a raw broadcast datagram into a message. Returns null for
+     * malformed input (missing fields, non-numeric port, or timeout), so
+     * garbage on the broadcast port is dropped instead of producing
+     * NaN-driven timers or crashes.
+     *
+     * @param {Buffer} input
+     * @returns {Message | null}
+     */
+    private parseMessage(input: Buffer): Message | null {
         const [name, id, type, address = '', timeout = '0'] = input
             .toString()
             .split('\t');
-        const [host, port] = address.split(':');
+        const [host, port = ''] = address.split(':');
+        const portNumber = parseInt(port, 10);
+        const timeoutMs = parseFloat(timeout) * 1000;
+
+        if (
+            !name ||
+            !id ||
+            !type ||
+            !host ||
+            !Number.isFinite(portNumber) ||
+            portNumber <= 0 ||
+            portNumber > 65535 ||
+            !Number.isFinite(timeoutMs) ||
+            timeoutMs < 0
+        ) {
+            return null;
+        }
 
         return {
             id,
             name,
             type: type.toLowerCase() as MessageType,
             host,
-            port: parseInt(port),
-            timeout: parseFloat(timeout) * 1000,
+            port: portNumber,
+            timeout: timeoutMs,
         };
     }
 
@@ -213,15 +249,15 @@ class UDPWorker {
         this.messagePort.postMessage({ type: 'stopped' });
     }
 
-    // arrow field so the bound reference can be passed to process signal
-    // handlers without losing `this`
-    private readonly cleanup = (): void => {
+    private cleanup(): void {
         this.servers.clear();
 
         if (this.socket) {
-            this.socket.removeAllListeners();
+            // keep the 'error' listener attached: a socket error during
+            // close must not crash the worker as an unhandled 'error' event
+            this.socket.removeAllListeners('message');
         }
-    };
+    }
 }
 
 if (!isMainThread && parentPort) {

@@ -187,52 +187,125 @@ describe('UDPBroadcastClusterManager', () => {
     });
 
     describe('destroy()', () => {
-        it('should handle empty sockets gracefully', async () => {
+        it('should be idempotent', async () => {
             const manager: any = new UDPClusterManager();
 
-            // Clear any existing sockets
-            (UDPClusterManager as any).sockets = {};
-
-            // Should not throw when no sockets exist
+            await manager.destroy();
+            // a repeated destroy must not throw or corrupt refcounts
             await manager.destroy();
 
             assert.equal(
-                Object.keys((UDPClusterManager as any).sockets).length,
-                0,
+                (UDPClusterManager as any).workerRefs[manager.workerKey],
+                undefined,
             );
         });
     });
 });
 
-describe('UDPClusterManager - cover remaining branches', () => {
-    it('destroySocket should call socket.unref() when socket is present', async () => {
-        // Prepare fake socket with unref
-        const unref = mock.fn();
-        const removeAll = mock.fn();
-        const sock: any = {
-            removeAllListeners: removeAll,
-            close: (cb: (err?: any) => void) => cb(),
-            unref,
-        };
-        const key = 'test-key';
-        (UDPClusterManager as any).sockets[key] = sock;
-        await (UDPClusterManager as any).destroySocket(key, sock);
-        assert.equal(unref.mock.callCount() > 0, true);
-        assert.equal((UDPClusterManager as any).sockets[key], undefined);
+describe('UDPClusterManager - shared worker fan-out', () => {
+    afterEach(() => {
+        mock.restoreAll();
     });
 
-    it('destroySocket should work when socket.unref() is absent (optional chaining negative branch)', async () => {
-        const removeAll = mock.fn();
-        const sock: any = {
-            removeAllListeners: removeAll,
-            close: (cb: (err?: any) => void) => cb(),
-            // no unref method
+    it('should deliver worker messages to every manager sharing a worker', async () => {
+        const clusterOne: any = {
+            add: mock.fn(),
+            remove: () => {},
+            find: () => undefined,
         };
-        const key = 'test-key-2';
-        (UDPClusterManager as any).sockets[key] = sock;
-        await (UDPClusterManager as any).destroySocket(key, sock);
-        // should not throw, sockets map cleaned
-        assert.equal((UDPClusterManager as any).sockets[key], undefined);
+        const clusterTwo: any = {
+            add: mock.fn(),
+            remove: () => {},
+            find: () => undefined,
+        };
+        const managerOne: any = new UDPClusterManager();
+        const managerTwo: any = new UDPClusterManager();
+
+        // same options must resolve to one shared worker
+        assert.equal(managerOne.worker, managerTwo.worker);
+
+        managerOne.init(clusterOne);
+        managerTwo.init(clusterTwo);
+
+        emitMessage(managerOne, 'cluster:add');
+
+        assert.equal(clusterOne.add.mock.callCount(), 1);
+        assert.equal(clusterTwo.add.mock.callCount(), 1);
+
+        await managerOne.destroy();
+        await managerTwo.destroy();
+    });
+
+    it('should stop delivering messages to a destroyed manager', async () => {
+        const clusterOne: any = {
+            add: mock.fn(),
+            remove: () => {},
+            find: () => undefined,
+        };
+        const clusterTwo: any = {
+            add: mock.fn(),
+            remove: () => {},
+            find: () => undefined,
+        };
+        const managerOne: any = new UDPClusterManager();
+        const managerTwo: any = new UDPClusterManager();
+
+        managerOne.init(clusterOne);
+        managerTwo.init(clusterTwo);
+
+        await managerOne.destroy();
+
+        emitMessage(managerTwo, 'cluster:add');
+
+        assert.equal(clusterOne.add.mock.callCount(), 0);
+        assert.equal(clusterTwo.add.mock.callCount(), 1);
+
+        await managerTwo.destroy();
+    });
+
+    it('should use separate workers for differing worker options', async () => {
+        const managerOne: any = new UDPClusterManager();
+        const managerTwo: any = new UDPClusterManager({
+            aliveTimeoutCorrection: 1234,
+        });
+
+        assert.notEqual(managerOne.workerKey, managerTwo.workerKey);
+        assert.notEqual(managerOne.worker, managerTwo.worker);
+
+        await managerOne.destroy();
+        await managerTwo.destroy();
+    });
+
+    it('should log worker socket errors instead of crashing', async () => {
+        const warn = mock.fn();
+        const manager: any = new UDPClusterManager({
+            logger: { log: () => {}, info: () => {}, warn, error: () => {} },
+        });
+
+        manager.worker.emit('message', {
+            type: 'error',
+            error: 'bind failed',
+        });
+
+        assert.equal(warn.mock.callCount(), 1);
+        assert.match(String(warn.mock.calls[0].arguments[0]), /bind failed/);
+
+        await manager.destroy();
+    });
+
+    it('should not bind process signal handlers when handleSignals is false', async () => {
+        const previouslyBound = (UDPClusterManager as any).signalsBound;
+
+        (UDPClusterManager as any).signalsBound = false;
+
+        const before = process.listenerCount('SIGABRT');
+        const manager: any = new UDPClusterManager({ handleSignals: false });
+
+        assert.equal(process.listenerCount('SIGABRT'), before);
+        assert.equal((UDPClusterManager as any).signalsBound, false);
+
+        await manager.destroy();
+        (UDPClusterManager as any).signalsBound = previouslyBound;
     });
 });
 
@@ -253,11 +326,14 @@ describe('UDPClusterManager.destroyWorker()', () => {
         let terminated = false;
         const fakeWorker: any = {
             postMessage: () => {},
-            once: (event: string, cb: Function) => {
+            on: (event: string, cb: Function) => {
                 if (event === 'message') {
+                    // unrelated broadcast noise must not consume the wait
+                    setImmediate(() => cb({ type: 'cluster:add' }));
                     setImmediate(() => cb({ type: 'stopped' }));
                 }
             },
+            off: () => {},
             terminate: () => {
                 terminated = true;
             },

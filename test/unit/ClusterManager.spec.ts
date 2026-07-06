@@ -58,3 +58,46 @@ describe('ClusterManager.remove()', () => {
         assert.equal((cm as any).clusters.length, 0);
     });
 });
+
+describe('ClusterManager.forEachCluster()', () => {
+    const makeCluster = () => ({
+        add: () => ({}) as any,
+        remove: () => undefined,
+        find: () => undefined,
+    });
+
+    it('should apply the callback to every registered cluster', async () => {
+        const cm = new TestClusterManager();
+        const one = cm.init(makeCluster());
+        const two = cm.init(makeCluster());
+        const seen: string[] = [];
+
+        await cm.forEachCluster(cluster => {
+            seen.push(cluster.id);
+        });
+
+        assert.deepEqual(seen.sort(), [one.id, two.id].sort());
+    });
+
+    it('should process remaining clusters when one callback throws', async () => {
+        const cm = new TestClusterManager();
+
+        cm.init(makeCluster());
+        cm.init(makeCluster());
+        cm.init(makeCluster());
+
+        let calls = 0;
+
+        // a synchronous throw on the first cluster must not prevent the
+        // remaining clusters from being processed, nor reject the call
+        await cm.forEachCluster(() => {
+            calls++;
+
+            if (calls === 1) {
+                throw new Error('first cluster callback failed');
+            }
+        });
+
+        assert.equal(calls, 3);
+    });
+});

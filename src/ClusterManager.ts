@@ -40,7 +40,6 @@ export abstract class ClusterManager {
     protected constructor() {}
 
     public init(cluster: ICluster): InitializedCluster {
-        // build a new object rather than mutating the caller's cluster
         const initializedCluster: InitializedCluster = {
             ...cluster,
             id: randomUUID(),
@@ -51,10 +50,21 @@ export abstract class ClusterManager {
         return initializedCluster;
     }
 
-    public async anyCluster(
+    /**
+     * Applies the given callback to every registered cluster. Each cluster
+     * is handled independently: a callback that throws (synchronously or
+     * asynchronously) for one cluster never prevents the remaining clusters
+     * from being processed.
+     *
+     * @param {(cluster: InitializedCluster) => Promise<void> | void} fn
+     * @returns {Promise<void>}
+     */
+    public async forEachCluster(
         fn: (cluster: InitializedCluster) => Promise<void> | void,
     ): Promise<void> {
-        await Promise.all(this.clusters.map(cluster => fn(cluster)));
+        await Promise.allSettled(
+            this.clusters.map(async cluster => fn(cluster)),
+        );
     }
 
     public async remove(

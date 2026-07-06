@@ -38,6 +38,12 @@ class Socket extends EventEmitter {
 
         return this;
     }
+
+    public close(callback?: () => void): void {
+        if (callback) {
+            callback();
+        }
+    }
 }
 
 export const createSocket = () => {

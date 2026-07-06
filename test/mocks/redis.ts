@@ -208,6 +208,12 @@ export class RedisClientMock extends EventEmitter {
         }
     }
 
+    public llen(key: string, cb?: Function): number {
+        const q = RedisClientMock.__queues__[key] || [];
+        this.cbExecute(cb, null, q.length);
+        return q.length;
+    }
+
     public lrange(
         key: string,
         start: number,

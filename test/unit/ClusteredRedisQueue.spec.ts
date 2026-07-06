@@ -405,6 +405,89 @@ describe('ClusteredRedisQueue - EventEmitter proxy methods', () => {
         assert.equal(cq.emit('test', 1, 2, 3), true);
         assert.equal(handler.mock.callCount(), 1);
     });
+
+    it('should forward listener registration and removal to every queue', async () => {
+        const cq: any = new ClusteredRedisQueue('ProxyFanout', {
+            cluster: [
+                { host: '127.0.0.1', port: 6379 },
+                { host: '127.0.0.1', port: 6380 },
+            ],
+        });
+
+        assert.equal(cq.imqs.length, 2);
+
+        const handler: Mock<any> = mock.fn();
+
+        // on() attaches the handler to each underlying queue
+        cq.on('evt', handler);
+
+        for (const imq of cq.imqs) {
+            assert.equal(imq.listenerCount('evt'), 1);
+        }
+
+        // emit() reaches exactly the emitters where the listener is registered
+        const fanout = cq.listeners('evt').length;
+        cq.emit('evt', 'payload');
+        assert.equal(handler.mock.callCount(), fanout);
+
+        // addListener() attaches a second event on each queue
+        cq.addListener('evt2', handler);
+
+        for (const imq of cq.imqs) {
+            assert.equal(imq.listenerCount('evt2'), 1);
+        }
+
+        // removeAllListeners() clears only the targeted event everywhere
+        cq.removeAllListeners('evt');
+
+        for (const imq of cq.imqs) {
+            assert.equal(imq.listenerCount('evt'), 0);
+            assert.equal(imq.listenerCount('evt2'), 1);
+        }
+
+        // removeListener()/off() detach from each queue
+        cq.removeListener('evt2', handler);
+
+        for (const imq of cq.imqs) {
+            assert.equal(imq.listenerCount('evt2'), 0);
+        }
+
+        assert.equal(cq.listeners('evt2').length, 0);
+
+        await cq.destroy();
+    });
+
+    it('should forward once/prepend variants with correct semantics', async () => {
+        const cq: any = new ClusteredRedisQueue('ProxyOnce', {
+            cluster: [{ host: '127.0.0.1', port: 6379 }],
+        });
+        const imq = cq.imqs[0];
+
+        // once() is forwarded and auto-removed after a single emit
+        cq.once('evt', mock.fn());
+        assert.equal(imq.listenerCount('evt'), 1);
+        cq.emit('evt');
+        assert.equal(imq.listenerCount('evt'), 0);
+
+        // prependListener() is forwarded and persists across emits
+        cq.prependListener('evt', mock.fn());
+        assert.equal(imq.listenerCount('evt'), 1);
+        cq.emit('evt');
+        cq.emit('evt');
+        assert.equal(imq.listenerCount('evt'), 1);
+
+        // prependOnceListener() is forwarded and auto-removed after one emit
+        cq.prependOnceListener('evt2', mock.fn());
+        assert.equal(imq.listenerCount('evt2'), 1);
+        cq.emit('evt2');
+        assert.equal(imq.listenerCount('evt2'), 0);
+
+        // removeAllListeners() with no event clears every event everywhere
+        cq.removeAllListeners();
+        assert.equal(imq.listenerCount('evt'), 0);
+
+        await cq.destroy();
+    });
 });
 
 describe('ClusteredRedisQueue.addServerWithQueueInitializing() default param', () => {

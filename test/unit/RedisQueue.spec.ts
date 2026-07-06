@@ -1114,3 +1114,192 @@ describe('RedisQueue.unsubscribe()', () => {
         await rq.destroy().catch(() => undefined);
     });
 });
+
+describe('RedisQueue.queueLength()', () => {
+    it('should return 0 when the writer is not connected', async () => {
+        const rq: any = new RedisQueue('QLenNoWriter', { logger });
+
+        assert.equal(await rq.queueLength(), 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('should return the number of pending messages in the queue', async () => {
+        const rq: any = new RedisQueue('QLenCount', { logger });
+        await rq.start();
+
+        assert.equal(await rq.queueLength(), 0);
+
+        await rq.send('QLenCount', { n: 1 });
+        await rq.send('QLenCount', { n: 2 });
+
+        assert.equal(await rq.queueLength(), 2);
+
+        await rq.destroy(true).catch(() => undefined);
+    });
+});
+
+describe('RedisQueue.available getter', () => {
+    it('should be available before a writer connection exists', () => {
+        const rq: any = new RedisQueue('AvailNoWriter', { logger });
+
+        assert.equal(rq.available, true);
+
+        rq.destroy().catch(() => undefined);
+    });
+
+    it('should reflect the writer connection status once started', async () => {
+        const rq: any = new RedisQueue('AvailStarted', { logger });
+        await rq.start();
+
+        assert.equal(rq.available, true);
+
+        rq.writer.status = 'reconnecting';
+        assert.equal(rq.available, false);
+
+        rq.writer.status = 'ready';
+        assert.equal(rq.available, true);
+
+        await rq.destroy().catch(() => undefined);
+    });
+});
+
+describe('RedisQueue.onWatchMessage()', () => {
+    it('should process delayed messages for ttl expiry keys', async () => {
+        const rq: any = new RedisQueue('WatchTtl', { logger });
+        await rq.start();
+
+        const processDelayed = mock.method(rq, 'processDelayed');
+
+        // keyspace event: <prefix>:<name>:<id>:ttl
+        await rq.onWatchMessage('__keyspace__', `imq:WatchTtl:someid:ttl`);
+
+        assert.equal(processDelayed.mock.callCount(), 1);
+        assert.equal(processDelayed.mock.calls[0].arguments[0], 'imq:WatchTtl');
+
+        mock.restoreAll();
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('should ignore keyspace events that are not ttl expiries', async () => {
+        const rq: any = new RedisQueue('WatchNonTtl', { logger });
+        await rq.start();
+
+        const processDelayed = mock.method(rq, 'processDelayed');
+
+        await rq.onWatchMessage('__keyspace__', `imq:WatchNonTtl:someid:set`);
+
+        assert.equal(processDelayed.mock.callCount(), 0);
+
+        mock.restoreAll();
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('should emit an error when delayed processing throws', async () => {
+        const rq: any = new RedisQueue('WatchErr', { logger });
+        await rq.start();
+
+        mock.method(rq, 'processDelayed', () => {
+            throw new Error('boom');
+        });
+        const emitError = mock.method(rq, 'emitError');
+
+        await rq.onWatchMessage('__keyspace__', `imq:WatchErr:someid:ttl`);
+
+        assert.equal(emitError.mock.callCount(), 1);
+        assert.equal(emitError.mock.calls[0].arguments[0], 'OnWatch');
+
+        mock.restoreAll();
+        await rq.destroy().catch(() => undefined);
+    });
+});
+
+describe('RedisQueue reconnection', () => {
+    it('scheduleReconnect() marks the channel reconnecting and backs off', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const rq: any = new RedisQueue('ReconnSchedule', { logger });
+
+        rq.scheduleReconnect('reader');
+
+        assert.equal(rq.reconnecting.reader, true);
+        assert.equal(rq.reconnectAttempts.reader, 1);
+
+        // a second schedule while already reconnecting is a no-op
+        rq.scheduleReconnect('reader');
+        assert.equal(rq.reconnectAttempts.reader, 1);
+
+        t.mock.timers.reset();
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('scheduleReconnect() does nothing once destroyed', async () => {
+        const rq: any = new RedisQueue('ReconnDestroyed', { logger });
+        await rq.destroy().catch(() => undefined);
+
+        rq.scheduleReconnect('writer');
+
+        assert.equal(rq.reconnecting.writer, undefined);
+    });
+
+    it('reconnectNow() re-establishes a channel and resets its counters', async () => {
+        const rq: any = new RedisQueue('ReconnNow', { logger });
+        await rq.start();
+
+        rq.reconnectAttempts.reader = 3;
+        rq.reconnecting.reader = true;
+
+        await rq.reconnectNow('reader');
+
+        assert.equal(rq.reconnectAttempts.reader, 0);
+        assert.equal(rq.reconnecting.reader, false);
+        assert.ok(rq.reader instanceof Redis);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('reconnectNow() bails out without reconnecting when destroyed', async () => {
+        const rq: any = new RedisQueue('ReconnNowDestroyed', { logger });
+        await rq.destroy().catch(() => undefined);
+
+        rq.reconnecting.writer = true;
+        await rq.reconnectNow('writer');
+
+        assert.equal(rq.reconnecting.writer, false);
+    });
+
+    it('reconnectNow() reconnects the writer channel', async () => {
+        const rq: any = new RedisQueue('ReconnWriter', { logger });
+        await rq.start();
+
+        await rq.reconnectNow('writer');
+
+        assert.ok(rq.writer instanceof Redis);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('reconnectNow() reconnects the watcher channel', async () => {
+        const rq: any = new RedisQueue('ReconnWatcher', { logger });
+        await rq.start();
+
+        await rq.reconnectNow('watcher');
+
+        assert.ok(rq.watcher instanceof Redis);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('reconnectNow() reconnects the subscription channel', async () => {
+        const rq: any = new RedisQueue('ReconnSub', { logger });
+        await rq.start();
+        await rq.subscribe('ReconnSub', mock.fn());
+
+        await rq.reconnectNow('subscription');
+
+        assert.ok(rq.subscription instanceof Redis);
+
+        mock.restoreAll();
+        await rq.destroy().catch(() => undefined);
+    });
+});

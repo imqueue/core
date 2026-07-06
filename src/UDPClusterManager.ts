@@ -138,6 +138,13 @@ export class UDPClusterManager extends ClusterManager {
     /** True while the process is shutting down via a signal */
     private static shuttingDown: boolean = false;
 
+    /**
+     * Workers we terminated on purpose. worker.terminate() makes the 'exit'
+     * event fire with a non-zero code, which would otherwise be mistaken for
+     * a crash and trigger a spurious "exited unexpectedly" warning and respawn.
+     */
+    private static intentionallyStopped: WeakSet<Worker> = new WeakSet();
+
     private readonly options: UDPClusterManagerOptions;
     private workerKey!: string;
     private worker!: Worker;
@@ -289,6 +296,14 @@ export class UDPClusterManager extends ClusterManager {
                 delete UDPClusterManager.workers[workerKey];
             }
 
+            // an exit we caused via terminate() (graceful destroy/shutdown)
+            // is expected, even though terminate() reports a non-zero code
+            if (UDPClusterManager.intentionallyStopped.has(worker)) {
+                UDPClusterManager.intentionallyStopped.delete(worker);
+
+                return;
+            }
+
             if (code !== 0 && !UDPClusterManager.shuttingDown) {
                 this.logger.warn(
                     `UDPClusterManager: worker ${workerKey} exited ` +
@@ -425,6 +440,9 @@ export class UDPClusterManager extends ClusterManager {
             const finish = (): void => {
                 worker.off('message', onMessage);
                 clearTimeout(timeout);
+                // mark before terminating: the resulting non-zero exit is
+                // intentional and must not be treated as a crash
+                UDPClusterManager.intentionallyStopped.add(worker);
                 worker.terminate();
 
                 if (UDPClusterManager.workers[workerKey] === worker) {

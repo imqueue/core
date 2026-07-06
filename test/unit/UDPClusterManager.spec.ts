@@ -293,6 +293,28 @@ describe('UDPClusterManager - shared worker fan-out', () => {
         await manager.destroy();
     });
 
+    it('should not warn about unexpected exit on graceful destroy', async () => {
+        const warn = mock.fn();
+        const manager: any = new UDPClusterManager({
+            logger: { log: () => {}, info: () => {}, warn, error: () => {} },
+        });
+        const worker = manager.worker;
+        const exited = new Promise<void>(resolve =>
+            worker.on('exit', () => resolve()),
+        );
+
+        await manager.destroy();
+        await exited;
+        // let the supervision 'exit' handler run
+        await new Promise(resolve => setImmediate(resolve));
+
+        const warnedUnexpected = warn.mock.calls.some((call: any) =>
+            String(call.arguments[0]).includes('unexpectedly'),
+        );
+
+        assert.equal(warnedUnexpected, false);
+    });
+
     it('should not bind process signal handlers when handleSignals is false', async () => {
         const previouslyBound = (UDPClusterManager as any).signalsBound;
 

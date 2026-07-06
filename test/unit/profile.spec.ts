@@ -38,7 +38,7 @@ import { logger } from '../mocks';
 const BIG_INT_SUPPORT = (() => {
     try {
         return !!BigInt(0);
-    } catch (err) {
+    } catch {
         return false;
     }
 })();
@@ -102,14 +102,13 @@ class ProfiledClassTimedAndArgued {
 describe('profile()', () => {
     let log: Mock<any>;
     let error: Mock<any>;
-    let warn: Mock<any>;
-    let info: Mock<any>;
 
     beforeEach(() => {
         log = mock.method(logger, 'log');
         error = mock.method(logger, 'error');
-        warn = mock.method(logger, 'warn');
-        info = mock.method(logger, 'info');
+        // spied to suppress profiler output during tests (not asserted on)
+        mock.method(logger, 'warn');
+        mock.method(logger, 'info');
     });
 
     afterEach(() => {
@@ -336,7 +335,7 @@ describe('profile() async rejection path', () => {
         obj.logger = logger;
         try {
             await obj.willReject();
-        } catch (e) {
+        } catch {
             // expected
         }
         // allow microtask queue

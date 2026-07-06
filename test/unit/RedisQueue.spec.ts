@@ -126,7 +126,7 @@ describe('RedisQueue', () => {
             try {
                 await rq.start();
                 await rq.start();
-            } catch (err) {
+            } catch {
                 passed = false;
             }
             assert.equal(passed, true);
@@ -1043,7 +1043,7 @@ describe('RedisQueue.send() extra branches', () => {
             IMQMode.PUBLISHER,
         );
         // Force start to be a no-op so writer remains undefined
-        const startStub = mock.method(rq, 'start', async () => rq);
+        mock.method(rq, 'start', async () => rq);
 
         let thrown: any;
         try {

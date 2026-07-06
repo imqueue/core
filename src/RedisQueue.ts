@@ -96,6 +96,17 @@ export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
 
 export const IMQ_SHUTDOWN_TIMEOUT = envInt('IMQ_SHUTDOWN_TIMEOUT', 1000);
 
+/**
+ * Grace period (ms) for a graceful QUIT to complete before a channel is
+ * forcibly disconnected. A reader blocked on an infinite BRPOP/BLMOVE can
+ * never let QUIT through, so without this the socket would leak and keep
+ * the process alive.
+ */
+export const IMQ_CONNECTION_QUIT_TIMEOUT = envInt(
+    'IMQ_CONNECTION_QUIT_TIMEOUT',
+    1000,
+);
+
 type RedisConnectionChannel = 'reader' | 'writer' | 'watcher' | 'subscription';
 
 const IMQ_REDIS_MAX_LISTENERS_LIMIT = envInt(
@@ -1090,12 +1101,36 @@ export class RedisQueue
 
         try {
             client.removeAllListeners();
-            client
-                .quit()
-                .then(() => client.disconnect(false))
-                .catch((error: unknown) =>
-                    this.verbose(`Error quitting ${channel}: ${error}`),
-                );
+
+            let disconnected = false;
+            const forceDisconnect = (): void => {
+                if (disconnected) {
+                    return;
+                }
+
+                disconnected = true;
+
+                try {
+                    client.disconnect(false);
+                } catch (error) {
+                    this.verbose(`Error disconnecting ${channel}: ${error}`);
+                }
+            };
+
+            // graceful quit for idle connections, but a reader blocked on an
+            // infinite BRPOP/BLMOVE never lets QUIT through, so guarantee a
+            // forced disconnect after a short grace period to avoid leaking
+            // the socket (which would keep the process alive)
+            client.quit().then(forceDisconnect, forceDisconnect);
+
+            const timer = setTimeout(
+                forceDisconnect,
+                IMQ_CONNECTION_QUIT_TIMEOUT,
+            );
+
+            // the grace timer itself must not keep the process alive; while
+            // the leaked socket keeps the loop running the timer still fires
+            timer.unref();
         } catch (error) {
             this.verbose(`Error destroying ${channel}: ${error}`);
         }
@@ -1758,9 +1793,17 @@ export class RedisQueue
                         this.process(msg);
                     }
                 } catch (err) {
+                    // a closed/ended reader connection means the queue is
+                    // stopping, reconnecting, or being destroyed - end the
+                    // loop quietly; reconnection (if any) is driven by the
+                    // connection close handler, not by this loop
                     if (
-                        err instanceof Error &&
-                        err.message.match(/Stream connection ended/)
+                        this.destroyed ||
+                        !this.reader ||
+                        (err instanceof Error &&
+                            /Stream connection ended|Connection is closed/i.test(
+                                err.message,
+                            ))
                     ) {
                         break;
                     }

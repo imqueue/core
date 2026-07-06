@@ -518,23 +518,6 @@ describe('RedisQueue error handling', () => {
         assert.equal(evalCalls.length, 1, 'EVAL fallback must be used');
     });
 
-    it('send() rejects on write failure when awaitWrites is enabled', async t => {
-        const logger = makeLogger();
-        const rq: any = new RedisQueue(
-            'AwaitW',
-            { logger, awaitWrites: true },
-            IMQMode.PUBLISHER,
-        );
-        await rq.start();
-        t.after(() => rq.destroy().catch(() => undefined));
-
-        mock.method(rq.writer, 'lpush', () =>
-            Promise.reject(new Error('write failed')),
-        );
-
-        await assert.rejects(rq.send('AwaitW', { a: 1 }), /write failed/);
-    });
-
     it('escapes regex metacharacters (escapeRegExp)', () => {
         assert.equal(escapeRegExp('my.app*x?'), 'my\\.app\\*x\\?');
         assert.equal(escapeRegExp('plain'), 'plain');

@@ -91,7 +91,6 @@ export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     useGzip: false,
     watcherCheckDelay: 5000,
     handleSignals: true,
-    awaitWrites: false,
 };
 
 export const IMQ_SHUTDOWN_TIMEOUT = envInt('IMQ_SHUTDOWN_TIMEOUT', 1000);
@@ -706,35 +705,6 @@ export class RedisQueue
                 }
             }
         };
-
-        if (this.options.awaitWrites) {
-            // confirmed writes mode: resolve after redis accepted the
-            // message, reject on 'write' failures
-            try {
-                if (delay) {
-                    await this.writer.zadd(
-                        `${key}:delayed`,
-                        Date.now() + delay,
-                        packet,
-                    );
-                    await this.writer.set(
-                        `${key}:${id}:ttl`,
-                        '',
-                        'PX',
-                        delay,
-                        'NX',
-                    );
-                } else {
-                    await this.writer.lpush(key, packet);
-                }
-            } catch (err) {
-                onWriteError(err, delay ? 'ZADD/SET' : 'LPUSH');
-
-                throw err;
-            }
-
-            return id;
-        }
 
         if (delay) {
             this.writer.zadd(

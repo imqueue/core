@@ -145,7 +145,6 @@ export class ClusteredRedisQueue
     /**
      * Class constructor
      *
-     * @constructor
      * @param {string} name
      * @param {Partial<IMQOptions>} options
      * @param {IMQMode} [_mode]
@@ -260,7 +259,6 @@ export class ClusteredRedisQueue
      * to a host that is known to be down. Falls back to the plain
      * round-robin pick when no instance reports are ready.
      *
-     * @access private
      * @returns {RedisQueue}
      */
     private selectQueue(): RedisQueue {
@@ -288,7 +286,6 @@ export class ClusteredRedisQueue
      * Rejects (rather than hanging forever) if none appears within the
      * configured timeout and propagates any sent failure.
      *
-     * @access private
      * @returns {Promise<string>}
      */
     private sendWhenInitialized(
@@ -385,7 +382,6 @@ export class ClusteredRedisQueue
     /**
      * Batch imq action processing on all registered imqs at once
      *
-     * @access private
      * @param {string} action
      * @param {string} message
      * @returns {Promise<this>}

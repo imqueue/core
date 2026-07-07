@@ -423,11 +423,7 @@ function saveStats({ metrics, memusage }: any, data: any[]) {
     writeFileSync(htmlFile, html, { encoding: 'utf8' });
 
     console.info('Benchmark stats saved!');
-    console.info(`Opening file://${htmlFile}`);
-
-    import('open').then(open =>
-        open.default(`file://${htmlFile}`, { wait: false }),
-    );
+    console.info(`Open in browser: file://${htmlFile}`);
     process.exit(0);
 }
 

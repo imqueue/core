@@ -59,10 +59,4 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm run test-lcov
-
-      - name: Upload coverage to Coveralls
-        if: matrix.node-version == '24.x'
-        uses: coverallsapp/github-action@v2
-        with:
-          file: coverage/lcov.info
+        run: npm test

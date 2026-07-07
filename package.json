@@ -12,14 +12,16 @@
   ],
   "scripts": {
     "benchmark": "node benchmark -c $(( $(nproc) - 2 )) -m 100000",
-    "build": "tsc",
-    "prepare": "tsc",
+    "clean-compiled": "npm run clean-js && npm run clean-typedefs && npm run clean-maps",
+    "build": "npm run clean-compiled && tsc",
+    "prepare": "npm run build",
     "lint": "oxlint",
     "format": "oxfmt \"index.ts\" \"src/**/*.ts\" \"test/**/*.ts\" \"benchmark/**/*.ts\"",
     "format:check": "oxfmt --check \"index.ts\" \"src/**/*.ts\" \"test/**/*.ts\" \"benchmark/**/*.ts\"",
-    "test": "tsc && node --test --test-timeout=15000 $(find test -name '*.spec.js')",
-    "test-coverage": "tsc && node --test --experimental-test-coverage --test-timeout=15000 $(find test -name '*.spec.js')",
-    "test-lcov": "tsc && mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-timeout=15000 $(find test -name '*.spec.js')",
+    "test": "npm run build && node --test --test-timeout=15000 $(find test -name '*.spec.js')",
+    "test-coverage": "npm run build && node --enable-source-maps --test --experimental-test-coverage --test-timeout=15000 $(find test -name '*.spec.js')",
+    "test-lcov": "npm run build && mkdir -p coverage && node --enable-source-maps --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-timeout=15000 $(find test -name '*.spec.js')",
+    "test-coverage-html": "npm run test-lcov; genhtml coverage/lcov.info --output-directory coverage/html --ignore-errors inconsistent,corrupt,format,mismatch && echo \"Coverage report: file://$(pwd)/coverage/html/index.html\"",
     "test-dev": "npm run test && npm run clean-js && npm run clean-typedefs && npm run clean-maps",
     "clean-typedefs": "find . -name '*.d.ts' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
     "clean-maps": "find . -name '*.js.map' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
@@ -28,7 +30,7 @@
     "clean-doc": "rm -rf docs",
     "clean-benchmark": "rm -rf benchmark-result",
     "clean": "npm run clean-tests && npm run clean-typedefs && npm run clean-maps && npm run clean-js && npm run clean-doc && npm run clean-benchmark",
-    "doc": "rm -rf docs && typedoc  --excludePrivate --excludeExternals --hideGenerator --exclude \"**/+(test|node_modules|docs|coverage|benchmark|.nyc_output)/**/*\" --out ./docs . && /usr/bin/env node -e \"import('open').then(open => open.default('file://`pwd`/docs/index.html',{wait:false}))\""
+    "doc": "typedoc && echo \"Docs generated: file://$(pwd)/docs/index.html\""
   },
   "repository": {
     "type": "git",
@@ -47,44 +49,11 @@
     "@types/mock-require": "^3.0.0",
     "@types/node": "^24.9.1",
     "mock-require": "^3.0.3",
-    "open": "^11.0.0",
     "oxfmt": "0.57.0",
     "oxlint": "1.72.0",
     "typedoc": "^0.28.20",
     "typescript": "^6.0.3"
   },
   "main": "index.js",
-  "typescript": {
-    "definitions": "index.d.ts"
-  },
-  "mocha": {
-    "require": [
-      "ts-node/register",
-      "source-map-support/register"
-    ],
-    "recursive": true,
-    "bail": true,
-    "full-trace": true,
-    "exit": true,
-    "timeout": 10000
-  },
-  "nyc": {
-    "check-coverage": false,
-    "extension": [
-      ".ts"
-    ],
-    "exclude": [
-      "**/*.d.ts",
-      "**/test/**"
-    ],
-    "require": [
-      "ts-node/register"
-    ],
-    "reporter": [
-      "html",
-      "text",
-      "text-summary",
-      "lcovonly"
-    ]
-  }
+  "types": "index.d.ts"
 }

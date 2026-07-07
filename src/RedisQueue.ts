@@ -302,7 +302,6 @@ export class RedisQueue
     private readonly unpack: (data: string) => unknown;
 
     /**
-     * @constructor
      * @param {string} name
      * @param {IMQOptions} [options]
      * @param {IMQMode} [mode]
@@ -385,7 +384,6 @@ export class RedisQueue
      * Attaches a subscription message handler to a given channel
      * connection
      *
-     * @access private
      * @param {IRedisClient} chan
      * @param {(data: JsonObject) => void} handler
      */
@@ -413,7 +411,6 @@ export class RedisQueue
      * connection. Used after a connection replacement on reconnection,
      * otherwise the new connection would silently stay unsubscribed.
      *
-     * @access private
      * @returns {Promise<void>}
      */
     private async restoreSubscription(): Promise<void> {
@@ -552,8 +549,6 @@ export class RedisQueue
     /**
      * Binds process-level signal handlers once per process. On shutdown
      * signals, frees watcher locks held by any queue instance and exits.
-     *
-     * @access private
      */
     private static bindSignals(): void {
         if (RedisQueue.signalsBound) {
@@ -575,7 +570,6 @@ export class RedisQueue
      * Frees watcher locks held by all started queue instances and exits
      * the process, forcing exit after IMQ_SHUTDOWN_TIMEOUT at the latest.
      *
-     * @access private
      * @returns {Promise<void>}
      */
     private static async freeAndExit(): Promise<void> {
@@ -604,8 +598,6 @@ export class RedisQueue
      * the queue network, re-electing an owner when the previous one died.
      * Also serves as a polling fallback moving due to delayed messages when
      * keyspace notifications are unavailable.
-     *
-     * @access private
      */
     private startWatcherCheck(): void {
         if (this.watcherCheckInterval || !this.options.watcherCheckDelay) {
@@ -624,7 +616,6 @@ export class RedisQueue
      * none exists and moves due to delayed messages as a keyspace-notification
      * fallback. Errors are contained so the interval never crashes.
      *
-     * @access private
      * @returns {Promise<void>}
      */
     private async runWatcherCheck(): Promise<void> {
@@ -651,8 +642,6 @@ export class RedisQueue
 
     /**
      * Stops the periodic watcher check
-     *
-     * @access private
      */
     private stopWatcherCheck(): void {
         if (this.watcherCheckInterval) {
@@ -936,7 +925,6 @@ export class RedisQueue
     /**
      * Returns the connection currently bound to the given channel, if any.
      *
-     * @access private
      * @param {RedisConnectionChannel} channel
      * @returns {IRedisClient | undefined}
      */
@@ -958,7 +946,6 @@ export class RedisQueue
     /**
      * Binds the given connection to the given channel.
      *
-     * @access private
      * @param {RedisConnectionChannel} channel
      * @param {IRedisClient} conn
      */
@@ -993,7 +980,6 @@ export class RedisQueue
     /**
      * Return a lock key for watcher connection
      *
-     * @access private
      * @returns {string}
      */
     private get lockKey(): string {
@@ -1003,7 +989,6 @@ export class RedisQueue
     /**
      * Returns current queue key
      *
-     * @access private
      * @returns {string}
      */
     private get key(): string {
@@ -1012,8 +997,6 @@ export class RedisQueue
 
     /**
      * Destroys watcher channel
-     *
-     * @access private
      */
     @profile()
     private destroyWatcher(): void {
@@ -1027,8 +1010,6 @@ export class RedisQueue
 
     /**
      * Destroys writer channel
-     *
-     * @access private
      */
     @profile()
     private destroyWriter(release: boolean = true): void {
@@ -1058,8 +1039,6 @@ export class RedisQueue
 
     /**
      * Destroys any channel
-     *
-     * @access private
      */
     @profile()
     private destroyChannel(channel: RedisConnectionChannel): void {
@@ -1109,7 +1088,6 @@ export class RedisQueue
     /**
      * Establishes a given connection channel by its name
      *
-     * @access private
      * @param {RedisConnectionChannel} channel
      * @param {IMQOptions} options
      * @returns {Promise<IRedisClient>}
@@ -1232,7 +1210,6 @@ export class RedisQueue
      * rescheduling itself on failure. Errors are handled internally, so the
      * scheduled timer never produces an unhandled rejection.
      *
-     * @access private
      * @param {RedisConnectionChannel} channel
      * @returns {Promise<void>}
      */
@@ -1301,7 +1278,6 @@ export class RedisQueue
     /**
      * Builds and returns connection error handler
      *
-     * @access private
      * @param {RedisConnectionChannel} channel
      * @returns {(err: Error) => void}
      */
@@ -1335,7 +1311,6 @@ export class RedisQueue
     /**
      * Builds and returns redis connection close handler
      *
-     * @access private
      * @param {RedisConnectionChannel} channel
      * @returns {() => void}
      */
@@ -1362,7 +1337,6 @@ export class RedisQueue
     /**
      * Processes given redis-queue message
      *
-     * @access private
      * @param {[string, string]} msg
      * @returns {RedisQueue}
      */
@@ -1391,7 +1365,6 @@ export class RedisQueue
     /**
      * Returns the number of established watcher connections on redis
      *
-     * @access private
      * @returns {Promise<number>}
      */
     private async watcherCount(): Promise<number> {
@@ -1414,7 +1387,6 @@ export class RedisQueue
     /**
      * Processes delayed a message by its given redis key
      *
-     * @access private
      * @param {string} key
      * @returns {Promise<void>}
      */
@@ -1460,7 +1432,6 @@ export class RedisQueue
     /**
      * Watch routine
      *
-     * @access private
      * @returns {Promise<void>}
      */
     private async processWatch(): Promise<void> {
@@ -1500,7 +1471,6 @@ export class RedisQueue
     /**
      * Process given keys from a message queue
      *
-     * @access private
      * @param {string[]} keys
      * @param {number} now
      * @returns {Promise<void>}
@@ -1539,7 +1509,6 @@ export class RedisQueue
     /**
      * Watch message processor
      *
-     * @access private
      * @param {...any[]} args
      * @returns {Promise<void>}
      */
@@ -1561,8 +1530,6 @@ export class RedisQueue
 
     /**
      * Clears safe check interval
-     *
-     * @access private
      */
     private cleanSafeCheckInterval(): void {
         if (this.safeCheckInterval) {
@@ -1574,7 +1541,6 @@ export class RedisQueue
     /**
      * Setups watch a process on delayed messages
      *
-     * @access private
      * @returns {RedisQueue}
      */
     private watch(): RedisQueue {
@@ -1621,7 +1587,6 @@ export class RedisQueue
      * A single safe-delivery maintenance tick: recovers messages from dead
      * workers (when safe delivery is on) and prunes orphaned keys.
      *
-     * @access private
      * @returns {Promise<void>}
      */
     private async runSafeCheck(): Promise<void> {
@@ -1641,7 +1606,6 @@ export class RedisQueue
     /**
      * Cleans up orphaned keys from redis
      *
-     * @access private
      * @returns {Promise<RedisQueue | undefined>}
      */
     private async processCleanup(): Promise<RedisQueue | undefined> {
@@ -1871,7 +1835,6 @@ export class RedisQueue
     /**
      * Checks if the watcher connection is locked
      *
-     * @access private
      * @returns {Promise<boolean>}
      */
     private async isLocked(): Promise<boolean> {
@@ -1885,7 +1848,6 @@ export class RedisQueue
     /**
      * Locks watcher connection
      *
-     * @access private
      * @returns {Promise<boolean>}
      */
     private async lock(): Promise<boolean> {
@@ -1899,7 +1861,6 @@ export class RedisQueue
     /**
      * Unlocks watcher connection
      *
-     * @access private
      * @returns {Promise<boolean>}
      */
     private async unlock(): Promise<boolean> {
@@ -1913,7 +1874,6 @@ export class RedisQueue
     /**
      * Emits error
      *
-     * @access private
      * @param {string} eventName
      * @param {string} message
      * @param {unknown} err
@@ -1985,7 +1945,6 @@ export class RedisQueue
      * but no watcher connection is actually alive, releases and re-acquires
      * ownership. Used to resolve a possible watcher deadlock.
      *
-     * @access private
      * @returns {Promise<void>}
      */
     private async resolveWatchLock(): Promise<void> {

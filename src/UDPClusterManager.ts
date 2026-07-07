@@ -174,7 +174,6 @@ export class UDPClusterManager extends ClusterManager {
      * depends on, so managers configured differently never silently share
      * a worker built from another manager's options.
      *
-     * @access private
      * @param {UDPClusterManagerOptions} options
      * @returns {string}
      */
@@ -193,8 +192,6 @@ export class UDPClusterManager extends ClusterManager {
      * After stopping the workers, the original signal is re-raised, so the
      * default termination behavior (which registering a handler cancels)
      * still applies, and the process exits.
-     *
-     * @access private
      */
     private static bindSignals(): void {
         if (UDPClusterManager.signalsBound) {
@@ -216,7 +213,6 @@ export class UDPClusterManager extends ClusterManager {
      * Stops all workers and re-raises the given signal, so the process
      * terminates through the default signal behavior.
      *
-     * @access private
      * @param {NodeJS.Signals} signal
      * @returns {Promise<void>}
      */
@@ -246,8 +242,6 @@ export class UDPClusterManager extends ClusterManager {
      * Registers this instance on the (possibly shared) worker for its
      * options. Every instance attaches its own message listener, so all
      * managers sharing a worker receive cluster updates.
-     *
-     * @access private
      */
     private startWorkerListener(): void {
         this.workerKey = UDPClusterManager.workerKeyFor(this.options);
@@ -266,7 +260,6 @@ export class UDPClusterManager extends ClusterManager {
      * unexpected worker death the worker is dropped from the registry, and
      * a re-spawn is scheduled while live manager instances remain.
      *
-     * @access private
      * @returns {Worker}
      */
     private spawnWorker(): Worker {
@@ -323,7 +316,6 @@ export class UDPClusterManager extends ClusterManager {
      * live manager instances to it, so cluster membership does not silently
      * freeze after a worker crash.
      *
-     * @access private
      * @param {string} workerKey
      */
     private static respawn(workerKey: string): void {
@@ -368,7 +360,6 @@ export class UDPClusterManager extends ClusterManager {
      * cluster. Cluster callback errors are contained per cluster, so the
      * worker message listener can never raise an unhandled rejection.
      *
-     * @access private
      * @param {WorkerMessage} message
      * @returns {Promise<void>}
      */

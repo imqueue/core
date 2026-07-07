@@ -245,12 +245,15 @@ function resolveLogger(target: unknown): ILogger | undefined {
 }
 
 /**
- * Type guard detecting a thenable (promise-like) value.
+ * Type guard detecting a thenable (promise-like) value. Generic so that
+ * narrowing preserves the input type (T & PromiseLike) rather than widening
+ * to PromiseLike<unknown> — this keeps the guard usable on a generic return
+ * value under stricter/older compiler configurations used by consumers.
  *
- * @param {unknown} value
- * @returns {value is PromiseLike<unknown>}
+ * @param {T} value
+ * @returns {value is T & PromiseLike<unknown>}
  */
-function isThenable(value: unknown): value is PromiseLike<unknown> {
+function isThenable<T>(value: T): value is T & PromiseLike<unknown> {
     return (
         (typeof value === 'object' || typeof value === 'function') &&
         value !== null &&

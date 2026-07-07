@@ -288,15 +288,7 @@ function isThenable<T>(value: T): value is T & PromiseLike<unknown> {
  descriptor: TypedPropertyDescriptor<(...args: any[]) => any>
  * ) => void}
  */
-export function profile<This, Args extends unknown[], Return>(
-    options?: ProfileDecoratorOptions,
-): (
-    original: (this: This, ...args: Args) => Return,
-    context: ClassMethodDecoratorContext<
-        This,
-        (this: This, ...args: Args) => Return
-    >,
-) => (this: This, ...args: Args) => Return {
+export function profile(options?: ProfileDecoratorOptions): any {
     options = Object.assign({}, DEFAULT_OPTIONS, options);
 
     const { enableDebugTime, enableDebugArgs, logLevel } = options;
@@ -311,16 +303,8 @@ export function profile<This, Args extends unknown[], Return>(
         debugArgs = enableDebugArgs;
     }
 
-    return function decorator(
-        original: (this: This, ...args: Args) => Return,
-        context: ClassMethodDecoratorContext<
-            This,
-            (this: This, ...args: Args) => Return
-        >,
-    ): (this: This, ...args: Args) => Return {
-        const methodName = String(context.name);
-
-        return function wrapper(this: This, ...args: Args): Return {
+    const wrap = (original: (...args: any[]) => any, methodName: string) =>
+        function wrapper(this: any, ...args: any[]): any {
             if (!(debugTime || debugArgs)) {
                 return original.apply(this, args);
             }
@@ -353,5 +337,16 @@ export function profile<This, Args extends unknown[], Return>(
 
             return result;
         };
+
+    // Dual-mode: standard (TC39) invocations pass a context object with a
+    // `kind` property; legacy ones pass (target, propertyKey, descriptor).
+    return function (target: any, context: any, descriptor?: any): any {
+        if (context && typeof context === 'object' && 'kind' in context) {
+            return wrap(target, String(context.name));
+        }
+
+        descriptor.value = wrap(descriptor.value, String(context));
+
+        return descriptor;
     };
 }

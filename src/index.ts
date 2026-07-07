@@ -21,6 +21,7 @@
  */
 export * from './helpers';
 export * from './profile';
+export * from './uuid';
 export * from './redis';
 export * from './IMQMode';
 export * from './IMessageQueue';

@@ -410,31 +410,43 @@ describe('UDPClusterManager lifecycle internals', () => {
     });
 
     it('free() flags shutdown and stops every worker', async () => {
-        const manager: any = new UDPClusterManager();
-
-        manager.init(noopCluster());
+        // stub destroyWorker so the real 5s stop-acknowledgement wait (and any
+        // real worker teardown) is skipped — free()'s own logic is what we test
+        const destroySpy: Mock<any> = mock.method(
+            UDPClusterManager as any,
+            'destroyWorker',
+            async () => undefined,
+        );
+        (UDPClusterManager as any).workers['fake:worker'] = { fake: true };
 
         await (UDPClusterManager as any).free();
 
         assert.equal((UDPClusterManager as any).shuttingDown, true);
-        assert.equal(Object.keys((UDPClusterManager as any).workers).length, 0);
+        assert.ok(destroySpy.mock.callCount() > 0);
 
-        await manager.destroy().catch(() => undefined);
+        delete (UDPClusterManager as any).workers['fake:worker'];
     });
 
     it('freeAndRaise() frees workers then re-raises the signal', async () => {
         const kill: Mock<any> = mock.method(process, 'kill', () => true);
-        const manager: any = new UDPClusterManager();
+        mock.method(
+            UDPClusterManager as any,
+            'destroyWorker',
+            async () => undefined,
+        );
 
         await (UDPClusterManager as any).freeAndRaise('SIGTERM');
 
         assert.ok(kill.mock.callCount() > 0);
-
-        await manager.destroy().catch(() => undefined);
     });
 
     it('binds a signal handler that frees and re-raises', async () => {
         mock.method(process, 'kill', () => true);
+        mock.method(
+            UDPClusterManager as any,
+            'destroyWorker',
+            async () => undefined,
+        );
 
         const prev = (UDPClusterManager as any).signalsBound;
         (UDPClusterManager as any).signalsBound = false;

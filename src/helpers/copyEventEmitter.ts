@@ -21,8 +21,8 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { EventEmitter } from 'events';
-import { inspect } from 'util';
+import { EventEmitter } from 'node:events';
+import { inspect } from 'node:util';
 
 export function copyEventEmitter(
     source: EventEmitter & {

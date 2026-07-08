@@ -20,7 +20,7 @@
     "format:check": "oxfmt --check \"index.ts\" \"src/**/*.ts\" \"test/**/*.ts\" \"benchmark/**/*.ts\"",
     "test": "npm run build && node --test --test-timeout=15000 $(find test -name '*.spec.js')",
     "test-coverage": "npm run build && node --enable-source-maps --test --experimental-test-coverage --test-timeout=15000 $(find test -name '*.spec.js')",
-    "test-lcov": "npm run build && mkdir -p coverage && node --enable-source-maps --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-timeout=15000 $(find test -name '*.spec.js')",
+    "test-lcov": "npm run build && mkdir -p coverage && node --enable-source-maps --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-timeout=15000 $(find test -name '*.spec.js'); node scripts/strip-comment-coverage.mjs coverage/lcov.info",
     "test-coverage-html": "npm run test-lcov; genhtml coverage/lcov.info --output-directory coverage/html --ignore-errors inconsistent,corrupt,format,mismatch && echo \"Coverage report: file://$(pwd)/coverage/html/index.html\"",
     "test-dev": "npm run test && npm run clean-js && npm run clean-typedefs && npm run clean-maps",
     "clean-typedefs": "find . -name '*.d.ts' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",

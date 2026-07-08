@@ -21,7 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { gunzipSync } from 'zlib';
+import { gunzipSync } from 'node:zlib';
 
 /**
  * Decompresses a binary string and returns the decompressed data

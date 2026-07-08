@@ -26,13 +26,14 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import '../mocks';
-import { describe, it, beforeEach, afterEach, mock, Mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { RedisQueue, IMQMode, sha1, escapeRegExp } from '../../src';
-import { logger, RedisClientMock } from '../mocks';
-import { randomUUID as uuid } from 'crypto';
+import { randomUUID as uuid } from 'node:crypto';
+import { describe, it, beforeEach, afterEach, mock, Mock } from 'node:test';
 import Redis from 'ioredis';
-import { makeLogger } from '../helpers/makeLogger';
+import { RedisQueue, IMQMode } from '../../src';
+import { escapeRegExp, sha1 } from '../../src/helpers';
+import { makeLogger } from '../helpers';
+import { logger, RedisClientMock } from '../mocks';
 
 process.setMaxListeners(100);
 
@@ -642,7 +643,7 @@ describe('RedisQueue lifecycle', () => {
 
         assert.notEqual(rq.subscription, oldChan);
 
-        rq.subscription.emit(
+        rq.subscription?.emit(
             'message',
             'imq:SubRestore',
             JSON.stringify({ ok: 1 }),
@@ -1283,6 +1284,670 @@ describe('RedisQueue reconnection', () => {
         assert.ok(rq.subscription instanceof Redis);
 
         mock.restoreAll();
+        await rq.destroy().catch(() => undefined);
+    });
+});
+
+describe('RedisQueue.subscribe() validation', () => {
+    it('rejects when no channel name is provided', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await assert.rejects(
+            rq.subscribe('', () => undefined),
+            TypeError,
+        );
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('rejects when subscribing to a different channel', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.subscribe('ChanA', () => undefined);
+
+        await assert.rejects(
+            rq.subscribe('ChanB', () => undefined),
+            /Invalid channel name/,
+        );
+
+        await rq.destroy().catch(() => undefined);
+    });
+});
+
+describe('RedisQueue verbose logging & write errors', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    it('logs through verbose() when the verbose option is enabled', async () => {
+        const info: Mock<any> = mock.method(logger, 'info');
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        rq.verbose('hello world');
+
+        assert.ok(info.mock.callCount() > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('reports LPUSH write errors to the error handler', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        mock.method(rq.writer, 'lpush', (_k: any, _v: any, cb: any) => {
+            cb(new Error('lpush failed'));
+
+            return 0;
+        });
+
+        const errors: Error[] = [];
+
+        await rq.send('WriteErrTarget', { a: 1 }, undefined, (err: Error) =>
+            errors.push(err),
+        );
+
+        assert.equal(errors.length, 1);
+        assert.match(errors[0].message, /lpush failed/);
+
+        await rq.destroy(true).catch(() => undefined);
+    });
+
+    it('reports ZADD write errors for delayed sends', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        mock.method(rq.writer, 'zadd', (...args: any[]) => {
+            args[args.length - 1](new Error('zadd failed'));
+
+            return false;
+        });
+
+        const errors: Error[] = [];
+
+        await rq.send('DelayErrTarget', { a: 1 }, 1000, (err: Error) =>
+            errors.push(err),
+        );
+
+        assert.equal(errors.length, 1);
+        assert.match(errors[0].message, /zadd failed/);
+
+        await rq.destroy(true).catch(() => undefined);
+    });
+});
+
+describe('RedisQueue connection error & clear failures', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    it('logs and schedules reconnect on a connection error event', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+
+        const schedule: Mock<any> = mock.method(
+            rq,
+            'scheduleReconnect',
+            () => undefined,
+        );
+        const err: any = new Error('connection refused');
+        err.code = 'ECONNREFUSED';
+
+        rq.writer.emit('error', err);
+
+        assert.ok(schedule.mock.callCount() > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('logs when clearing expired keys fails', async () => {
+        const errorSpy: Mock<any> = mock.method(logger, 'error');
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        mock.method(rq.writer, 'del', async () => {
+            throw new Error('del failed');
+        });
+
+        await rq.clear();
+
+        assert.ok(errorSpy.mock.callCount() > 0);
+
+        await rq.destroy(true).catch(() => undefined);
+    });
+});
+
+describe('RedisQueue read loops & connection handlers', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    it('read() logs when the reader is not initialized', async () => {
+        const errorSpy: Mock<any> = mock.method(logger, 'error');
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        assert.equal(rq.read(), rq);
+        assert.ok(errorSpy.mock.callCount() > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('readUnsafe() breaks quietly on a closed connection', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        mock.method(rq.reader, 'brpop', async () => {
+            throw new Error('Connection is closed');
+        });
+
+        await assert.doesNotReject(rq.readUnsafe());
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('readUnsafe() emits an error on an unexpected reader failure', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        mock.method(rq.reader, 'brpop', async () => {
+            throw new Error('unexpected boom');
+        });
+
+        const errors: Error[] = [];
+        rq.on('error', (err: Error) => errors.push(err));
+
+        await rq.readUnsafe();
+
+        assert.ok(errors.length > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('readSafe() breaks when the reader connection ends', async () => {
+        const rq: any = new RedisQueue(uuid(), {
+            logger,
+            safeDelivery: true,
+        });
+
+        await rq.start();
+        mock.method(rq.reader, 'blmove', async () => {
+            throw new Error('ended');
+        });
+
+        await assert.doesNotReject(rq.readSafe());
+
+        await rq.destroy(true).catch(() => undefined);
+    });
+
+    it('readSafe() survives a message processing failure', async () => {
+        const rq: any = new RedisQueue(uuid(), {
+            logger,
+            safeDelivery: true,
+        });
+
+        await rq.start();
+
+        let n = 0;
+        mock.method(rq.reader, 'blmove', async () => {
+            if (n++ === 0) {
+                return 'a-message';
+            }
+
+            rq.destroyed = true;
+
+            return null;
+        });
+        mock.method(rq, 'process', () => {
+            throw new Error('process failed');
+        });
+
+        const errors: Error[] = [];
+        rq.on('error', (err: Error) => errors.push(err));
+
+        await rq.readSafe();
+
+        assert.ok(errors.length > 0);
+
+        rq.destroyed = false;
+        await rq.destroy(true).catch(() => undefined);
+    });
+
+    it('onCloseHandler() marks uninitialized and schedules reconnect', async () => {
+        const warnSpy: Mock<any> = mock.method(logger, 'warn');
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+
+        const schedule: Mock<any> = mock.method(
+            rq,
+            'scheduleReconnect',
+            () => undefined,
+        );
+
+        rq.onCloseHandler('reader')();
+
+        assert.equal(rq.initialized, false);
+        assert.ok(warnSpy.mock.callCount() > 0);
+        assert.ok(schedule.mock.callCount() > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('process() ignores messages for a different queue', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        assert.equal(rq.process(['some:other:key', 'data']), rq);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('destroyChannel() is a no-op when the channel has no connection', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        assert.doesNotThrow(() => rq.destroyChannel('subscription'));
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('reports SET write errors for delayed sends', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        mock.method(rq.writer, 'zadd', (...args: any[]) => {
+            args[args.length - 1](null);
+
+            return true;
+        });
+        mock.method(rq.writer, 'set', (...args: any[]) => {
+            args[args.length - 1](new Error('set failed'));
+
+            return { catch: () => undefined };
+        });
+
+        const errors: Error[] = [];
+
+        await rq.send('SetErrTarget', { a: 1 }, 1000, (err: Error) =>
+            errors.push(err),
+        );
+
+        assert.ok(errors.some(err => /set failed/.test(err.message)));
+
+        await rq.destroy(true).catch(() => undefined);
+    });
+});
+
+describe('RedisQueue watcher & connect edge paths', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    it('connect() returns the existing connection for a channel', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+
+        const existing = await rq.connect('reader', rq.options);
+
+        assert.equal(existing, rq.reader);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('processWatch() emits an error and clears the interval on scan failure', async () => {
+        const rq: any = new RedisQueue(uuid(), {
+            logger,
+            safeDelivery: true,
+        });
+
+        await rq.start();
+        mock.method(rq.writer, 'scan', async () => {
+            throw new Error('scan failed');
+        });
+
+        const errors: Error[] = [];
+        rq.on('error', (err: Error) => errors.push(err));
+
+        await rq.processWatch();
+
+        assert.ok(errors.length > 0);
+
+        await rq.destroy(true).catch(() => undefined);
+    });
+
+    it('initWatcher() logs and rethrows when initialization fails', async () => {
+        const errorSpy: Mock<any> = mock.method(logger, 'error');
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        mock.method(rq, 'watcherCount', async () => {
+            throw new Error('watcher count failed');
+        });
+
+        await assert.rejects(rq.initWatcher(), /watcher count failed/);
+        assert.ok(errorSpy.mock.callCount() > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+});
+
+describe('RedisQueue signal, reconnect & watch internals', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    it('noRetryStrategy disables ioredis retries', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+
+        assert.equal(rq.reader.options.retryStrategy(), null);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('freeAndExit() releases watcher locks and exits', async () => {
+        const exit: Mock<any> = mock.method(
+            process,
+            'exit',
+            (() => undefined) as any,
+        );
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        rq.watchOwner = true;
+        mock.method(rq, 'unlock', async () => {
+            throw new Error('unlock fail');
+        });
+
+        await (RedisQueue as any).freeAndExit();
+
+        assert.ok(exit.mock.callCount() > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('bindSignals() wires a shutdown handler that frees and exits', async () => {
+        mock.method(process, 'exit', (() => undefined) as any);
+
+        const prev = (RedisQueue as any).signalsBound;
+        (RedisQueue as any).signalsBound = false;
+
+        const before = process.listeners('SIGTERM').slice();
+        (RedisQueue as any).bindSignals();
+        const added = process
+            .listeners('SIGTERM')
+            .filter(l => !before.includes(l));
+
+        assert.ok(added.length > 0);
+
+        await (added[0] as any)();
+        await new Promise(resolve => setImmediate(resolve));
+
+        for (const sig of ['SIGTERM', 'SIGINT', 'SIGABRT'] as const) {
+            for (const l of added) {
+                process.removeListener(sig, l as any);
+            }
+        }
+
+        (RedisQueue as any).signalsBound = prev;
+    });
+
+    it('runWatcherCheck() returns early when a check is in flight', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        rq.watcherCheckBusy = true;
+
+        await assert.doesNotReject(rq.runWatcherCheck());
+
+        rq.watcherCheckBusy = false;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('runWatcherCheck() contains errors without throwing', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        rq.watcherCheckBusy = false;
+        mock.method(rq, 'watcherCount', async () => {
+            throw new Error('watcher count fail');
+        });
+
+        await assert.doesNotReject(rq.runWatcherCheck());
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('reports LPUSH errors surfaced via a rejected promise', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        mock.method(rq.writer, 'lpush', () => ({
+            catch: (cb: any) => cb(new Error('lpush promise fail')),
+        }));
+
+        const errors: Error[] = [];
+
+        await rq.send('LpushProm', { a: 1 }, undefined, (err: Error) =>
+            errors.push(err),
+        );
+
+        assert.ok(errors.some(err => /lpush promise fail/.test(err.message)));
+
+        await rq.destroy(true).catch(() => undefined);
+    });
+
+    it('destroyChannel() logs when quit throws synchronously', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        mock.method(rq.reader, 'quit', () => {
+            throw new Error('quit fail');
+        });
+
+        assert.doesNotThrow(() => rq.destroyChannel('reader'));
+
+        // quit was stubbed to throw, so disconnect() never ran to clear the
+        // mock reader's poll timer — restore and disconnect for real to avoid
+        // leaking the recurring brpop timer
+        mock.restoreAll();
+        rq.reader?.disconnect();
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('destroyChannel() logs when the forced disconnect throws', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        mock.method(rq.reader, 'quit', async () => {
+            throw new Error('quit rejected');
+        });
+        mock.method(rq.reader, 'disconnect', () => {
+            throw new Error('disconnect fail');
+        });
+
+        rq.destroyChannel('reader');
+        await new Promise(resolve => setImmediate(resolve));
+
+        // the stubbed disconnect threw before clearing the mock reader's poll
+        // timer — restore and disconnect for real to release it
+        mock.restoreAll();
+        rq.reader?.disconnect();
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('scheduleReconnect() clears an existing reconnect timer', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        rq.reconnectTimers.reader = setTimeout(() => undefined, 60000);
+
+        rq.scheduleReconnect('reader');
+
+        assert.ok(rq.reconnectTimers.reader);
+        clearTimeout(rq.reconnectTimers.reader);
+        rq.reconnectTimers.reader = undefined;
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('reconnectNow() clears the pending timer on success', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        rq.reconnectTimers.reader = setTimeout(() => undefined, 60000);
+
+        await rq.reconnectNow('reader');
+
+        assert.equal(rq.reconnectTimers.reader, undefined);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('reconnectNow() reschedules on failure', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        mock.method(rq, 'connect', async () => {
+            throw new Error('connect fail');
+        });
+        const schedule: Mock<any> = mock.method(
+            rq,
+            'scheduleReconnect',
+            () => undefined,
+        );
+
+        await rq.reconnectNow('reader');
+
+        assert.ok(schedule.mock.callCount() > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('onErrorHandler() returns early once destroyed', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
+
+        await rq.start();
+        rq.destroyed = true;
+
+        assert.doesNotThrow(() =>
+            rq.onErrorHandler('reader')(new Error('ignored')),
+        );
+
+        rq.destroyed = false;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('watcherCount() returns 0 when CLIENT LIST is empty', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        mock.method(rq.writer, 'client', async () => null);
+
+        assert.equal(await rq.watcherCount(), 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('watch() returns early without a writer/watcher', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        assert.equal(rq.watch(), rq);
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('watch() emits a config error when SET fails', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        rq.writer = {
+            config: () => {
+                throw new Error('config fail');
+            },
+        };
+        rq.watcher = {
+            __ready__: false,
+            on: () => undefined,
+            psubscribe: () => ({ catch: () => undefined }),
+        };
+
+        const errors: Error[] = [];
+        rq.on('error', (err: Error) => errors.push(err));
+
+        rq.watch();
+
+        assert.ok(errors.length > 0);
+
+        rq.cleanSafeCheckInterval();
+        rq.writer = undefined;
+        rq.watcher = undefined;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('runSafeCheck() cleans the interval when the writer is gone', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await assert.doesNotReject(rq.runSafeCheck());
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('ownWatch() emits an error when script loading fails', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        mock.method(rq, 'lock', async () => true);
+        mock.method(rq, 'connect', async () => rq.writer);
+        mock.method(rq, 'watch', () => rq);
+        mock.method(rq.writer, 'script', async () => {
+            throw new Error('script fail');
+        });
+
+        const errors: Error[] = [];
+        rq.on('error', (err: Error) => errors.push(err));
+
+        await rq.ownWatch();
+
+        assert.ok(errors.length > 0);
+
+        await rq.destroy().catch(() => undefined);
+    });
+});
+
+describe('RedisQueue remaining guards', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    it('processKeys() returns early for an empty key list', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await assert.doesNotReject(rq.processKeys([], Date.now()));
+
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('freeAndExit() force-exits when unlocking exceeds the timeout', async () => {
+        const exit: Mock<any> = mock.method(
+            process,
+            'exit',
+            (() => undefined) as any,
+        );
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+        rq.watchOwner = true;
+        // an unlock that never settles forces the shutdown fallback timer
+        mock.method(rq, 'unlock', () => new Promise(() => undefined));
+
+        void (RedisQueue as any).freeAndExit();
+        await new Promise(resolve => setTimeout(resolve, 1200));
+
+        assert.ok(exit.mock.callCount() > 0);
+
+        mock.restoreAll();
+        rq.watchOwner = false;
         await rq.destroy().catch(() => undefined);
     });
 });

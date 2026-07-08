@@ -21,10 +21,10 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
+import { InitializedCluster } from './ClusterManager';
+import { buildOptions, copyEventEmitter } from './helpers';
 import {
-    buildOptions,
-    copyEventEmitter,
     DEFAULT_IMQ_OPTIONS,
     EventMap,
     ILogger,
@@ -36,12 +36,11 @@ import {
     JsonObject,
     RedisQueue,
 } from '.';
-import { InitializedCluster } from './ClusterManager';
 
 /**
  * Time (ms) send() waits for the first cluster server to become available
  * before rejecting, when the cluster is still empty. Configurable via the
- * IMQ_SEND_INIT_TIMEOUT environment variable, defaults to 30000.
+ * IMQ_SEND_INIT_TIMEOUT environment variable, defaults to 30,000.
  */
 const SEND_INIT_TIMEOUT = +(process.env.IMQ_SEND_INIT_TIMEOUT || 0) || 30000;
 

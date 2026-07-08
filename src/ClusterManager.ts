@@ -22,7 +22,7 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { IMessageQueueConnection, IServerInput } from './IMessageQueue';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 
 export interface ICluster {
     add: (server: IServerInput) => IMessageQueueConnection;

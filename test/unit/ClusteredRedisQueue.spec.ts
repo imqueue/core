@@ -617,3 +617,134 @@ describe('ClusteredRedisQueue.matchServers()', () => {
         );
     });
 });
+
+describe('ClusteredRedisQueue fan-out helpers', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    it('selectQueue falls back to the start queue when none available', async () => {
+        const cq: any = new ClusteredRedisQueue('CQ-Fallback', clusterConfig);
+
+        cq.imqs.forEach((imq: any) => {
+            Object.defineProperty(imq, 'available', {
+                get: () => false,
+                configurable: true,
+            });
+            mock.method(imq, 'send', async () => 'id');
+        });
+
+        await cq.send('CQ-Fallback', { a: 1 });
+
+        assert.equal(cq.imqs[0].send.mock.callCount(), 1);
+
+        await cq.destroy();
+    });
+
+    it('rejects send when no server becomes available in time', async () => {
+        const clusterManager = new (ClusterManager as any)();
+        const cq: any = new ClusteredRedisQueue('CQ-Timeout', {
+            clusterManagers: [clusterManager],
+            logger,
+        });
+
+        cq.sendInitTimeout = 20;
+
+        await assert.rejects(
+            cq.send('CQ-Timeout', { a: 1 }),
+            /no cluster server became available/,
+        );
+
+        await cq.destroy();
+    });
+
+    it('queueLength() sums lengths across all queues', async () => {
+        const cq: any = new ClusteredRedisQueue('CQ-Len', clusterConfig);
+
+        mock.method(cq.imqs[0], 'queueLength', async () => 3);
+        mock.method(cq.imqs[1], 'queueLength', async () => 4);
+
+        assert.equal(await cq.queueLength(), 7);
+
+        await cq.destroy();
+    });
+
+    it('logs through verbose() when the verbose option is enabled', async () => {
+        const info: Mock<any> = mock.method(logger, 'info');
+        const clusterManager = new (ClusterManager as any)();
+        const cq: any = new ClusteredRedisQueue('CQ-Verbose', {
+            clusterManagers: [clusterManager],
+            logger,
+            verbose: true,
+        });
+
+        assert.ok(info.mock.callCount() > 0);
+
+        await cq.destroy();
+    });
+
+    it('off() detaches a listener from every queue', async () => {
+        const cq: any = new ClusteredRedisQueue('CQ-Off', clusterConfig);
+        const handler: Mock<any> = mock.fn();
+
+        cq.on('evt', handler);
+        cq.off('evt', handler);
+
+        for (const imq of cq.imqs) {
+            assert.equal(imq.listenerCount('evt'), 0);
+        }
+
+        await cq.destroy();
+    });
+
+    it('publish() forwards to every queue', async () => {
+        const cq: any = new ClusteredRedisQueue('CQ-Pub', clusterConfig);
+
+        cq.imqs.forEach((imq: any) =>
+            mock.method(imq, 'publish', async () => undefined),
+        );
+
+        await cq.publish({ a: 1 }, 'target');
+
+        for (const imq of cq.imqs) {
+            assert.equal(imq.publish.mock.callCount(), 1);
+        }
+
+        await cq.destroy();
+    });
+
+    it('subscribe()/unsubscribe() forward to every queue', async () => {
+        const cq: any = new ClusteredRedisQueue('CQ-Sub', clusterConfig);
+
+        cq.imqs.forEach((imq: any) => {
+            mock.method(imq, 'subscribe', async () => undefined);
+            mock.method(imq, 'unsubscribe', async () => undefined);
+        });
+
+        await cq.subscribe('chan', () => undefined);
+        await cq.unsubscribe();
+
+        for (const imq of cq.imqs) {
+            assert.equal(imq.subscribe.mock.callCount(), 1);
+            assert.equal(imq.unsubscribe.mock.callCount(), 1);
+        }
+
+        await cq.destroy();
+    });
+
+    it('returns the existing server when adding a duplicate', async () => {
+        const manager = new (ClusterManager as any)();
+        const cq: any = new ClusteredRedisQueue('CQ-Existing', {
+            clusterManagers: [manager],
+        });
+
+        const first = cq.addServerWithQueueInitializing(server, false);
+        const second = cq.addServerWithQueueInitializing(server, false);
+
+        assert.equal(second.host, first.host);
+        assert.equal(second.port, first.port);
+        assert.equal(cq.servers.length, 1);
+
+        await cq.destroy();
+    });
+});

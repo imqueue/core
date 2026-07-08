@@ -25,7 +25,7 @@
  * and destroyWorker() behavior).
  */
 import '../mocks';
-import { describe, it, afterEach, mock } from 'node:test';
+import { describe, it, afterEach, mock, Mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { UDPClusterManager } from '../../src';
 
@@ -276,6 +276,23 @@ describe('UDPClusterManager - shared worker fan-out', () => {
         await managerTwo.destroy();
     });
 
+    it('should log worker "error" events via logger.error', async () => {
+        const error = mock.fn();
+        const manager: any = new UDPClusterManager({
+            logger: { log: () => {}, info: () => {}, warn: () => {}, error },
+        });
+
+        manager.worker.emit('error', new Error('worker blew up'));
+
+        assert.equal(error.mock.callCount(), 1);
+        assert.match(
+            String(error.mock.calls[0].arguments[1]),
+            /worker blew up/,
+        );
+
+        await manager.destroy();
+    });
+
     it('should log worker socket errors instead of crashing', async () => {
         const warn = mock.fn();
         const manager: any = new UDPClusterManager({
@@ -366,5 +383,129 @@ describe('UDPClusterManager.destroyWorker()', () => {
 
         assert.equal(terminated, true);
         assert.equal(workers[key], undefined);
+    });
+});
+
+describe('UDPClusterManager lifecycle internals', () => {
+    const noopCluster = (): any => ({
+        add: () => undefined,
+        remove: () => undefined,
+        find: () => undefined,
+    });
+
+    afterEach(() => {
+        mock.restoreAll();
+        (UDPClusterManager as any).shuttingDown = false;
+    });
+
+    it('ignores worker messages that are not cluster events', async () => {
+        const manager: any = new UDPClusterManager();
+
+        manager.init(noopCluster());
+        assert.doesNotThrow(() =>
+            manager.worker.emit('message', { type: 'system:info' }),
+        );
+
+        await manager.destroy();
+    });
+
+    it('free() flags shutdown and stops every worker', async () => {
+        const manager: any = new UDPClusterManager();
+
+        manager.init(noopCluster());
+
+        await (UDPClusterManager as any).free();
+
+        assert.equal((UDPClusterManager as any).shuttingDown, true);
+        assert.equal(Object.keys((UDPClusterManager as any).workers).length, 0);
+
+        await manager.destroy().catch(() => undefined);
+    });
+
+    it('freeAndRaise() frees workers then re-raises the signal', async () => {
+        const kill: Mock<any> = mock.method(process, 'kill', () => true);
+        const manager: any = new UDPClusterManager();
+
+        await (UDPClusterManager as any).freeAndRaise('SIGTERM');
+
+        assert.ok(kill.mock.callCount() > 0);
+
+        await manager.destroy().catch(() => undefined);
+    });
+
+    it('binds a signal handler that frees and re-raises', async () => {
+        mock.method(process, 'kill', () => true);
+
+        const prev = (UDPClusterManager as any).signalsBound;
+        (UDPClusterManager as any).signalsBound = false;
+
+        const before = process.listeners('SIGTERM').slice();
+        (UDPClusterManager as any).bindSignals();
+        const added = process
+            .listeners('SIGTERM')
+            .filter(l => !before.includes(l));
+
+        assert.ok(added.length > 0);
+
+        await (added[0] as any)('SIGTERM');
+
+        for (const sig of ['SIGTERM', 'SIGINT', 'SIGABRT'] as const) {
+            for (const l of added) {
+                process.removeListener(sig, l as any);
+            }
+        }
+
+        (UDPClusterManager as any).signalsBound = prev;
+    });
+
+    it('warns and schedules a respawn on unexpected worker exit', async () => {
+        const warn: Mock<any> = mock.fn();
+        const manager: any = new UDPClusterManager({
+            logger: { log: () => {}, info: () => {}, warn, error: () => {} },
+        });
+
+        manager.init(noopCluster());
+        const worker = manager.worker;
+
+        worker.emit('exit', 1);
+
+        const warned = warn.mock.calls.some((call: any) =>
+            String(call.arguments[0]).includes('unexpectedly'),
+        );
+        assert.equal(warned, true);
+
+        await worker.terminate?.();
+        await manager.destroy().catch(() => undefined);
+    });
+
+    it('respawn() replaces the worker after the delay', async () => {
+        const manager: any = new UDPClusterManager();
+
+        manager.init(noopCluster());
+        const key = manager.workerKey;
+        const original = manager.worker;
+
+        delete (UDPClusterManager as any).workers[key];
+        (UDPClusterManager as any).respawn(key);
+
+        await new Promise(resolve => setTimeout(resolve, 1200));
+
+        assert.ok(manager.worker);
+
+        await original.terminate?.();
+        await manager.destroy().catch(() => undefined);
+    });
+});
+
+describe('UDPClusterManager.respawn() guard', () => {
+    afterEach(() => {
+        mock.restoreAll();
+        (UDPClusterManager as any).shuttingDown = false;
+    });
+
+    it('is a no-op without registered instances', () => {
+        assert.doesNotThrow(() =>
+            (UDPClusterManager as any).respawn('missing-worker-key'),
+        );
     });
 });

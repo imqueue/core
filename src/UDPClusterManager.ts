@@ -21,10 +21,10 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
+import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { ClusterManager, ICluster } from './ClusterManager';
 import { ILogger, IServerInput } from './IMessageQueue';
-import { Worker } from 'worker_threads';
-import { join } from 'path';
 
 /** Shape of a message posted from the UDP worker thread */
 interface WorkerMessage {

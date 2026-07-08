@@ -1,5 +1,5 @@
 /*!
- * Helper: sha1
+ * IMQ Unit Test Mocks: mockBuiltin helper
  *
  * I'm Queue Software Project
  * Copyright (C) 2025  imqueue.com <support@imqueue.com>
@@ -21,18 +21,22 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { createHash, Hash } from 'node:crypto';
+import mock = require('mock-require');
 
 /**
- * Returns SHA1 hash sum of the given string
+ * Registers a mock for a Node.js built-in module under both its bare specifier
+ * (e.g. `os`) and its `node:`-prefixed form (e.g. `node:os`). This keeps the
+ * mock effective no matter which import form the code under test uses, so the
+ * two never drift out of sync.
  *
- * @param {string} str
- * @returns {string}
+ * @param {string} name - the built-in module name, without the `node:` prefix
+ * @param {Parameters<typeof mock>[1]} impl - the mock implementation to register
+ * @returns {void}
  */
-export function sha1(str: string): string {
-    const sha: Hash = createHash('sha1');
-
-    sha.update(str);
-
-    return sha.digest('hex');
+export function mockBuiltin(
+    name: string,
+    impl: Parameters<typeof mock>[1],
+): void {
+    mock(name, impl);
+    mock(`node:${name}`, impl);
 }

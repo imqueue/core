@@ -24,7 +24,7 @@
 import '../mocks';
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 import { UDPWorker } from '../../src/UDPWorker';
 
 const OPTIONS: any = {
@@ -154,6 +154,62 @@ describe('UDPWorker', () => {
         port.emit('message', { type: 'stop' });
 
         assert.deepEqual(postedMessages(port), [{ type: 'stopped' }]);
+    });
+
+    it('should reply with stopped even without a socket', () => {
+        const { worker, port } = makeWorker();
+
+        worker.socket = undefined;
+        port.emit('message', { type: 'stop' });
+
+        assert.deepEqual(postedMessages(port), [{ type: 'stopped' }]);
+    });
+
+    it('should swallow errors thrown while handling a datagram', () => {
+        const { worker, port } = makeWorker();
+
+        // a null payload makes parseMessage throw inside the handler; the
+        // worker must not crash and must not post anything
+        assert.doesNotThrow(() => worker.socket.emit('message', null));
+        assert.equal(port.postMessage.mock.callCount(), 0);
+    });
+
+    it('selects a matching IPv4 interface for the broadcast address', () => {
+        const { worker } = makeWorker({
+            ...OPTIONS,
+            address: '127.0.0.255',
+            limitedAddress: '255.255.255.255',
+        });
+
+        assert.equal(worker.selectNetworkInterface(), '127.0.0.1');
+    });
+
+    it('skips interface entries with no addresses', () => {
+        const os = require('node:os');
+        const original = os.networkInterfaces;
+
+        os.networkInterfaces = () => ({
+            empty: undefined,
+            lo: [
+                {
+                    address: '127.0.0.1',
+                    family: 'IPv4',
+                    internal: true,
+                },
+            ],
+        });
+
+        try {
+            const { worker } = makeWorker({
+                ...OPTIONS,
+                address: '127.0.0.255',
+                limitedAddress: '255.255.255.255',
+            });
+
+            assert.equal(worker.selectNetworkInterface(), '127.0.0.1');
+        } finally {
+            os.networkInterfaces = original;
+        }
     });
 
     it('should remove a server after its alive timeout expires', async () => {

@@ -21,7 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { gzipSync } from 'zlib';
+import { gzipSync } from 'node:zlib';
 
 /**
  * Compresses the given data and returns a binary string

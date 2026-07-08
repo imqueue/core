@@ -19,7 +19,6 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-export * from './helpers';
 export * from './profile';
 export * from './redis';
 export * from './IMQMode';

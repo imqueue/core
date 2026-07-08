@@ -21,9 +21,9 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { EventEmitter } from 'events';
-import { randomUUID } from 'crypto';
-import { hostname } from 'os';
+import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import {
     IMessageQueue,
     IRedisClient,

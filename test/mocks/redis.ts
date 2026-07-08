@@ -22,8 +22,8 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import mock from 'mock-require';
-import { EventEmitter } from 'events';
-import { createHash, Hash } from 'crypto';
+import { EventEmitter } from 'node:events';
+import { createHash, Hash } from 'node:crypto';
 
 function sha1(str: string) {
     let sha: Hash = createHash('sha1');
@@ -43,9 +43,11 @@ export class RedisClientMock extends EventEmitter {
     private __name: string = '';
     public connected: boolean = true;
     public status = 'ready';
+    public options: any;
 
     constructor(options: any = {}) {
         super();
+        this.options = options;
         setTimeout(() => {
             this.emit('ready', this);
         });

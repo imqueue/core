@@ -22,8 +22,8 @@
 import '../../mocks';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'events';
-import { copyEventEmitter } from '../../../src';
+import { EventEmitter } from 'node:events';
+import { copyEventEmitter } from '../../../src/helpers';
 
 describe('copyEventEmitter()', () => {
     const eventName = 'test';
@@ -92,8 +92,8 @@ describe('copyEventEmitter()', () => {
         source.on(eventName, mockListener);
 
         // Mock util.inspect to return onceWrapper for this listener
-        const originalInspect = require('util').inspect;
-        require('util').inspect = (obj: any) => {
+        const originalInspect = require('node:util').inspect;
+        require('node:util').inspect = (obj: any) => {
             if (obj === mockListener) {
                 return 'function onceWrapper() { ... }';
             }
@@ -103,7 +103,7 @@ describe('copyEventEmitter()', () => {
         copyEventEmitter(source, target);
 
         // Restore original inspect
-        require('util').inspect = originalInspect;
+        require('node:util').inspect = originalInspect;
 
         assert.equal(target.listenerCount(eventName), 1);
     });
@@ -139,8 +139,8 @@ describe('copyEventEmitter()', () => {
         // Create a mock listener that looks like onceWrapper and has a falsy listener property
         const mockListener: any = function () {};
         mockListener.listener = 0; // falsy value present
-        const originalInspect = require('util').inspect;
-        require('util').inspect = (obj: any) => {
+        const originalInspect = require('node:util').inspect;
+        require('node:util').inspect = (obj: any) => {
             if (obj === mockListener) {
                 return 'function onceWrapper() { ... }';
             }
@@ -151,7 +151,7 @@ describe('copyEventEmitter()', () => {
         copyEventEmitter(source, target);
 
         // Restore original inspect
-        require('util').inspect = originalInspect;
+        require('node:util').inspect = originalInspect;
 
         assert.equal(target.listenerCount(eventName), 1);
     });
@@ -162,8 +162,8 @@ describe('copyEventEmitter()', () => {
 
         const mockListener: any = function () {};
         mockListener.listener = undefined; // explicitly undefined
-        const originalInspect = require('util').inspect;
-        require('util').inspect = (obj: any) => {
+        const originalInspect = require('node:util').inspect;
+        require('node:util').inspect = (obj: any) => {
             if (obj === mockListener) {
                 return 'function onceWrapper() { ... }';
             }
@@ -174,7 +174,7 @@ describe('copyEventEmitter()', () => {
         copyEventEmitter(source, target);
 
         // Restore original inspect
-        require('util').inspect = originalInspect;
+        require('node:util').inspect = originalInspect;
 
         assert.equal(target.listenerCount(eventName), 1);
     });
@@ -191,8 +191,8 @@ describe('copyEventEmitter()', () => {
         const mockListener: any = function () {};
         mockListener.listener = realListener; // truthy function
 
-        const originalInspect = require('util').inspect;
-        require('util').inspect = (obj: any) => {
+        const originalInspect = require('node:util').inspect;
+        require('node:util').inspect = (obj: any) => {
             if (obj === mockListener) {
                 return 'function onceWrapper() { ... }';
             }
@@ -203,7 +203,7 @@ describe('copyEventEmitter()', () => {
         copyEventEmitter(source, target);
 
         // Restore original inspect
-        require('util').inspect = originalInspect;
+        require('node:util').inspect = originalInspect;
 
         // Ensure the listener was attached via once() and is callable exactly once
         assert.equal(target.listenerCount(eventName), 1);
@@ -226,8 +226,8 @@ describe('copyEventEmitter()', () => {
             },
             on: () => {},
         };
-        const originalInspect = require('util').inspect;
-        require('util').inspect = (obj: any) => {
+        const originalInspect = require('node:util').inspect;
+        require('node:util').inspect = (obj: any) => {
             if (typeof obj === 'undefined') {
                 return 'function onceWrapper() { ... }';
             }
@@ -237,7 +237,7 @@ describe('copyEventEmitter()', () => {
         copyEventEmitter(source as any, target as any);
 
         // Restore original inspect
-        require('util').inspect = originalInspect;
+        require('node:util').inspect = originalInspect;
 
         assert.equal(onceCalls.length, 1);
         assert.equal(onceCalls[0][0], eventName);

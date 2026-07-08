@@ -21,8 +21,8 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import mock = require('mock-require');
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
+import { mockBuiltin } from './mockBuiltin';
 
 class Socket extends EventEmitter {
     public bindArgs: any[] = [];
@@ -50,4 +50,4 @@ export const createSocket = () => {
     return new Socket();
 };
 
-mock('dgram', { createSocket });
+mockBuiltin('dgram', { createSocket });

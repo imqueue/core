@@ -21,11 +21,11 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { EventEmitter } from 'events';
+import { EventEmitter } from 'node:events';
 import { IMQMode } from './IMQMode';
 import { ClusterManager } from './ClusterManager';
 
-export { EventEmitter } from 'events';
+export { EventEmitter } from 'node:events';
 
 /**
  * Represents any JSON-serializable value
@@ -316,7 +316,7 @@ export type IMessageQueueConstructor = new (
  * @example
  * ~~~typescript
  * import { IMessageQueue, EventEmitter } from '@imqueue/core';
- * import { randomUUID } from 'crypto';
+ * import { randomUUID } from 'node:crypto';
  *
  * class SomeMQAdapter extends EventEmitter implements IMessageQueue {
  *     public async start(): Promise<SomeMQAdapter> {

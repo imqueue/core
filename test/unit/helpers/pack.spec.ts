@@ -21,7 +21,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { gunzipSync } from 'zlib';
+import { gunzipSync } from 'node:zlib';
 import { pack } from '../../../src/helpers';
 
 describe('pack()', () => {

@@ -19,8 +19,8 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import mock = require('mock-require');
 import os from 'node:os';
+import { mockBuiltin } from './mockBuiltin';
 
 export const networkInterfaces = () => {
     return {
@@ -37,4 +37,4 @@ export const networkInterfaces = () => {
     };
 };
 
-mock('os', { ...os, networkInterfaces });
+mockBuiltin('os', { ...os, networkInterfaces });

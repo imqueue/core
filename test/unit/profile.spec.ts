@@ -343,3 +343,36 @@ describe('profile() async rejection path', () => {
         assert.ok(logger.info.mock.callCount() > 0);
     });
 });
+
+describe('profile() legacy decorator signature', () => {
+    it('wraps via the legacy (target, key, descriptor) form', () => {
+        const decorator = profile({ enableDebugTime: true });
+        const original = function (): number {
+            return 42;
+        };
+        const descriptor: any = { value: original };
+
+        const result = decorator({}, 'legacyMethod', descriptor);
+
+        assert.equal(result, descriptor);
+        assert.notEqual(descriptor.value, original);
+        assert.equal(descriptor.value(), 42);
+    });
+
+    it('resolves the class name from a function target', () => {
+        const decorator = profile({ enableDebugTime: true });
+        const descriptor: any = {
+            value: function (): number {
+                return 7;
+            },
+        };
+
+        decorator({}, 'staticMethod', descriptor);
+
+        // invoking with `this` bound to a class (a function) exercises the
+        // function-target branch of class-name resolution
+        class StaticHolder {}
+
+        assert.equal(descriptor.value.call(StaticHolder), 7);
+    });
+});

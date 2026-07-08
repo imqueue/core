@@ -23,7 +23,7 @@ import '../mocks';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter as IMQEventEmitter } from '../../src';
-import { EventEmitter as NodeEventEmitter } from 'events';
+import { EventEmitter as NodeEventEmitter } from 'node:events';
 
 describe('IMessageQueue EventEmitter re-export', () => {
     it('should re-export Node.js EventEmitter and be usable', () => {

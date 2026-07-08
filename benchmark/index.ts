@@ -21,14 +21,14 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import cluster from 'cluster';
-import { execSync as exec } from 'child_process';
-import { arch, cpus, freemem, platform, totalmem } from 'os';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import cluster from 'node:cluster';
+import { execSync as exec } from 'node:child_process';
+import { arch, cpus, freemem, platform, totalmem } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { run } from './redis-test';
-import { resolve } from 'path';
-import { randomUUID as uuid } from 'crypto';
+import { resolve } from 'node:path';
+import { randomUUID as uuid } from 'node:crypto';
 import { AnyJson } from '..';
 import { setAffinity } from './affinity';
 

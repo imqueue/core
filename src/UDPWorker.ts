@@ -27,11 +27,11 @@ import {
     parentPort,
     workerData,
     MessagePort,
-} from 'worker_threads';
-import { createSocket, Socket } from 'dgram';
-import { networkInterfaces } from 'os';
+} from 'node:worker_threads';
+import { createSocket, Socket } from 'node:dgram';
+import { networkInterfaces } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { UDPWorkerOptions } from './UDPClusterManager';
-import { randomUUID } from 'crypto';
 
 enum MessageType {
     Up = 'up',

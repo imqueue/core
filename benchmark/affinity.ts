@@ -21,8 +21,8 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { execSync as exec } from 'child_process';
-import { platform } from 'os';
+import { execSync as exec } from 'node:child_process';
+import { platform } from 'node:os';
 
 export function setAffinity(cpu: number) {
     if (platform() === 'linux') {

@@ -270,22 +270,22 @@ function isThenable<T>(value: T): value is T & PromiseLike<unknown> {
  *
  * class MyClass {
  *
- @profile(true) // forced profiling
- public myMethod() {
- // ...
- }
+ *     @profile(true) // forced profiling
+ *     public myMethod() {
+ *         // ...
+ *     }
  *
- @profile() // profiling happened only depending on env DEBUG flag
- private innerMethod() {
- // ...
- }
+ *     @profile() // profiling happens only depending on env DEBUG flag
+ *     private innerMethod() {
+ *         // ...
+ *     }
  * }
  * ~~~
  *
  * @returns {(
- target: any,
- methodName: (string),
- descriptor: TypedPropertyDescriptor<(...args: any[]) => any>
+ *     target: any,
+ *     methodName: (string),
+ *     descriptor: TypedPropertyDescriptor<(...args: any[]) => any>,
  * ) => void}
  */
 export function profile(options?: ProfileDecoratorOptions): any {

@@ -39,10 +39,11 @@ import {
 import { InitializedCluster } from './ClusterManager';
 
 /**
- * Default time (ms) send() waits for the first cluster server to become
- * available before rejecting, when the cluster is still empty.
+ * Time (ms) send() waits for the first cluster server to become available
+ * before rejecting, when the cluster is still empty. Configurable via the
+ * IMQ_SEND_INIT_TIMEOUT environment variable, defaults to 30000.
  */
-const SEND_INIT_TIMEOUT = 30000;
+const SEND_INIT_TIMEOUT = +(process.env.IMQ_SEND_INIT_TIMEOUT || 0) || 30000;
 
 interface ClusterServer extends IMessageQueueConnection {
     imq?: RedisQueue;

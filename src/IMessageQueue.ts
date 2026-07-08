@@ -318,31 +318,31 @@ export type IMessageQueueConstructor = new (
  * import { IMessageQueue, EventEmitter } from '@imqueue/core';
  * import { randomUUID } from 'crypto';
  *
- * class SomeMQAdapter implements IMessageQueue extends EventEmitter {
- public async start(): Promise<SomeMQAdapter> {
- // ... implementation goes here
- return this;
- }
- public async stop(): Promise<SomeMQAdapter> {
- // ... implementation goes here
- return this;
- }
- public async send(
- toQueue: string,
- message: JsonObject,
- delay?: number
- ): Promise<string> {
- const messageId = randomUUID();
- // ... implementation goes here
- return messageId;
- }
- public async destroy(): Promise<void> {
- // ... implementation goes here
- }
- public async clear(): Promise<SomeMQAdapter> {
- // ... implementation goes here
- return this;
- }
+ * class SomeMQAdapter extends EventEmitter implements IMessageQueue {
+ *     public async start(): Promise<SomeMQAdapter> {
+ *         // ... implementation goes here
+ *         return this;
+ *     }
+ *     public async stop(): Promise<SomeMQAdapter> {
+ *         // ... implementation goes here
+ *         return this;
+ *     }
+ *     public async send(
+ *         toQueue: string,
+ *         message: JsonObject,
+ *         delay?: number,
+ *     ): Promise<string> {
+ *         const messageId = randomUUID();
+ *         // ... implementation goes here
+ *         return messageId;
+ *     }
+ *     public async destroy(): Promise<void> {
+ *         // ... implementation goes here
+ *     }
+ *     public async clear(): Promise<SomeMQAdapter> {
+ *         // ... implementation goes here
+ *         return this;
+ *     }
  * }
  * ~~~
  */

@@ -267,21 +267,22 @@ export class RedisQueue
      */
     private scripts: { [name: string]: { code: string; checksum?: string } } = {
         moveDelayed: {
-            code:
-                'local messages = redis.call(' +
-                '"zrangebyscore", KEYS[1], "-inf", ARGV[1]) ' +
-                'local count = table.getn(messages) ' +
-                'local message ' +
-                'local i = 1 ' +
-                'if count > 0 then ' +
-                'while messages[i] do ' +
-                'redis.call("lpush", KEYS[2], messages[i]) ' +
-                'i = i + 1 ' +
-                'end ' +
-                'redis.call("zremrangebyscore", KEYS[1], ' +
-                '"-inf", ARGV[1]) ' +
-                'end ' +
-                'return count',
+            code: `
+                local messages = redis.call(
+                    "zrangebyscore", KEYS[1], "-inf", ARGV[1])
+                local count = table.getn(messages)
+                local message
+                local i = 1
+                if count > 0 then
+                    while messages[i] do
+                        redis.call("lpush", KEYS[2], messages[i])
+                        i = i + 1
+                    end
+                    redis.call("zremrangebyscore", KEYS[1],
+                        "-inf", ARGV[1])
+                end
+                return count
+            `,
         },
     };
 

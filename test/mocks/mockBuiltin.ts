@@ -35,9 +35,12 @@ import { mock, type MockModuleOptions } from 'node:test';
  * which requires the default export to be a plain object (a bare class as
  * the default with named exports alongside is rejected by the runtime).
  *
- * `cache: true` keeps mock-require's semantics: every `require()` of the
- * mocked specifier returns the same module instance, so a test may patch a
- * property in place and the code under test observes the change.
+ * `cache: false` is required: as of the Node 24.17/24.18 module-loader
+ * changes, `cache: true` mock modules expose their export names with the
+ * values never bound (importing `{ Redis }` yields undefined). Instance
+ * caching is not load-bearing for these mocks anyway — every piece of
+ * shared state lives on the exported references themselves (for example
+ * RedisClientMock statics), so each re-evaluation serves the same objects.
  *
  * @param {Record<string, unknown>} exports - mock exports, `default` key being
  *                                            the default export
@@ -47,7 +50,7 @@ export function moduleMockOptions(
     exports: Record<string, unknown>,
 ): MockModuleOptions {
     const { default: defaultExport, ...namedExports } = exports;
-    const options: MockModuleOptions = { cache: true };
+    const options: MockModuleOptions = { cache: false };
 
     if (defaultExport !== undefined) {
         options.defaultExport = defaultExport;

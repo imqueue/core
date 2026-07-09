@@ -28,7 +28,7 @@
 import '../mocks/index.js';
 import assert from 'node:assert/strict';
 import { randomUUID as uuid } from 'node:crypto';
-import { describe, it, beforeEach, afterEach, mock, Mock } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock, type Mock } from 'node:test';
 import { Redis } from 'ioredis';
 import { RedisQueue, IMQMode } from '../../src/index.js';
 import { escapeRegExp, sha1 } from '../../src/helpers/index.js';

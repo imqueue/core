@@ -29,7 +29,7 @@ import { parseArgs } from 'node:util';
 import { run } from './redis-test.js';
 import { resolve } from 'node:path';
 import { randomUUID as uuid } from 'node:crypto';
-import { AnyJson } from '../index.js';
+import { type AnyJson } from '../index.js';
 import { setAffinity } from './affinity.js';
 
 /**

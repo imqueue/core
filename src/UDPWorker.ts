@@ -28,10 +28,10 @@ import {
     workerData,
     MessagePort,
 } from 'node:worker_threads';
-import { createSocket, Socket } from 'node:dgram';
+import { createSocket, type Socket } from 'node:dgram';
 import { networkInterfaces } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { UDPWorkerOptions } from './UDPClusterManager.js';
+import { type UDPWorkerOptions } from './UDPClusterManager.js';
 
 enum MessageType {
     Up = 'up',

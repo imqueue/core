@@ -25,7 +25,7 @@
  * and destroyWorker() behavior).
  */
 import '../mocks/index.js';
-import { describe, it, afterEach, mock, Mock } from 'node:test';
+import { describe, it, afterEach, mock, type Mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { UDPClusterManager } from '../../src/index.js';
 

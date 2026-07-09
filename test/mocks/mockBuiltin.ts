@@ -21,7 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { mock, MockModuleOptions } from 'node:test';
+import { mock, type MockModuleOptions } from 'node:test';
 
 /**
  * Builds the `mock.module()` options for the running Node version. Node 24+

@@ -25,14 +25,14 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import {
-    IMessageQueue,
-    IRedisClient,
-    JsonObject,
-    IMQOptions,
-    IMessage,
-    ILogger,
+    type IMessageQueue,
+    type IRedisClient,
+    type JsonObject,
+    type IMQOptions,
+    type IMessage,
+    type ILogger,
     IMQMode,
-    EventMap,
+    type EventMap,
     profile,
 } from './index.js';
 import {

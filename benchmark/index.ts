@@ -26,11 +26,11 @@ import { execSync as exec } from 'node:child_process';
 import { arch, cpus, freemem, platform, totalmem } from 'node:os';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { run } from './redis-test';
+import { run } from './redis-test.js';
 import { resolve } from 'node:path';
 import { randomUUID as uuid } from 'node:crypto';
-import { AnyJson } from '..';
-import { setAffinity } from './affinity';
+import { AnyJson } from '../index.js';
+import { setAffinity } from './affinity.js';
 
 /**
  * Command line options: canonical long name -> parseArgs config and description

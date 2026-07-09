@@ -22,8 +22,8 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { randomUUID as uuid } from 'node:crypto';
-import IMQ, { IMQOptions, JsonObject, AnyJson } from '../index';
-import { pack } from '../src/helpers';
+import IMQ, { IMQOptions, JsonObject, AnyJson } from '../index.js';
+import { pack } from '../src/helpers/index.js';
 
 /**
  * Sample message used within tests

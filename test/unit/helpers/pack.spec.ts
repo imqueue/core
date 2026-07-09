@@ -22,7 +22,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { gunzipSync } from 'node:zlib';
-import { pack } from '../../../src/helpers';
+import { pack } from '../../../src/helpers/index.js';
 
 describe('pack()', () => {
     it('should return a string', () => {

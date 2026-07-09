@@ -21,7 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { ILogger } from '../../src';
+import { ILogger } from '../../src/index.js';
 
 /**
  * Builds a fresh no-op logger suitable for spying on in unit tests.

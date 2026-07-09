@@ -21,7 +21,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildOptions } from '../../../src/helpers';
+import { buildOptions } from '../../../src/helpers/index.js';
 
 interface Options {
     host: string;

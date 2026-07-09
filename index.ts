@@ -26,9 +26,20 @@ import {
     IMessageQueueConstructor,
     IMQMode,
     IMQOptions,
-} from './src';
+} from './src/index.js';
+import { ClusteredRedisQueue } from './src/index.js';
+import { RedisQueue } from './src/index.js';
 
-export * from './src';
+export * from './src/index.js';
+
+// ES modules provide no synchronous dynamic loading, so the queue adapters
+// are registered statically; the map key matches the previously used
+// `${vendor}Queue` / `Clustered${vendor}Queue` file naming convention
+const ADAPTERS: { [name: string]: IMessageQueueConstructor } = {
+    RedisQueue: RedisQueue as unknown as IMessageQueueConstructor,
+    ClusteredRedisQueue:
+        ClusteredRedisQueue as unknown as IMessageQueueConstructor,
+};
 
 /**
  * Message Queue Factory
@@ -64,9 +75,13 @@ export default class IMQ {
             ClassName = `Clustered${ClassName}`;
         }
 
-        const Adapter: IMessageQueueConstructor = require(
-            `${__dirname}/src/${ClassName}.js`,
-        )[ClassName];
+        const Adapter: IMessageQueueConstructor | undefined =
+            ADAPTERS[ClassName];
+
+        if (!Adapter) {
+            throw new TypeError(`IMQ: unknown queue vendor requested: ${
+                options.vendor}`);
+        }
 
         return new Adapter(name, options, mode);
     }

@@ -24,7 +24,7 @@
 import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
 import { createHash, Hash } from 'node:crypto';
-import { moduleMockOptions } from './mockBuiltin';
+import { moduleMockOptions } from './mockBuiltin.js';
 
 function sha1(str: string) {
     let sha: Hash = createHash('sha1');
@@ -376,10 +376,9 @@ export class RedisClientMock extends EventEmitter {
     }
 }
 
-// Native module mocking cannot merge named exports onto a class default
-// export, so the whole transpiled-ESM-shaped namespace object is registered
-// as the module's default export (for CJS consumers it IS what
-// `require('ioredis')` returns) — exactly the object mock-require served here.
+// The mock must serve both worlds: ESM sources bind the named `Redis`
+// export directly, while CommonJS-style consumers read properties off the
+// default (`module.exports`) object — so both shapes are registered.
 mock.module(
     'ioredis',
     moduleMockOptions({
@@ -388,6 +387,7 @@ mock.module(
             default: RedisClientMock,
             Redis: RedisClientMock,
         },
+        Redis: RedisClientMock,
     }),
 );
 

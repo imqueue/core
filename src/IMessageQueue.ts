@@ -22,8 +22,8 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { EventEmitter } from 'node:events';
-import { IMQMode } from './IMQMode';
-import { ClusterManager } from './ClusterManager';
+import { IMQMode } from './IMQMode.js';
+import { ClusterManager } from './ClusterManager.js';
 
 export { EventEmitter } from 'node:events';
 

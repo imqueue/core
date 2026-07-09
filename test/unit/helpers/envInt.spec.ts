@@ -21,7 +21,7 @@
  */
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { envInt } from '../../../src/helpers';
+import { envInt } from '../../../src/helpers/index.js';
 
 const VAR = 'IMQ_ENV_INT_TEST';
 

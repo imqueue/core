@@ -19,7 +19,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import '../../mocks';
+import '../../mocks/index.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -27,7 +27,8 @@ import { EventEmitter } from 'node:events';
 // which esModuleInterop turns into a copy), so patching util.inspect below
 // is observed by the code under test
 import util = require('node:util');
-import { copyEventEmitter } from '../../../src/helpers';
+import { syncBuiltinESMExports } from "node:module";
+import { copyEventEmitter } from '../../../src/helpers/index.js';
 
 describe('copyEventEmitter()', () => {
     const eventName = 'test';
@@ -103,11 +104,13 @@ describe('copyEventEmitter()', () => {
             }
             return originalInspect(obj);
         };
+        syncBuiltinESMExports();
 
         copyEventEmitter(source, target);
 
         // Restore original inspect
         (util as any).inspect = originalInspect;
+        syncBuiltinESMExports();
 
         assert.equal(target.listenerCount(eventName), 1);
     });
@@ -150,12 +153,14 @@ describe('copyEventEmitter()', () => {
             }
             return originalInspect(obj);
         };
+        syncBuiltinESMExports();
 
         source.on(eventName, mockListener as any);
         copyEventEmitter(source, target);
 
         // Restore original inspect
         (util as any).inspect = originalInspect;
+        syncBuiltinESMExports();
 
         assert.equal(target.listenerCount(eventName), 1);
     });
@@ -173,12 +178,14 @@ describe('copyEventEmitter()', () => {
             }
             return originalInspect(obj);
         };
+        syncBuiltinESMExports();
 
         source.on(eventName, mockListener as any);
         copyEventEmitter(source, target);
 
         // Restore original inspect
         (util as any).inspect = originalInspect;
+        syncBuiltinESMExports();
 
         assert.equal(target.listenerCount(eventName), 1);
     });
@@ -202,12 +209,14 @@ describe('copyEventEmitter()', () => {
             }
             return originalInspect(obj);
         };
+        syncBuiltinESMExports();
 
         source.on(eventName, mockListener as any);
         copyEventEmitter(source, target);
 
         // Restore original inspect
         (util as any).inspect = originalInspect;
+        syncBuiltinESMExports();
 
         // Ensure the listener was attached via once() and is callable exactly once
         assert.equal(target.listenerCount(eventName), 1);
@@ -237,11 +246,13 @@ describe('copyEventEmitter()', () => {
             }
             return originalInspect(obj);
         };
+        syncBuiltinESMExports();
 
         copyEventEmitter(source as any, target as any);
 
         // Restore original inspect
         (util as any).inspect = originalInspect;
+        syncBuiltinESMExports();
 
         assert.equal(onceCalls.length, 1);
         assert.equal(onceCalls[0][0], eventName);

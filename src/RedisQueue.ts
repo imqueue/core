@@ -34,7 +34,7 @@ import {
     IMQMode,
     EventMap,
     profile,
-} from '.';
+} from './index.js';
 import {
     buildOptions,
     escapeRegExp,
@@ -43,8 +43,8 @@ import {
     sha1,
     unpack,
     envInt,
-} from './helpers';
-import Redis from './redis';
+} from './helpers/index.js';
+import Redis from './redis.js';
 
 const RX_CLIENT_NAME = /name=(\S+)/g;
 const RX_CLIENT_TEST = /:(reader|writer|watcher)/;

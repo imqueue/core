@@ -23,7 +23,14 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import '../mocks/index.js';
-import { describe, it, beforeEach, afterEach, mock, type Mock } from 'node:test';
+import {
+    describe,
+    it,
+    beforeEach,
+    afterEach,
+    mock,
+    type Mock,
+} from 'node:test';
 import assert from 'node:assert/strict';
 import {
     profile,

@@ -7,7 +7,10 @@
 import '../mocks/index.js';
 import { describe, it, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClusterManager, type InitializedCluster } from '../../src/ClusterManager.js';
+import {
+    ClusterManager,
+    type InitializedCluster,
+} from '../../src/ClusterManager.js';
 
 class TestClusterManager extends ClusterManager {
     public destroyed = false;

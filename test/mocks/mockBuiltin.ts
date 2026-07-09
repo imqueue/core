@@ -24,11 +24,16 @@
 import { mock, type MockModuleOptions } from 'node:test';
 
 /**
- * Builds the `mock.module()` options for the running Node version. Node 24+
- * takes the mock's exports through the `exports` option (a `default` key is
- * the default export; for CJS consumers `module.exports` becomes that value),
- * and deprecated the earlier `defaultExport`/`namedExports` pair. Node 22 only
- * understands the earlier pair, so the same exports shape is translated there.
+ * Builds the `mock.module()` options from a single exports shape (`default`
+ * key being the default export). The long-standing `defaultExport` /
+ * `namedExports` pair is used on every Node version: newer 24.x lines emit a
+ * deprecation warning in favor of an `exports` option, but that option's
+ * behavior has already shifted between 24.x releases (module mocking is
+ * experimental), while the pair keeps working consistently on 22.x and 24.x.
+ *
+ * Note: named exports are merged onto the default export for CJS consumers,
+ * which requires the default export to be a plain object (a bare class as
+ * the default with named exports alongside is rejected by the runtime).
  *
  * `cache: true` keeps mock-require's semantics: every `require()` of the
  * mocked specifier returns the same module instance, so a test may patch a
@@ -41,11 +46,6 @@ import { mock, type MockModuleOptions } from 'node:test';
 export function moduleMockOptions(
     exports: Record<string, unknown>,
 ): MockModuleOptions {
-    if (+process.versions.node.split('.')[0] >= 24) {
-        // typings (@types/node 24.x) lag the runtime's `exports` option
-        return { cache: true, exports } as MockModuleOptions;
-    }
-
     const { default: defaultExport, ...namedExports } = exports;
     const options: MockModuleOptions = { cache: true };
 

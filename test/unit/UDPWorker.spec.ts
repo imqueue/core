@@ -25,10 +25,10 @@ import '../mocks/index.js';
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-// import-equals keeps the live (mocked) CJS module object (unlike
-// `import * as`, which esModuleInterop turns into a copy), so patching
-// os.networkInterfaces below is observed by the code under test
-import os = require('node:os');
+// the module mock binds networkInterfaces once at registration, so tests
+// swap implementations through the mock's mutable holder — patching the
+// CommonJS os object would not reach the ESM binding the source uses
+import { networkInterfacesMock } from '../mocks/index.js';
 import { UDPWorker } from '../../src/UDPWorker.js';
 
 const OPTIONS: any = {
@@ -189,9 +189,9 @@ describe('UDPWorker', () => {
     });
 
     it('skips interface entries with no addresses', () => {
-        const original = os.networkInterfaces;
+        const original = networkInterfacesMock.impl;
 
-        (os as any).networkInterfaces = () => ({
+        networkInterfacesMock.impl = () => ({
             empty: undefined,
             lo: [
                 {
@@ -211,7 +211,7 @@ describe('UDPWorker', () => {
 
             assert.equal(worker.selectNetworkInterface(), '127.0.0.1');
         } finally {
-            (os as any).networkInterfaces = original;
+            networkInterfacesMock.impl = original;
         }
     });
 

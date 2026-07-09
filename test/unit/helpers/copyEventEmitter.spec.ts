@@ -23,10 +23,11 @@ import '../../mocks/index.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-// import-equals keeps the live CJS module object (unlike `import * as`,
-// which esModuleInterop turns into a copy), so patching util.inspect below
-// is observed by the code under test
-import util = require('node:util');
+// the default import of a builtin is the live, mutable CommonJS module
+// object (unlike `import * as`, whose namespace is frozen), so patching
+// util.inspect below works; syncBuiltinESMExports() then publishes the
+// patch to the named-import binding the code under test reads
+import util from 'node:util';
 import { syncBuiltinESMExports } from 'node:module';
 import { copyEventEmitter } from '../../../src/helpers/index.js';
 

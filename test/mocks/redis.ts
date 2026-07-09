@@ -21,9 +21,10 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import mock from 'mock-require';
+import { mock } from 'node:test';
 import { EventEmitter } from 'node:events';
 import { createHash, Hash } from 'node:crypto';
+import { moduleMockOptions } from './mockBuiltin';
 
 function sha1(str: string) {
     let sha: Hash = createHash('sha1');
@@ -375,10 +376,19 @@ export class RedisClientMock extends EventEmitter {
     }
 }
 
-mock('ioredis', {
-    __esModule: true,
-    default: RedisClientMock,
-    Redis: RedisClientMock,
-});
+// Native module mocking cannot merge named exports onto a class default
+// export, so the whole transpiled-ESM-shaped namespace object is registered
+// as the module's default export (for CJS consumers it IS what
+// `require('ioredis')` returns) — exactly the object mock-require served here.
+mock.module(
+    'ioredis',
+    moduleMockOptions({
+        default: {
+            __esModule: true,
+            default: RedisClientMock,
+            Redis: RedisClientMock,
+        },
+    }),
+);
 
 export * from 'ioredis';

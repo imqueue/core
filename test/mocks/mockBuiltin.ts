@@ -21,22 +21,57 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import mock = require('mock-require');
+import { mock, MockModuleOptions } from 'node:test';
 
 /**
- * Registers a mock for a Node.js built-in module under both its bare specifier
- * (e.g. `os`) and its `node:`-prefixed form (e.g. `node:os`). This keeps the
- * mock effective no matter which import form the code under test uses, so the
- * two never drift out of sync.
+ * Builds the `mock.module()` options for the running Node version. Node 24+
+ * takes the mock's exports through the `exports` option (a `default` key is
+ * the default export; for CJS consumers `module.exports` becomes that value),
+ * and deprecated the earlier `defaultExport`/`namedExports` pair. Node 22 only
+ * understands the earlier pair, so the same exports shape is translated there.
+ *
+ * `cache: true` keeps mock-require's semantics: every `require()` of the
+ * mocked specifier returns the same module instance, so a test may patch a
+ * property in place and the code under test observes the change.
+ *
+ * @param {Record<string, unknown>} exports - mock exports, `default` key being
+ *                                            the default export
+ * @returns {MockModuleOptions}
+ */
+export function moduleMockOptions(
+    exports: Record<string, unknown>,
+): MockModuleOptions {
+    if (+process.versions.node.split('.')[0] >= 24) {
+        // typings (@types/node 24.x) lag the runtime's `exports` option
+        return { cache: true, exports } as MockModuleOptions;
+    }
+
+    const { default: defaultExport, ...namedExports } = exports;
+    const options: MockModuleOptions = { cache: true };
+
+    if (defaultExport !== undefined) {
+        options.defaultExport = defaultExport;
+    }
+
+    if (Object.keys(namedExports).length) {
+        options.namedExports = namedExports;
+    }
+
+    return options;
+}
+
+/**
+ * Registers a mock for a Node.js built-in module using the native
+ * `node:test` module mocking (`--experimental-test-module-mocks` must be
+ * enabled). Node resolves the bare specifier (e.g. `os`) and its
+ * `node:`-prefixed form (e.g. `node:os`) to the same module, so a single
+ * registration keeps the mock effective no matter which import form the code
+ * under test uses.
  *
  * @param {string} name - the built-in module name, without the `node:` prefix
- * @param {Parameters<typeof mock>[1]} impl - the mock implementation to register
+ * @param {Record<string, unknown>} impl - the mock exports to register
  * @returns {void}
  */
-export function mockBuiltin(
-    name: string,
-    impl: Parameters<typeof mock>[1],
-): void {
-    mock(name, impl);
-    mock(`node:${name}`, impl);
+export function mockBuiltin(name: string, impl: Record<string, unknown>): void {
+    mock.module(`node:${name}`, moduleMockOptions(impl));
 }

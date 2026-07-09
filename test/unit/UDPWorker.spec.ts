@@ -25,6 +25,10 @@ import '../mocks';
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+// import-equals keeps the live (mocked) CJS module object (unlike
+// `import * as`, which esModuleInterop turns into a copy), so patching
+// os.networkInterfaces below is observed by the code under test
+import os = require('node:os');
 import { UDPWorker } from '../../src/UDPWorker';
 
 const OPTIONS: any = {
@@ -185,10 +189,9 @@ describe('UDPWorker', () => {
     });
 
     it('skips interface entries with no addresses', () => {
-        const os = require('node:os');
         const original = os.networkInterfaces;
 
-        os.networkInterfaces = () => ({
+        (os as any).networkInterfaces = () => ({
             empty: undefined,
             lo: [
                 {
@@ -208,7 +211,7 @@ describe('UDPWorker', () => {
 
             assert.equal(worker.selectNetworkInterface(), '127.0.0.1');
         } finally {
-            os.networkInterfaces = original;
+            (os as any).networkInterfaces = original;
         }
     });
 

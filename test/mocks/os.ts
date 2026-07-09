@@ -22,7 +22,7 @@
 import os from 'node:os';
 import { mockBuiltin } from './mockBuiltin.js';
 
-export const networkInterfaces = () => {
+const defaultInterfaces = () => {
     return {
         lo: [
             {
@@ -36,5 +36,14 @@ export const networkInterfaces = () => {
         ],
     };
 };
+
+// mutable holder: the module mock binds `networkInterfaces` once at
+// registration, so tests swap the implementation through this object
+// (patching the CommonJS os object would not reach the mocked binding)
+export const networkInterfacesMock: { impl: () => any } = {
+    impl: defaultInterfaces,
+};
+
+export const networkInterfaces = () => networkInterfacesMock.impl();
 
 mockBuiltin('os', { ...os, networkInterfaces });

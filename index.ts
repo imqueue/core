@@ -22,10 +22,10 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import {
-    IMessageQueue,
-    IMessageQueueConstructor,
+    type IMessageQueue,
+    type IMessageQueueConstructor,
     IMQMode,
-    IMQOptions,
+    type IMQOptions,
 } from './src/index.js';
 import { ClusteredRedisQueue } from './src/index.js';
 import { RedisQueue } from './src/index.js';

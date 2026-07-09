@@ -23,8 +23,8 @@
  */
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { ClusterManager, ICluster } from './ClusterManager.js';
-import { ILogger, IServerInput } from './IMessageQueue.js';
+import { ClusterManager, type ICluster } from './ClusterManager.js';
+import { type ILogger, type IServerInput } from './IMessageQueue.js';
 
 /** Shape of a message posted from the UDP worker thread */
 interface WorkerMessage {

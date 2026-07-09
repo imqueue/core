@@ -22,18 +22,18 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { EventEmitter } from 'node:events';
-import { InitializedCluster } from './ClusterManager.js';
+import { type InitializedCluster } from './ClusterManager.js';
 import { buildOptions, copyEventEmitter } from './helpers/index.js';
 import {
     DEFAULT_IMQ_OPTIONS,
-    EventMap,
-    ILogger,
-    IMessageQueue,
-    IMessageQueueConnection,
+    type EventMap,
+    type ILogger,
+    type IMessageQueue,
+    type IMessageQueueConnection,
     IMQMode,
-    IMQOptions,
-    IServerInput,
-    JsonObject,
+    type IMQOptions,
+    type IServerInput,
+    type JsonObject,
     RedisQueue,
 } from './index.js';
 

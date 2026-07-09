@@ -25,15 +25,15 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import '../mocks';
+import '../mocks/index.js';
 import assert from 'node:assert/strict';
 import { randomUUID as uuid } from 'node:crypto';
 import { describe, it, beforeEach, afterEach, mock, Mock } from 'node:test';
-import Redis from 'ioredis';
-import { RedisQueue, IMQMode } from '../../src';
-import { escapeRegExp, sha1 } from '../../src/helpers';
-import { makeLogger } from '../helpers';
-import { logger, RedisClientMock } from '../mocks';
+import { Redis } from 'ioredis';
+import { RedisQueue, IMQMode } from '../../src/index.js';
+import { escapeRegExp, sha1 } from '../../src/helpers/index.js';
+import { makeLogger } from '../helpers/index.js';
+import { logger, RedisClientMock } from '../mocks/index.js';
 
 process.setMaxListeners(100);
 

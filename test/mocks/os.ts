@@ -20,7 +20,7 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import os from 'node:os';
-import { mockBuiltin } from './mockBuiltin';
+import { mockBuiltin } from './mockBuiltin.js';
 
 export const networkInterfaces = () => {
     return {

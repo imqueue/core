@@ -23,8 +23,8 @@
  */
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { ClusterManager, ICluster } from './ClusterManager';
-import { ILogger, IServerInput } from './IMessageQueue';
+import { ClusterManager, ICluster } from './ClusterManager.js';
+import { ILogger, IServerInput } from './IMessageQueue.js';
 
 /** Shape of a message posted from the UDP worker thread */
 interface WorkerMessage {
@@ -270,7 +270,7 @@ export class UDPClusterManager extends ClusterManager {
             aliveTimeoutCorrection: this.options.aliveTimeoutCorrection,
             useAliveCheck: this.options.useAliveCheck,
         };
-        const worker = new Worker(join(__dirname, './UDPWorker.js'), {
+        const worker = new Worker(join(import.meta.dirname, './UDPWorker.js'), {
             workerData,
         });
         const workerKey = this.workerKey;

@@ -21,7 +21,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomInt } from '../../../src/helpers';
+import { randomInt } from '../../../src/helpers/index.js';
 
 describe('randomInt()', () => {
     it('should always return an integer within the inclusive range', () => {

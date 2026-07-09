@@ -24,10 +24,10 @@
  * UDPClusterManager unit tests (merged: main suite, missing branches coverage
  * and destroyWorker() behavior).
  */
-import '../mocks';
+import '../mocks/index.js';
 import { describe, it, afterEach, mock, Mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { UDPClusterManager } from '../../src';
+import { UDPClusterManager } from '../../src/index.js';
 
 const testMessageUp = {
     name: 'IMQUnitTest',

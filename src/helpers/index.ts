@@ -21,11 +21,11 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-export * from './buildOptions';
-export * from './sha1';
-export * from './randomInt';
-export * from './pack';
-export * from './unpack';
-export * from './escapeRegExp';
-export * from './copyEventEmitter';
-export * from './envInt';
+export * from './buildOptions.js';
+export * from './sha1.js';
+export * from './randomInt.js';
+export * from './pack.js';
+export * from './unpack.js';
+export * from './escapeRegExp.js';
+export * from './copyEventEmitter.js';
+export * from './envInt.js';

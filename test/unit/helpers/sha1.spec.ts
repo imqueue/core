@@ -21,7 +21,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { sha1 } from '../../../src/helpers';
+import { sha1 } from '../../../src/helpers/index.js';
 
 describe('sha1()', () => {
     it('should return a 40-character lowercase hex string', () => {

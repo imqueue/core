@@ -21,8 +21,8 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-export * from './mockBuiltin';
-export * from './redis';
-export * from './logger';
-export * from './dgram';
-export * from './os';
+export * from './mockBuiltin.js';
+export * from './redis.js';
+export * from './logger.js';
+export * from './dgram.js';
+export * from './os.js';

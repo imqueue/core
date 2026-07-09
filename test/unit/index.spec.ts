@@ -21,10 +21,10 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import '../mocks';
+import '../mocks/index.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import IMQ, { RedisQueue, ClusteredRedisQueue } from '../..';
+import IMQ, { RedisQueue, ClusteredRedisQueue } from '../../index.js';
 
 describe('IMQ', () => {
     it('should be a class', () => {

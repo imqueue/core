@@ -22,8 +22,8 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { EventEmitter } from 'node:events';
-import { InitializedCluster } from './ClusterManager';
-import { buildOptions, copyEventEmitter } from './helpers';
+import { InitializedCluster } from './ClusterManager.js';
+import { buildOptions, copyEventEmitter } from './helpers/index.js';
 import {
     DEFAULT_IMQ_OPTIONS,
     EventMap,
@@ -35,7 +35,7 @@ import {
     IServerInput,
     JsonObject,
     RedisQueue,
-} from '.';
+} from './index.js';
 
 /**
  * Time (ms) send() waits for the first cluster server to become available

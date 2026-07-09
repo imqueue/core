@@ -31,7 +31,7 @@ import {
 import { createSocket, Socket } from 'node:dgram';
 import { networkInterfaces } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { UDPWorkerOptions } from './UDPClusterManager';
+import { UDPWorkerOptions } from './UDPClusterManager.js';
 
 enum MessageType {
     Up = 'up',

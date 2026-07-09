@@ -19,10 +19,10 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-export * from './profile';
-export * from './redis';
-export * from './IMQMode';
-export * from './IMessageQueue';
-export * from './RedisQueue';
-export * from './ClusteredRedisQueue';
-export * from './UDPClusterManager';
+export * from './profile.js';
+export * from './redis.js';
+export * from './IMQMode.js';
+export * from './IMessageQueue.js';
+export * from './RedisQueue.js';
+export * from './ClusteredRedisQueue.js';
+export * from './UDPClusterManager.js';

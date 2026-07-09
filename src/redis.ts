@@ -21,7 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 
 /**
  * Extends the default Redis type to allow dynamic properties access on it

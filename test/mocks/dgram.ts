@@ -22,7 +22,7 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { EventEmitter } from 'node:events';
-import { mockBuiltin } from './mockBuiltin';
+import { mockBuiltin } from './mockBuiltin.js';
 
 class Socket extends EventEmitter {
     public bindArgs: any[] = [];

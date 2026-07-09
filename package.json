@@ -18,9 +18,9 @@
     "lint": "oxlint",
     "format": "oxfmt \"index.ts\" \"src/**/*.ts\" \"test/**/*.ts\" \"benchmark/**/*.ts\"",
     "format:check": "oxfmt --check \"index.ts\" \"src/**/*.ts\" \"test/**/*.ts\" \"benchmark/**/*.ts\"",
-    "test": "npm run build && node --experimental-test-module-mocks --test --test-timeout=15000 $(find test -name '*.spec.js')",
-    "test-coverage": "npm run build && node --experimental-test-module-mocks --enable-source-maps --test --experimental-test-coverage --test-timeout=15000 $(find test -name '*.spec.js')",
-    "test-lcov": "npm run build && mkdir -p coverage && node --experimental-test-module-mocks --enable-source-maps --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-timeout=15000 $(find test -name '*.spec.js'); node scripts/strip-comment-coverage.mjs coverage/lcov.info",
+    "test": "npm run build && node --experimental-test-module-mocks --import ./test/mocks/index.js --test --test-timeout=15000 $(find test -name '*.spec.js')",
+    "test-coverage": "npm run build && node --experimental-test-module-mocks --enable-source-maps --import ./test/mocks/index.js --test --experimental-test-coverage --test-timeout=15000 $(find test -name '*.spec.js')",
+    "test-lcov": "npm run build && mkdir -p coverage && node --experimental-test-module-mocks --enable-source-maps --import ./test/mocks/index.js --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-timeout=15000 $(find test -name '*.spec.js'); node scripts/strip-comment-coverage.mjs coverage/lcov.info",
     "test-coverage-html": "npm run test-lcov; genhtml coverage/lcov.info --output-directory coverage/html --ignore-errors inconsistent,corrupt,format,mismatch && echo \"Coverage report: file://$(pwd)/coverage/html/index.html\"",
     "test-dev": "npm run test && npm run clean-js && npm run clean-typedefs && npm run clean-maps",
     "clean-typedefs": "find . -name '*.d.ts' -not -wholename '*node_modules*' -not -wholename '*generator*' -type f -delete",
@@ -50,5 +50,20 @@
     "typescript": "^7.0.2"
   },
   "main": "index.js",
-  "types": "index.d.ts"
+  "types": "index.d.ts",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./debug": {
+      "types": "./debug.d.ts",
+      "default": "./debug.js"
+    },
+    "./package.json": "./package.json"
+  }
 }

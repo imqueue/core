@@ -21,7 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import '../mocks';
+import '../mocks/index.js';
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -29,7 +29,7 @@ import { EventEmitter } from 'node:events';
 // `import * as`, which esModuleInterop turns into a copy), so patching
 // os.networkInterfaces below is observed by the code under test
 import os = require('node:os');
-import { UDPWorker } from '../../src/UDPWorker';
+import { UDPWorker } from '../../src/UDPWorker.js';
 
 const OPTIONS: any = {
     port: 63999,

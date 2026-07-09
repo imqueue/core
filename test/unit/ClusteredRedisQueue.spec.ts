@@ -22,11 +22,11 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { logger } from '../mocks';
+import { logger } from '../mocks/index.js';
 import { describe, it, afterEach, mock, Mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClusteredRedisQueue, RedisQueue } from '../../src';
-import { ClusterManager } from '../../src/ClusterManager';
+import { ClusteredRedisQueue, RedisQueue } from '../../src/index.js';
+import { ClusterManager } from '../../src/ClusterManager.js';
 
 process.setMaxListeners(100);
 

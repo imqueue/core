@@ -4,10 +4,10 @@
  * I'm Queue Software Project
  * Copyright (C) 2025  imqueue.com
  */
-import '../mocks';
+import '../mocks/index.js';
 import { describe, it, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClusterManager, InitializedCluster } from '../../src/ClusterManager';
+import { ClusterManager, InitializedCluster } from '../../src/ClusterManager.js';
 
 class TestClusterManager extends ClusterManager {
     public destroyed = false;

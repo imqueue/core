@@ -21,7 +21,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeRegExp } from '../../../src/helpers';
+import { escapeRegExp } from '../../../src/helpers/index.js';
 
 describe('escapeRegExp()', () => {
     it('should leave plain alphanumeric strings unchanged', () => {

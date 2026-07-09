@@ -21,7 +21,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { ILogger } from '.';
+import { ILogger } from './index.js';
 
 export enum LogLevel {
     LOG = 'log',

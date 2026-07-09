@@ -21,8 +21,8 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import { IMessageQueueConnection, IServerInput } from './IMessageQueue';
 import { randomUUID } from 'node:crypto';
+import { IMessageQueueConnection, IServerInput } from './IMessageQueue.js';
 
 export interface ICluster {
     add: (server: IServerInput) => IMessageQueueConnection;

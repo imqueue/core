@@ -22,7 +22,7 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
-import '../mocks';
+import '../mocks/index.js';
 import { describe, it, beforeEach, afterEach, mock, Mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -31,23 +31,23 @@ import {
     verifyLogLevel,
     LogLevel,
     DebugInfoOptions,
-} from '../..';
-import { logger } from '../mocks';
+} from '../../index.js';
+import { logger } from '../mocks/index.js';
+
+let reloadCounter = 0;
 
 /**
  * Loads a fresh, uncached copy of a module so that its module-scope state
- * (e.g. env-derived constants) is re-evaluated. Replaces mock-require's
- * reRequire().
+ * (e.g. env-derived constants) is re-evaluated. The ES module registry is
+ * immutable, so freshness is achieved with a unique query string per load.
  *
- * @param {string} id - module id, relative to this file
- * @returns {any} - the freshly loaded module
+ * @param {string} id - module id, relative to this file, without extension
+ * @returns {Promise<any>} - the freshly loaded module namespace
  */
-function reRequire(id: string): any {
-    const resolved = require.resolve(id);
+function reRequire(id: string): Promise<any> {
+    const href = new URL(`${id}.js`, import.meta.url).href;
 
-    delete require.cache[resolved];
-
-    return require(resolved);
+    return import(`${href}?reload=${++reloadCounter}`);
 }
 
 const BIG_INT_SUPPORT = (() => {
@@ -131,32 +131,32 @@ describe('profile()', () => {
         delete process.env.IMQ_LOG_TIME_FORMAT;
     });
 
-    it('should be a function', () => {
+    it('should be a function', async () => {
         assert.equal(typeof profile, 'function');
     });
 
-    it('should be decorator factory', () => {
+    it('should be decorator factory', async () => {
         assert.equal(typeof profile(), 'function');
     });
 
-    it('should pass decorated method args with no change', () => {
+    it('should pass decorated method args with no change', async () => {
         assert.deepEqual(
             new ProfiledClass().decoratedMethod(1, 2, 3),
             [1, 2, 3],
         );
     });
 
-    it('should log time if enabled', () => {
+    it('should log time if enabled', async () => {
         new ProfiledClassTimed().decoratedMethod();
         assert.equal(log.mock.callCount(), 1);
     });
 
-    it('should log args if enabled', () => {
+    it('should log args if enabled', async () => {
         new ProfiledClassArgued().decoratedMethod();
         assert.equal(log.mock.callCount(), 1);
     });
 
-    it('should log time and args if both enabled', () => {
+    it('should log time and args if both enabled', async () => {
         new ProfiledClassTimedAndArgued().decoratedMethod();
         assert.equal(log.mock.callCount(), 2);
     });
@@ -167,14 +167,14 @@ describe('profile()', () => {
     });
 
     describe('verifyLogLevel()', () => {
-        it('should return valid log levels as is', () => {
+        it('should return valid log levels as is', async () => {
             assert.equal(verifyLogLevel(LogLevel.LOG), LogLevel.LOG);
             assert.equal(verifyLogLevel(LogLevel.INFO), LogLevel.INFO);
             assert.equal(verifyLogLevel(LogLevel.WARN), LogLevel.WARN);
             assert.equal(verifyLogLevel(LogLevel.ERROR), LogLevel.ERROR);
         });
 
-        it('should return default log level on invalid value', () => {
+        it('should return default log level on invalid value', async () => {
             assert.equal(verifyLogLevel('invalid'), LogLevel.INFO);
         });
     });
@@ -192,28 +192,28 @@ describe('profile()', () => {
             logLevel: LogLevel.LOG,
         };
 
-        it('should log time in microseconds by default', () => {
-            const { logDebugInfo } = reRequire('../../src/profile');
+        it('should log time in microseconds by default', async () => {
+            const { logDebugInfo } = await reRequire('../../src/profile');
             logDebugInfo(baseOptions);
             assert.equal(calledWithMatch(log, /μs/), true);
         });
 
-        it('should log time in milliseconds', () => {
+        it('should log time in milliseconds', async () => {
             process.env.IMQ_LOG_TIME_FORMAT = 'milliseconds';
-            const { logDebugInfo } = reRequire('../../src/profile');
+            const { logDebugInfo } = await reRequire('../../src/profile');
             logDebugInfo(baseOptions);
             assert.equal(calledWithMatch(log, /ms/), true);
         });
 
-        it('should log time in seconds', () => {
+        it('should log time in seconds', async () => {
             process.env.IMQ_LOG_TIME_FORMAT = 'seconds';
-            const { logDebugInfo } = reRequire('../../src/profile');
+            const { logDebugInfo } = await reRequire('../../src/profile');
             logDebugInfo(baseOptions);
             assert.equal(calledWithMatch(log, /sec/), true);
         });
 
-        it('should handle circular references in args', () => {
-            const { logDebugInfo } = reRequire('../../src/profile');
+        it('should handle circular references in args', async () => {
+            const { logDebugInfo } = await reRequire('../../src/profile');
             const a: any = { b: 1 };
             const b = { a };
             a.b = b;
@@ -221,8 +221,8 @@ describe('profile()', () => {
             assert.equal(error.mock.callCount(), 0);
         });
 
-        it('should not log when logger method is missing', () => {
-            const { logDebugInfo } = reRequire('../../src/profile');
+        it('should not log when logger method is missing', async () => {
+            const { logDebugInfo } = await reRequire('../../src/profile');
             const dummyLogger: any = { error: logger.error.bind(logger) };
             logDebugInfo({
                 ...baseOptions,
@@ -232,8 +232,8 @@ describe('profile()', () => {
             assert.equal(log.mock.callCount(), 0);
         });
 
-        it('should handle JSON.stringify errors', () => {
-            const { logDebugInfo } = reRequire('../../src/profile');
+        it('should handle JSON.stringify errors', async () => {
+            const { logDebugInfo } = await reRequire('../../src/profile');
             const badJson = {
                 toJSON: () => {
                     throw new Error('bad json');
@@ -251,8 +251,8 @@ describe('profile.ts additional branches', () => {
         delete (process as any).env.IMQ_LOG_TIME_FORMAT;
     });
 
-    it('logDebugInfo: should not attempt to call missing log method (no-op path)', () => {
-        const { logDebugInfo, LogLevel } = reRequire('../../src/profile');
+    it('logDebugInfo: should not attempt to call missing log method (no-op path)', async () => {
+        const { logDebugInfo, LogLevel } = await reRequire('../../src/profile');
         const fakeLogger: any = {
             // intentionally no 'log' or 'info' method for selected level
             error: mock.fn(),
@@ -272,8 +272,8 @@ describe('profile.ts additional branches', () => {
         assert.equal(fakeLogger.error.mock.callCount() > 0, false);
     });
 
-    it('logDebugInfo: should call logger.error on JSON.stringify error (BigInt arg)', () => {
-        const { logDebugInfo, LogLevel } = reRequire('../../src/profile');
+    it('logDebugInfo: should call logger.error on JSON.stringify error (BigInt arg)', async () => {
+        const { logDebugInfo, LogLevel } = await reRequire('../../src/profile');
         const fakeLogger: any = {
             error: mock.fn(),
         };
@@ -294,7 +294,7 @@ describe('profile.ts additional branches', () => {
 });
 
 describe('profile decorator extra branches', () => {
-    it('should return early via original.apply(target, ...) when both debug flags are false and this is undefined', () => {
+    it('should return early via original.apply(target, ...) when both debug flags are false and this is undefined', async () => {
         class T1 {
             @profile({
                 enableDebugTime: false,
@@ -311,7 +311,7 @@ describe('profile decorator extra branches', () => {
         assert.deepEqual(res, [1, 2, 3]);
     });
 
-    it('should execute debug path with (this || target) picking target and logLevel fallback to IMQ_LOG_LEVEL', () => {
+    it('should execute debug path with (this || target) picking target and logLevel fallback to IMQ_LOG_LEVEL', async () => {
         class T2 {
             // no logger on prototype; calling with undefined this picks target
             @profile({
@@ -356,7 +356,7 @@ describe('profile() async rejection path', () => {
 });
 
 describe('profile() legacy decorator signature', () => {
-    it('wraps via the legacy (target, key, descriptor) form', () => {
+    it('wraps via the legacy (target, key, descriptor) form', async () => {
         const decorator = profile({ enableDebugTime: true });
         const original = function (): number {
             return 42;
@@ -370,7 +370,7 @@ describe('profile() legacy decorator signature', () => {
         assert.equal(descriptor.value(), 42);
     });
 
-    it('resolves the class name from a function target', () => {
+    it('resolves the class name from a function target', async () => {
         const decorator = profile({ enableDebugTime: true });
         const descriptor: any = {
             value: function (): number {

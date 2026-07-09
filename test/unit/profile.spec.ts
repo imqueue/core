@@ -25,7 +25,6 @@
 import '../mocks';
 import { describe, it, beforeEach, afterEach, mock, Mock } from 'node:test';
 import assert from 'node:assert/strict';
-import mockRequire from 'mock-require';
 import {
     profile,
     ILogger,
@@ -34,6 +33,22 @@ import {
     DebugInfoOptions,
 } from '../..';
 import { logger } from '../mocks';
+
+/**
+ * Loads a fresh, uncached copy of a module so that its module-scope state
+ * (e.g. env-derived constants) is re-evaluated. Replaces mock-require's
+ * reRequire().
+ *
+ * @param {string} id - module id, relative to this file
+ * @returns {any} - the freshly loaded module
+ */
+function reRequire(id: string): any {
+    const resolved = require.resolve(id);
+
+    delete require.cache[resolved];
+
+    return require(resolved);
+}
 
 const BIG_INT_SUPPORT = (() => {
     try {
@@ -113,7 +128,6 @@ describe('profile()', () => {
 
     afterEach(() => {
         mock.restoreAll();
-        mockRequire.stopAll();
         delete process.env.IMQ_LOG_TIME_FORMAT;
     });
 
@@ -179,27 +193,27 @@ describe('profile()', () => {
         };
 
         it('should log time in microseconds by default', () => {
-            const { logDebugInfo } = mockRequire.reRequire('../../src/profile');
+            const { logDebugInfo } = reRequire('../../src/profile');
             logDebugInfo(baseOptions);
             assert.equal(calledWithMatch(log, /μs/), true);
         });
 
         it('should log time in milliseconds', () => {
             process.env.IMQ_LOG_TIME_FORMAT = 'milliseconds';
-            const { logDebugInfo } = mockRequire.reRequire('../../src/profile');
+            const { logDebugInfo } = reRequire('../../src/profile');
             logDebugInfo(baseOptions);
             assert.equal(calledWithMatch(log, /ms/), true);
         });
 
         it('should log time in seconds', () => {
             process.env.IMQ_LOG_TIME_FORMAT = 'seconds';
-            const { logDebugInfo } = mockRequire.reRequire('../../src/profile');
+            const { logDebugInfo } = reRequire('../../src/profile');
             logDebugInfo(baseOptions);
             assert.equal(calledWithMatch(log, /sec/), true);
         });
 
         it('should handle circular references in args', () => {
-            const { logDebugInfo } = mockRequire.reRequire('../../src/profile');
+            const { logDebugInfo } = reRequire('../../src/profile');
             const a: any = { b: 1 };
             const b = { a };
             a.b = b;
@@ -208,7 +222,7 @@ describe('profile()', () => {
         });
 
         it('should not log when logger method is missing', () => {
-            const { logDebugInfo } = mockRequire.reRequire('../../src/profile');
+            const { logDebugInfo } = reRequire('../../src/profile');
             const dummyLogger: any = { error: logger.error.bind(logger) };
             logDebugInfo({
                 ...baseOptions,
@@ -219,7 +233,7 @@ describe('profile()', () => {
         });
 
         it('should handle JSON.stringify errors', () => {
-            const { logDebugInfo } = mockRequire.reRequire('../../src/profile');
+            const { logDebugInfo } = reRequire('../../src/profile');
             const badJson = {
                 toJSON: () => {
                     throw new Error('bad json');
@@ -234,13 +248,11 @@ describe('profile()', () => {
 describe('profile.ts additional branches', () => {
     afterEach(() => {
         mock.restoreAll();
-        mockRequire.stopAll();
         delete (process as any).env.IMQ_LOG_TIME_FORMAT;
     });
 
     it('logDebugInfo: should not attempt to call missing log method (no-op path)', () => {
-        const { logDebugInfo, LogLevel } =
-            mockRequire.reRequire('../../src/profile');
+        const { logDebugInfo, LogLevel } = reRequire('../../src/profile');
         const fakeLogger: any = {
             // intentionally no 'log' or 'info' method for selected level
             error: mock.fn(),
@@ -261,8 +273,7 @@ describe('profile.ts additional branches', () => {
     });
 
     it('logDebugInfo: should call logger.error on JSON.stringify error (BigInt arg)', () => {
-        const { logDebugInfo, LogLevel } =
-            mockRequire.reRequire('../../src/profile');
+        const { logDebugInfo, LogLevel } = reRequire('../../src/profile');
         const fakeLogger: any = {
             error: mock.fn(),
         };

@@ -44,7 +44,11 @@
  * genhtml with accurate line + branch coverage and no warnings or errors.
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import ts from 'typescript';
+// TypeScript 7 (native port) no longer exposes the classic compiler API from
+// the package root — the lightweight scanner/AST primitives live under the
+// `typescript/unstable/ast` entry point (createSourceFile is gone entirely, so
+// import spans are located with the scanner rather than a parsed AST).
+import * as ts from 'typescript/unstable/ast';
 
 const lcovPath = process.argv[2] || 'coverage/lcov.info';
 
@@ -66,12 +70,13 @@ function nonCodeLines(text) {
         ts.ScriptTarget.Latest,
         /* skipTrivia */ false,
         ts.LanguageVariant.Standard,
-        text,
     );
+
+    scanner.setText(text);
 
     let token = scanner.scan();
 
-    while (token !== ts.SyntaxKind.EndOfFileToken) {
+    while (token !== ts.SyntaxKind.EndOfFile) {
         if (
             token === ts.SyntaxKind.SingleLineCommentTrivia ||
             token === ts.SyntaxKind.MultiLineCommentTrivia
@@ -129,26 +134,96 @@ function nonCodeLines(text) {
  * @returns {Set<number>}
  */
 function importLines(text) {
-    const sf = ts.createSourceFile(
-        'x.ts',
-        text,
+    // TypeScript 7 dropped `createSourceFile`, so top-level import statements are
+    // located with the scanner: a top-level `import` keyword (depth 0, not the
+    // dynamic `import(...)` call nor `import.meta`) begins a declaration whose
+    // span reaches the terminating semicolon — both `import ... from '...'` and
+    // `import x = require('...')` end that way in this codebase.
+    const scanner = ts.createScanner(
         ts.ScriptTarget.Latest,
-        false,
+        /* skipTrivia */ true,
+        ts.LanguageVariant.Standard,
     );
-    const result = new Set();
 
-    for (const stmt of sf.statements) {
-        if (
-            ts.isImportDeclaration(stmt) ||
-            ts.isImportEqualsDeclaration(stmt)
-        ) {
-            const from = sf.getLineAndCharacterOfPosition(stmt.getStart(sf)).line;
-            const to = sf.getLineAndCharacterOfPosition(stmt.getEnd()).line;
+    scanner.setText(text);
 
-            for (let line = from; line <= to; line++) {
-                result.add(line + 1);
+    const lineStarts = ts.computeLineStarts(text);
+    // 0-based line holding `pos`: largest index with lineStarts[i] <= pos
+    const lineOf = pos => {
+        let lo = 0;
+        let hi = lineStarts.length - 1;
+
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+
+            if (lineStarts[mid] <= pos) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
             }
         }
+
+        return lo;
+    };
+
+    const K = ts.SyntaxKind;
+    const result = new Set();
+    let depth = 0;
+    let token = scanner.scan();
+
+    while (token !== K.EndOfFile) {
+        if (
+            token === K.OpenBraceToken ||
+            token === K.OpenParenToken ||
+            token === K.OpenBracketToken
+        ) {
+            depth++;
+        } else if (
+            token === K.CloseBraceToken ||
+            token === K.CloseParenToken ||
+            token === K.CloseBracketToken
+        ) {
+            depth--;
+        } else if (depth === 0 && token === K.ImportKeyword) {
+            const start = scanner.getTokenStart();
+            let next = scanner.scan();
+
+            // `import(...)` dynamic call or `import.meta` — not a declaration
+            if (next === K.OpenParenToken || next === K.DotToken) {
+                token = next;
+                continue;
+            }
+
+            // consume to the terminating semicolon at bracket depth 0
+            let inner = 0;
+            let end = scanner.getTokenEnd();
+
+            while (next !== K.EndOfFile) {
+                if (next === K.OpenBraceToken || next === K.OpenParenToken) {
+                    inner++;
+                } else if (
+                    next === K.CloseBraceToken ||
+                    next === K.CloseParenToken
+                ) {
+                    inner--;
+                } else if (next === K.SemicolonToken && inner === 0) {
+                    end = scanner.getTokenEnd();
+                    break;
+                }
+
+                end = scanner.getTokenEnd();
+                next = scanner.scan();
+            }
+
+            for (let line = lineOf(start); line <= lineOf(end); line++) {
+                result.add(line + 1);
+            }
+
+            token = scanner.scan();
+            continue;
+        }
+
+        token = scanner.scan();
     }
 
     return result;

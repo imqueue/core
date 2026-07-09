@@ -45,3 +45,12 @@ test/
 tsconfig.json
 
 *.tgz
+
+# Dev/tooling — never part of the published package
+scripts/
+.oxlintrc.json
+.oxfmtrc.json
+.agent-out/
+# debug* are manual dev scripts; `!*.d.ts` above re-includes their declaration
+# files, so re-exclude those here (a later rule wins)
+debug*.d.ts

@@ -27,7 +27,7 @@ import { EventEmitter } from 'node:events';
 // which esModuleInterop turns into a copy), so patching util.inspect below
 // is observed by the code under test
 import util = require('node:util');
-import { syncBuiltinESMExports } from "node:module";
+import { syncBuiltinESMExports } from 'node:module';
 import { copyEventEmitter } from '../../../src/helpers/index.js';
 
 describe('copyEventEmitter()', () => {

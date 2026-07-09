@@ -79,8 +79,9 @@ export default class IMQ {
             ADAPTERS[ClassName];
 
         if (!Adapter) {
-            throw new TypeError(`IMQ: unknown queue vendor requested: ${
-                options.vendor}`);
+            throw new TypeError(
+                `IMQ: unknown queue vendor requested: ${options.vendor}`,
+            );
         }
 
         return new Adapter(name, options, mode);

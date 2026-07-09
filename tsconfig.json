@@ -9,6 +9,8 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
 
+    "types": ["node"],
+
     "isolatedModules": true,
 
     "declaration": true,

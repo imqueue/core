@@ -23,10 +23,6 @@ import '../../mocks/index.js';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-// the default import of a builtin is the live, mutable CommonJS module
-// object (unlike `import * as`, whose namespace is frozen), so patching
-// util.inspect below works; syncBuiltinESMExports() then publishes the
-// patch to the named-import binding the code under test reads
 import util from 'node:util';
 import { syncBuiltinESMExports } from 'node:module';
 import { copyEventEmitter } from '../../../src/helpers/index.js';
@@ -184,7 +180,6 @@ describe('copyEventEmitter()', () => {
         source.on(eventName, mockListener as any);
         copyEventEmitter(source, target);
 
-        // Restore original inspect
         (util as any).inspect = originalInspect;
         syncBuiltinESMExports();
 
@@ -195,7 +190,6 @@ describe('copyEventEmitter()', () => {
         const source = new EventEmitter();
         const target = new EventEmitter();
 
-        // Create a mock listener that looks like onceWrapper and has a truthy listener property
         let called = 0;
         const realListener = () => {
             called++;

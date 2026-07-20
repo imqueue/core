@@ -27,10 +27,13 @@ import { arch, cpus, freemem, platform, totalmem } from 'node:os';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { run } from './redis-test.js';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID as uuid } from 'node:crypto';
 import { type AnyJson } from '../index.js';
 import { setAffinity } from './affinity.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Command line options: canonical long name -> parseArgs config and description
@@ -272,7 +275,7 @@ function buildChartConfig(id: string, stats: any[]): ChartConfig {
         axis: {
             x: {
                 type: 'category',
-                categories: stats[0]
+                categories: (stats[0] || [])
                     .slice(1)
                     .map(
                         (_: any, i: number) =>

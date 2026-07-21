@@ -2,7 +2,13 @@
 
 [![License](https://img.shields.io/badge/license-GPL-blue.svg)](https://rawgit.com/imqueue/core/master/LICENSE)
 
-Simple JSON-based messaging queue for inter-service communication
+Simple JSON-based messaging queue for inter-service communication in Node.js &
+TypeScript back-ends — the Redis-backed transport that powers the @imqueue
+framework. Fast, poll-free delivery with optional guaranteed mode.
+
+**Documentation:** full guides, tutorial and API reference at
+[imqueue.org](https://imqueue.org/). Commercial licensing & support for
+closed-source products at [imqueue.com](https://imqueue.com/).
 
 **Related packages:**
 

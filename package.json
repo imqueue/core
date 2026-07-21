@@ -1,14 +1,21 @@
 {
   "name": "@imqueue/core",
   "version": "3.2.2",
-  "description": "Simple JSON-based messaging queue for inter service communication",
+  "description": "Fast JSON message queue over Redis for inter-service communication in Node.js & TypeScript microservices — the transport layer of the @imqueue framework",
   "keywords": [
     "message-queue",
     "redis",
     "redis-queue",
     "inter-service-communication",
     "json",
-    "json-message"
+    "json-message",
+    "typescript",
+    "nodejs",
+    "microservices",
+    "message-broker",
+    "rpc",
+    "soa",
+    "imqueue"
   ],
   "scripts": {
     "benchmark": "node benchmark -c $(( $(nproc) - 2 )) -m 100000",
@@ -37,7 +44,8 @@
   "bugs": {
     "url": "https://github.com/imqueue/core/issues"
   },
-  "homepage": "https://imqueue.com/",
+  "homepage": "https://imqueue.org/",
+  "funding": "https://imqueue.com/",
   "author": "imqueue.com <support@imqueue.com> (https://imqueue.com)",
   "license": "GPL-3.0-only",
   "dependencies": {

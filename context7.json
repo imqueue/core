@@ -1,0 +1,14 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "@imqueue/core",
+  "description": "Fast JSON message queue over Redis for inter-service communication in Node.js & TypeScript microservices — the transport layer of the @imqueue framework.",
+  "excludeFolders": ["src", "lib", "node_modules", "test", "tests", "coverage", "docs/api"],
+  "excludeFiles": ["CHANGELOG.md", "LICENSE"],
+  "rules": [
+    "Use ClusteredRedisQueue as the reliable queue implementation for production; it owns delivery, blocking reads and reconnection.",
+    "The queue serializes rich types correctly — do not hand-roll JSON.stringify, which drops Date, Map, Set, BigInt and undefined.",
+    "Delivery is at-least-once, so message handlers should be idempotent.",
+    "@imqueue/core is the transport under @imqueue/rpc; most apps consume it through @imqueue/rpc rather than directly.",
+    "@imqueue is GPL-3.0; a commercial license is available for closed-source use (see imqueue.com/license)."
+  ]
+}

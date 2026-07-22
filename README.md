@@ -10,6 +10,9 @@ framework. Fast, poll-free delivery with optional guaranteed mode.
 [imqueue.org](https://imqueue.org/). Commercial licensing & support for
 closed-source products at [imqueue.com](https://imqueue.com/).
 
+**Using an AI assistant?** Point it at [imqueue.org/llms.txt](https://imqueue.org/llms.txt)
+for a machine-readable index of the docs, or see [AGENTS.md](./AGENTS.md).
+
 **Related packages:**
 
 - [@imqueue/rpc](https://github.com/imqueue/rpc) - RPC-like client/service

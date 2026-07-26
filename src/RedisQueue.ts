@@ -1067,10 +1067,25 @@ export class RedisQueue
                 }
             };
 
-            // graceful quit for idle connections, but a reader blocked on an
-            // infinite BRPOP/BLMOVE never lets QUIT through, so guarantee a
-            // forced disconnect after a short grace period to avoid leaking
-            // the socket (which would keep the process alive)
+            // The reader is the only channel that issues blocking reads
+            // (BRPOP/BLMOVE with an infinite timeout), and redis cannot process
+            // a QUIT while one is in flight. Asking politely therefore buys
+            // nothing and costs: until the grace period expires the socket
+            // remains a *registered consumer* of the queue, so redis hands it
+            // the next message pushed there and the read loop, already torn
+            // down, drops it. Whoever owns that queue name by then - a new
+            // client that took the name over, in this process or another -
+            // silently loses one message. So drop the reader at once, which
+            // unregisters it as a consumer without consuming anything.
+            if (channel === 'reader') {
+                forceDisconnect();
+
+                return;
+            }
+
+            // idle channels can complete a graceful quit, but still guarantee a
+            // forced disconnect after a short grace period to avoid leaking the
+            // socket (which would keep the process alive)
             client.quit().then(forceDisconnect, forceDisconnect);
 
             const timer = setTimeout(

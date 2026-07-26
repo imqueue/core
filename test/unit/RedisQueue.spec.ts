@@ -1743,21 +1743,40 @@ describe('RedisQueue signal, reconnect & watch internals', () => {
         await rq.destroy(true).catch(() => undefined);
     });
 
+    it('destroyChannel() drops a blocking reader without a graceful quit', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+
+        await rq.start();
+
+        const quitSpy = mock.method(rq.reader, 'quit');
+        const disconnectSpy = mock.method(rq.reader, 'disconnect');
+
+        rq.destroyChannel('reader');
+
+        // redis cannot process a QUIT while an infinite BRPOP/BLMOVE is in
+        // flight, so asking would leave the socket registered as a consumer of
+        // the queue for the whole grace period — long enough to swallow a
+        // message meant for whoever owns that queue name next
+        assert.equal(quitSpy.mock.callCount(), 0);
+        assert.equal(disconnectSpy.mock.callCount(), 1);
+
+        mock.restoreAll();
+
+        await rq.destroy().catch(() => undefined);
+    });
+
     it('destroyChannel() logs when quit throws synchronously', async () => {
         const rq: any = new RedisQueue(uuid(), { logger, verbose: true });
 
         await rq.start();
-        mock.method(rq.reader, 'quit', () => {
+        // the writer never blocks, so it is still quit gracefully
+        mock.method(rq.writer, 'quit', () => {
             throw new Error('quit fail');
         });
 
-        assert.doesNotThrow(() => rq.destroyChannel('reader'));
+        assert.doesNotThrow(() => rq.destroyChannel('writer'));
 
-        // quit was stubbed to throw, so disconnect() never ran to clear the
-        // mock reader's poll timer — restore and disconnect for real to avoid
-        // leaking the recurring brpop timer
         mock.restoreAll();
-        rq.reader?.disconnect();
 
         await rq.destroy().catch(() => undefined);
     });

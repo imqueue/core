@@ -239,7 +239,7 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     /**
      * Enable guaranteed message delivery. When enabled, reading a message
      * moves it atomically out of the queue into a worker-owned key instead of
-     * popping it outright, so a worker that dies *before* it starts on a
+     * popping it outright, so a worker that dies before it even starts on a
      * message leaves that message behind for the watcher to re-queue rather
      * than taking it down with the process.
      *

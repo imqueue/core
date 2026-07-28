@@ -121,6 +121,16 @@ export interface IMessage {
      * Name of the queue that produced the message.
      */
     from: string;
+
+    /**
+     * Intended delay in milliseconds.
+     *
+     * @deprecated Inert, and always absent in practice — the Redis adapter never
+     * writes this field and never reads it. Delays are carried in the queue's
+     * delayed sorted set, not in the message envelope, so pass the delay to
+     * {@link IMessageQueue.send} instead. Scheduled for removal in the next major.
+     */
+    delay?: number;
 }
 
 /**
@@ -405,6 +415,15 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
      * and internal errors are always written to {@link IMQOptions.logger}.
      */
     verbose?: boolean;
+
+    /**
+     * Enables/disables extended verbose logging.
+     *
+     * @deprecated Never implemented — no code path reads this option, so setting
+     * it produces no additional output whatsoever. Use {@link IMQOptions.verbose}
+     * instead. Scheduled for removal in the next major.
+     */
+    verboseExtended?: boolean;
 }
 
 /**

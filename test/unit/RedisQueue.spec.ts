@@ -1600,14 +1600,17 @@ describe('RedisQueue watcher & connect edge paths', () => {
         await rq.destroy().catch(() => undefined);
     });
 
-    it('processWatch() emits an error and clears the interval on scan failure', async () => {
+    it('processWatch() emits an error but keeps the maintenance interval on scan failure', async () => {
         const rq: any = new RedisQueue(uuid(), {
             logger,
             safeDelivery: true,
         });
 
         await rq.start();
-        mock.method(rq.writer, 'scan', async () => {
+
+        assert.ok(rq.safeCheckInterval, 'interval armed by start()');
+
+        const scan: Mock<any> = mock.method(rq.writer, 'scan', async () => {
             throw new Error('scan failed');
         });
 
@@ -1616,7 +1619,27 @@ describe('RedisQueue watcher & connect edge paths', () => {
 
         await rq.processWatch();
 
-        assert.ok(errors.length > 0);
+        assert.ok(errors.length > 0, 'failure is surfaced');
+
+        // A transient scan failure must not tear the interval down: watch()
+        // re-arms it only once per watcher connection (guarded by __ready__),
+        // so clearing it here would permanently disable lease recovery and
+        // cleanup for that connection.
+        assert.ok(
+            rq.safeCheckInterval,
+            'maintenance interval survives a transient failure',
+        );
+
+        // and the next sweep still runs
+        scan.mock.restore();
+        const ok: Mock<any> = mock.method(rq.writer, 'scan', async () => [
+            '0',
+            [],
+        ]);
+
+        await rq.processWatch();
+
+        assert.equal(ok.mock.callCount(), 1, 'subsequent sweep retries');
 
         await rq.destroy(true).catch(() => undefined);
     });

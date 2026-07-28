@@ -1610,8 +1610,14 @@ export class RedisQueue
                     'safe queue message delivery problem',
                     err,
                 );
-                this.cleanSafeCheckInterval();
 
+                // abandon only this sweep — the maintenance interval must keep
+                // running so the next tick retries. Tearing it down here would
+                // be permanent: watch() re-arms the interval only once per
+                // watcher connection, guarded by `__ready__`, so a single
+                // transient SCAN/LMOVE failure would silently disable lease
+                // recovery and cleanup for that connection's whole lifetime.
+                // A genuinely lost writer is handled by runSafeCheck().
                 return;
             }
         }

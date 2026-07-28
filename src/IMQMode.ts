@@ -19,8 +19,32 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
+/**
+ * Operating mode of a queue instance, selecting which halves of the queue are
+ * active. Passed as the third constructor argument and defaults to
+ * {@link IMQMode.BOTH}.
+ *
+ * All modes still open a writer connection and take part in watcher election;
+ * the mode only controls whether a reader is created and whether sending is
+ * allowed.
+ *
+ * @remarks
+ * The members carry implicit numeric values and `BOTH` is `0`, so a falsy check
+ * such as `mode || IMQMode.WORKER` silently resolves to `WORKER`. Do not
+ * persist these values either — they shift if the members are reordered.
+ */
 export enum IMQMode {
+    /**
+     * Consume and produce. This is the default.
+     */
     BOTH,
+    /**
+     * Consume only. No messages can be sent — `send()` throws a `TypeError`.
+     */
     WORKER,
+    /**
+     * Produce only. No reader connection is opened, so the queue never emits
+     * `message` events and never releases delayed messages.
+     */
     PUBLISHER,
 }

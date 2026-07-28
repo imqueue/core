@@ -24,5 +24,6 @@ export * from './redis.js';
 export * from './IMQMode.js';
 export * from './IMessageQueue.js';
 export * from './RedisQueue.js';
+export * from './ClusterManager.js';
 export * from './ClusteredRedisQueue.js';
 export * from './UDPClusterManager.js';

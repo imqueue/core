@@ -33,47 +33,84 @@ interface WorkerMessage {
     error?: string;
 }
 
+/**
+ * Configuration for {@link UDPClusterManager}.
+ *
+ * Pass any subset to the constructor; unspecified values come from
+ * {@link DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS}.
+ *
+ * @remarks
+ * All the broadcast-related values — `address`, `port`, `limitedAddress`,
+ * `aliveTimeoutCorrection` and `useAliveCheck` — together identify the shared
+ * broadcast worker, so two managers agreeing on all of them share one socket and
+ * one worker thread. `logger` and `handleSignals` are not part of that identity.
+ */
 export interface UDPClusterManagerOptions {
     /**
-     * Message queue broadcast port
+     * UDP port the manager listens on for cluster announcements.
      *
-     * @default 63000
-     * @type {number}
+     * @defaultValue 63000
+     *
+     * @remarks
+     * The socket is opened with address and port reuse, so several processes on
+     * one host can listen simultaneously. The port is part of the shared-worker
+     * identity: managers using different ports each get their own socket and
+     * worker thread. There is no separate send port — this manager only listens.
      */
     port: number;
 
     /**
-     * Message queue broadcast address
+     * Broadcast address the cluster announces on.
      *
-     * @type {number}
+     * @defaultValue "255.255.255.255"
+     *
+     * @remarks
+     * The worker binds the local IPv4 interface whose address matches this value
+     * with its `.255` octets removed — so `10.0.1.255` selects an interface in
+     * `10.0.1.x` — and falls back to all interfaces when nothing matches, which is
+     * what happens for the default value.
      */
     address: string;
 
     /**
-     * Message-queue-limited broadcast address
+     * Limited-broadcast address marker. No default: when unset, the worker tries
+     * to bind the local interface matching {@link UDPClusterManagerOptions.address}.
      *
-     * @default "255.255.255.255"
-     * @type {string}
+     * @remarks
+     * This is only ever compared against `address`; it is never itself used as a
+     * bind or destination address. Setting it to the same value as `address` makes
+     * the worker bind all interfaces (`0.0.0.0`) instead of selecting one.
      */
     limitedAddress?: string;
 
     /**
-     * Message queue alive timeout correction. Used to correct waiting time to
-     * check if the server is alive
+     * Grace period in milliseconds added to the liveness timeout each server
+     * advertises in its broadcast.
      *
-     * @default 5000
-     * @type {number}
+     * @defaultValue 5000
+     *
+     * @remarks
+     * A server is dropped from the cluster when no new announcement arrives within
+     * its advertised timeout plus this correction. Raise it on lossy networks to
+     * avoid dropping healthy servers. It has no effect when
+     * {@link UDPClusterManagerOptions.useAliveCheck} is disabled.
      */
     aliveTimeoutCorrection: number;
 
     /**
-     * Message queue alive-server check flag. If set to false, the server will
-     * not be checked for liveness on each broadcast message with a timeout.
-     * Can be specified by the environment variable if the given option is not
-     * bypassed: IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK
+     * Whether announced servers are expired when they stop broadcasting.
      *
-     * @default true
-     * @type {boolean}
+     * @defaultValue true
+     *
+     * @remarks
+     * When disabled, a server is removed only on an explicit `down` announcement —
+     * so a host that dies silently is never removed and keeps receiving
+     * round-robin sends.
+     *
+     * The default can be overridden with the
+     * `IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK` environment variable, which is read as
+     * a number when the module loads: use `1` to enable and `0` to disable.
+     * Any non-numeric value — including the word `true` — is read as disabled.
      */
     useAliveCheck: boolean;
 
@@ -84,23 +121,37 @@ export interface UDPClusterManagerOptions {
      * through the default signal behavior. Disable if the host application
      * manages its own shutdown sequence.
      *
-     * @default true
-     * @type {boolean}
+     * @defaultValue true
+     *
+     * @remarks
+     * The handlers are installed once per process, by the first manager created
+     * with this enabled, and on a signal they stop every UDP worker in the
+     * process — including those of managers created with this option disabled. So
+     * disabling it only means this instance does not install the handlers; it does
+     * not exempt its worker from a shutdown another instance triggers.
+     *
+     * Once installed, the handlers remain for the lifetime of the process, even
+     * after every manager has been destroyed.
      */
     handleSignals: boolean;
 
     /**
      * Logger used for worker supervision messages
      *
-     * @default console
-     * @type {ILogger}
+     * @defaultValue console
      */
     logger: ILogger;
 }
 
 /**
- * Subset of the manager options handed over to the UDP worker thread. Only
- * structured-cloneable values may appear here (no logger).
+ * The options actually handed to the UDP worker thread: everything except the
+ * logger, which is not structured-cloneable, and the signal-handling flag, which
+ * the main thread owns.
+ *
+ * @remarks
+ * These are precisely the settings the worker's behaviour depends on, which is
+ * why the same fields form the shared-worker identity — managers agreeing on all
+ * of them can share one worker thread.
  */
 export type UDPWorkerOptions = Omit<
     UDPClusterManagerOptions,
@@ -114,6 +165,17 @@ const IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK = !!+(
 /** Delay (ms) before an unexpectedly dead worker is re-spawned */
 const WORKER_RESPAWN_DELAY = 1000;
 
+/**
+ * Default options applied to every {@link UDPClusterManager} unless overridden:
+ * broadcast address `255.255.255.255` on port `63000`, a 5000 ms alive-timeout
+ * correction, liveness checking enabled, process signal handling enabled, and
+ * `console` as the logger.
+ *
+ * @remarks
+ * No `limitedAddress` is set by default. The liveness default is read from
+ * `IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK` once when the module is loaded, so that
+ * variable must be set before the module is first imported.
+ */
 export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS: UDPClusterManagerOptions = {
     port: 63000,
     address: '255.255.255.255',
@@ -123,6 +185,32 @@ export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS: UDPClusterManagerOptions = {
     logger: console,
 };
 
+/**
+ * Cluster manager that discovers redis cluster members from UDP broadcast
+ * announcements. Supply instances through {@link IMQOptions.clusterManagers}.
+ *
+ * @remarks
+ * It runs a supervised worker thread holding the broadcast socket and applies
+ * each announcement to every registered cluster, skipping servers that are
+ * already known. Managers created with the same broadcast settings share one
+ * socket and worker thread, reference-counted so the worker lives until the last
+ * of them is destroyed; the `logger` and `handleSignals` options are not part of
+ * that identity. If the worker dies unexpectedly it is logged and re-spawned
+ * after one second with all live managers re-attached, so membership tracking
+ * resumes on its own.
+ *
+ * Announcements are not filtered by queue name: every cluster registered with
+ * a manager listening on a given address and port receives every server announced
+ * there. Isolate unrelated services by giving them distinct broadcast addresses
+ * or ports.
+ *
+ * Wire format — each announcement is one UDP datagram containing five
+ * tab-separated fields: queue name, unique server id, `up` or `down`,
+ * `host:port`, and the liveness timeout in seconds. Datagrams with a missing
+ * field, a port outside 1-65535, or a negative timeout are ignored. An `up`
+ * announcement adds the server and refreshes its liveness deadline; a `down`
+ * announcement removes it immediately.
+ */
 export class UDPClusterManager extends ClusterManager {
     private static workers: Record<string, Worker> = {};
 
@@ -150,6 +238,25 @@ export class UDPClusterManager extends ClusterManager {
     private worker!: Worker;
     private destroyed: boolean = false;
 
+    /**
+     * Creates the manager and starts listening for broadcasts immediately,
+     * joining an existing worker when another manager already uses the same
+     * broadcast settings.
+     *
+     * @param options - partial options merged over
+     *        {@link DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS}
+     *
+     * @remarks
+     * The merge is a plain shallow spread, so passing an explicit `undefined`
+     * overrides a default rather than falling back to it — pass only the
+     * properties you mean to change.
+     *
+     * Broadcast listening begins before any cluster is registered, so register
+     * yours with {@link ClusterManager.init} right away: announcements that arrive
+     * in the meantime are discarded. When
+     * {@link UDPClusterManagerOptions.handleSignals} is enabled, this also
+     * installs process-wide signal handlers.
+     */
     constructor(options?: Partial<UDPClusterManagerOptions>) {
         super();
 
@@ -174,8 +281,7 @@ export class UDPClusterManager extends ClusterManager {
      * depends on, so managers configured differently never silently share
      * a worker built from another manager's options.
      *
-     * @param {UDPClusterManagerOptions} options
-     * @returns {string}
+     * @param options -
      */
     private static workerKeyFor(options: UDPClusterManagerOptions): string {
         return [
@@ -213,8 +319,7 @@ export class UDPClusterManager extends ClusterManager {
      * Stops all workers and re-raises the given signal, so the process
      * terminates through the default signal behavior.
      *
-     * @param {NodeJS.Signals} signal
-     * @returns {Promise<void>}
+     * @param signal -
      */
     private static async freeAndRaise(signal: NodeJS.Signals): Promise<void> {
         await UDPClusterManager.free();
@@ -259,8 +364,6 @@ export class UDPClusterManager extends ClusterManager {
      * Spawns and supervises a UDP worker for this manager's options. On an
      * unexpected worker death the worker is dropped from the registry, and
      * a re-spawn is scheduled while live manager instances remain.
-     *
-     * @returns {Worker}
      */
     private spawnWorker(): Worker {
         const workerData: UDPWorkerOptions = {
@@ -316,7 +419,7 @@ export class UDPClusterManager extends ClusterManager {
      * live manager instances to it, so cluster membership does not silently
      * freeze after a worker crash.
      *
-     * @param {string} workerKey
+     * @param workerKey -
      */
     private static respawn(workerKey: string): void {
         const instances = UDPClusterManager.instances[workerKey];
@@ -360,8 +463,7 @@ export class UDPClusterManager extends ClusterManager {
      * cluster. Cluster callback errors are contained per cluster, so the
      * worker message listener can never raise an unhandled rejection.
      *
-     * @param {WorkerMessage} message
-     * @returns {Promise<void>}
+     * @param message -
      */
     private async handleWorkerMessage(message: WorkerMessage): Promise<void> {
         if (message.type === 'error') {
@@ -395,6 +497,20 @@ export class UDPClusterManager extends ClusterManager {
         });
     }
 
+    /**
+     * Stops this manager and releases its share of the broadcast worker.
+     *
+     * @remarks
+     * Safe to call more than once. The shared worker is only shut down when this
+     * is the last manager using it — otherwise the call just releases this
+     * manager's reference and the worker keeps running for the others. Shutdown
+     * asks the worker to close its socket and waits up to five seconds for
+     * confirmation before terminating the thread.
+     *
+     * Process signal handlers installed by this manager are not removed, and
+     * registered clusters are not cleared — use {@link ClusterManager.remove} for
+     * that, which itself calls this method once the last cluster is gone.
+     */
     public async destroy(): Promise<void> {
         if (this.destroyed) {
             return;

@@ -62,8 +62,6 @@ const SCAN_COUNT = '1000';
 /**
  * ioredis retry strategy that disables the built-in reconnection — this
  * queue performs its own capped-backoff reconnection instead.
- *
- * @returns {null}
  */
 function noRetryStrategy(): null {
     return null;
@@ -72,13 +70,26 @@ function noRetryStrategy(): null {
 /**
  * Resolves after the given number of milliseconds.
  *
- * @param {number} ms
- * @returns {Promise<void>}
+ * @param ms - number of milliseconds to wait
  */
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Default option values applied to every queue instance: `localhost:6379`,
+ * prefix `imq`, `console` as the logger, cleanup off with filter `'*'`, safe
+ * delivery off with a 5000 ms lease TTL, gzip off, a 5000 ms watcher check
+ * interval, and process signal handling on.
+ *
+ * @remarks
+ * Constructor options are shallow-merged over this object, so passing an explicit
+ * `undefined` overrides a default rather than falling back to it.
+ *
+ * The object is exported live and is not frozen — mutating it changes the
+ * defaults for every queue constructed afterwards in the process. Prefer
+ * per-instance options.
+ */
 export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     host: 'localhost',
     port: 6379,
@@ -93,6 +104,17 @@ export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     handleSignals: true,
 };
 
+/**
+ * Time in milliseconds allowed for releasing watcher locks when a shutdown
+ * signal is received, before the process is force-exited. Defaults to 1000;
+ * override with the `IMQ_SHUTDOWN_TIMEOUT` environment variable.
+ *
+ * @remarks
+ * This is not a drain period — running `message` handlers are not awaited.
+ * The value is read once when the module is loaded, and a non-numeric value falls
+ * back to the default. Relevant only while {@link IMQOptions.handleSignals} is
+ * enabled.
+ */
 export const IMQ_SHUTDOWN_TIMEOUT = envInt('IMQ_SHUTDOWN_TIMEOUT', 1000);
 
 /**
@@ -100,6 +122,12 @@ export const IMQ_SHUTDOWN_TIMEOUT = envInt('IMQ_SHUTDOWN_TIMEOUT', 1000);
  * forcibly disconnected. A reader blocked on an infinite BRPOP/BLMOVE can
  * never let QUIT through, so without this the socket would leak and keep
  * the process alive.
+ *
+ * @remarks
+ * Defaults to 1000; override with the `IMQ_CONNECTION_QUIT_TIMEOUT` environment
+ * variable, which is read once when the module is loaded. Applies to the writer,
+ * watcher and subscription channels — the reader is disconnected immediately
+ * without attempting `QUIT`.
  */
 export const IMQ_CONNECTION_QUIT_TIMEOUT = envInt(
     'IMQ_CONNECTION_QUIT_TIMEOUT',
@@ -114,8 +142,36 @@ const IMQ_REDIS_MAX_LISTENERS_LIMIT = envInt(
 );
 
 /**
- * Class RedisQueue
- * Implements a simple messaging queue over redis.
+ * Redis-backed message queue with at-least-once delivery — the default
+ * {@link IMessageQueue} implementation, and what {@link IMQ.create} returns for a
+ * single-server configuration.
+ *
+ * @remarks
+ * Connection model: the reader is per instance and exists only in
+ * {@link IMQMode.BOTH} or {@link IMQMode.WORKER} mode, while the writer and
+ * watcher connections are shared per `host:port` across every queue in the
+ * process and reference-counted. Exactly one queue per key prefix is elected as
+ * the watcher through a `<prefix>:watch:lock` key, and that owner also releases
+ * delayed messages, recovers abandoned safe-delivery hand-offs and — when
+ * {@link IMQOptions.cleanup} is on — prunes orphaned keys.
+ *
+ * Lifecycle: {@link RedisQueue.start} is required before consuming or
+ * publishing, while {@link RedisQueue.send} starts the queue lazily.
+ * {@link RedisQueue.stop} only stops consuming; use
+ * {@link RedisQueue.destroy} to release the watcher lock, the timers and the
+ * connections.
+ *
+ * Reconnection is handled by the queue itself — ioredis's own retry strategy is
+ * disabled in favour of a capped exponential backoff from 1 s to 30 s per
+ * channel.
+ *
+ * Events (typed by {@link EventMap}): `message`, with the payload, the message id
+ * and the sending queue's name; and `error`, with the error and the name of the
+ * internal routine that caught it (`OnMessage`, `OnProcessDelayed`,
+ * `OnSafeDelivery`, `OnWatch`, `OnConfig`, `OnScriptLoad`, `OnReadUnsafe` or
+ * `OnReadSafe`). Background errors are emitted only when at least one `error`
+ * listener is attached — otherwise they are logged and swallowed, so attach one
+ * if you need to observe them.
  */
 export class RedisQueue
     extends EventEmitter<EventMap>
@@ -123,98 +179,75 @@ export class RedisQueue
 {
     /**
      * Writer connections collection
-     *
-     * @type {{}}
      */
     private static writers: { [key: string]: IRedisClient } = {};
 
     /**
      * Watcher connections collection
-     *
-     * @type {{}}
      */
     private static watchers: { [key: string]: IRedisClient } = {};
 
     /**
      * Number of started queue instances per shared writer connection key
-     *
-     * @type {{}}
      */
     private static writerRefs: { [key: string]: number } = {};
 
     /**
      * All started queue instances within the current process
-     *
-     * @type {Set<RedisQueue>}
      */
     private static readonly instances: Set<RedisQueue> = new Set();
 
     /**
      * True when process-level signal handlers were bound
-     *
-     * @type {boolean}
      */
     private static signalsBound: boolean = false;
 
     /**
-     * @event message (message: JsonObject, id: string, from: string)
-     */
-
-    /**
-     * This queue instance options
+     * The effective options for this queue: {@link DEFAULT_IMQ_OPTIONS} merged
+     * with the values passed to the constructor.
      *
-     * @type {IMQOptions}
+     * @remarks
+     * Treat this as read-only configuration. Some options are captured at
+     * construction time — `useGzip`, `host` and `port` — so changing them here has
+     * no effect, while `safeDelivery`, `safeDeliveryTtl`, `cleanup`,
+     * `cleanupFilter` and `verbose` are re-read at runtime.
      */
     public options: IMQOptions;
 
     /**
      * Reader connection associated with this queue instance
-     *
-     * @type {IRedisClient}
      */
     private reader?: IRedisClient;
 
     /**
      * Channel connection associated with this queue instance
      * Specially designed for client subscriptions to server-emitted events
-     *
-     * @type {IRedisClient}
      */
     private subscription?: IRedisClient;
 
     /**
      * Channel name for subscriptions
-     *
-     * @type {string}
      */
     private subscriptionName?: string;
 
     /**
      * Init state for this queue instance
-     *
-     * @type {boolean}
      */
     private initialized: boolean = false;
 
     /**
      * Signals if the queue was destroyed
-     *
-     * @type {boolean}
      */
     private destroyed: boolean = false;
 
     /**
      * True if the current instance owns a watcher connection, false otherwise
-     *
-     * @type {boolean}
      */
     private watchOwner: boolean = false;
 
     /**
      * Subscription handlers registered through subscribe(). Kept to be
      * able to restore the subscription after a connection replacement.
-     *
-     * @type {Array<(data: JsonObject) => void>}
      */
     private subscriptionHandlers: Array<(data: JsonObject) => void> = [];
 
@@ -256,14 +289,20 @@ export class RedisQueue
     private reconnecting: Partial<Record<RedisConnectionChannel, boolean>> = {};
 
     /**
-     * This queue instance unique key (identifier), for internal use
+     * The `host:port` address of the redis server this queue talks to.
+     *
+     * @remarks
+     * This is not an instance identifier. It is deliberately shared by every
+     * queue in the process that targets the same server, and is the key under
+     * which the writer and watcher connections (and the writer reference count)
+     * are stored. It includes neither the key prefix nor the credentials, so two
+     * queues differing only in those share the same underlying connections — the
+     * first one created wins.
      */
     public readonly redisKey: string;
 
     /**
      * Lua scripts for redis
-     *
-     * @type {{moveDelayed: {code: string}}}
      */
     private scripts: { [name: string]: { code: string; checksum?: string } } = {
         moveDelayed: {
@@ -289,25 +328,45 @@ export class RedisQueue
     /**
      * Serializes a given data object into string
      *
-     * @param {unknown} data
-     * @returns {string}
+     * @param data -
      */
     private readonly pack: (data: unknown) => string;
 
     /**
      * Deserialize string data into an object
      *
-     * @param {string} data
-     * @returns {unknown}
+     * @param data -
      */
     private readonly unpack: (data: string) => unknown;
 
     /**
-     * @param {string} name
-     * @param {IMQOptions} [options]
-     * @param {IMQMode} [mode]
+     * Creates a queue handle. No connection is opened here — call
+     * {@link RedisQueue.start}, or {@link RedisQueue.send}, which starts the
+     * queue implicitly.
+     *
+     * @param name - queue name; the underlying Redis list key becomes
+     *        `<prefix>:<name>`
+     * @param options - partial options merged over {@link DEFAULT_IMQ_OPTIONS}
+     * @param mode - whether this handle produces, consumes, or both; defaults to
+     *        {@link IMQMode.BOTH}
+     *
+     * @remarks
+     * The constructor performs no I/O. It resolves the effective options, selects
+     * the serializer pair from {@link IMQOptions.useGzip} once, and derives
+     * the `host:port` key under which the shared connections are stored — so
+     * changing `useGzip`, `host` or `port` on `options` afterwards has no effect.
      */
     public constructor(
+        /**
+         * The queue name. The underlying redis list key is `<prefix>:<name>`, the
+         * same name is the default pub/sub channel used by
+         * {@link RedisQueue.publish}, and it is the `from` value carried by
+         * messages this queue sends.
+         *
+         * @remarks
+         * Assign it before {@link RedisQueue.start} — a running reader keeps
+         * consuming the key it was started with.
+         */
         public name: string,
         options?: Partial<IMQOptions>,
         private readonly mode: IMQMode = IMQMode.BOTH,
@@ -345,11 +404,26 @@ export class RedisQueue
 
     /**
      * Creates a subscription channel over redis and sets up channel
-     * data read handler
+     * data read handler. The effective Redis channel is `<prefix>:<channel>`.
      *
-     * @param {string} channel
-     * @param {(data: JsonObject) => void} handler
-     * @returns {Promise<void>}
+     * @param channel - channel name within this queue's prefix namespace
+     * @param handler - invoked with the parsed payload of each published message
+     * @throws TypeError when no channel name is given, or when a different
+     *         channel name is supplied while a subscription is already open — an
+     *         instance supports exactly one channel until
+     *         {@link RedisQueue.unsubscribe} resets it
+     *
+     * @remarks
+     * Calling this again with the same channel adds another handler rather than
+     * replacing the existing one, and every handler is invoked for each message.
+     *
+     * A dedicated subscription connection is created on demand, so
+     * {@link RedisQueue.start} is not required, and the subscription is
+     * re-established automatically after a reconnect.
+     *
+     * Payloads are parsed as plain JSON ({@link IMQOptions.useGzip} does not
+     * apply to pub/sub). Neither a parse error nor an exception thrown by the
+     * handler is contained by the queue, so handlers should not throw.
      */
     public async subscribe(
         channel: string,
@@ -385,8 +459,8 @@ export class RedisQueue
      * Attaches a subscription message handler to a given channel
      * connection
      *
-     * @param {IRedisClient} chan
-     * @param {(data: JsonObject) => void} handler
+     * @param chan -
+     * @param handler -
      */
     private attachSubscriptionHandler(
         chan: IRedisClient,
@@ -411,8 +485,6 @@ export class RedisQueue
      * Restores the subscription state on a freshly created subscription
      * connection. Used after a connection replacement on reconnection,
      * otherwise the new connection would silently stay unsubscribed.
-     *
-     * @returns {Promise<void>}
      */
     private async restoreSubscription(): Promise<void> {
         const chan = this.subscription;
@@ -437,9 +509,14 @@ export class RedisQueue
     }
 
     /**
-     * Closes subscription channel
+     * Closes the subscription connection and forgets the channel name together
+     * with every handler registered through {@link RedisQueue.subscribe}.
      *
-     * @returns {Promise<void>}
+     * @remarks
+     * A later {@link RedisQueue.subscribe} must register its handlers again, and
+     * may use a different channel name. A no-op when the queue was never
+     * subscribed, and it never rejects — failures during unsubscribe are logged
+     * only. Called automatically by {@link RedisQueue.destroy}.
      */
     public async unsubscribe(): Promise<void> {
         if (this.subscription) {
@@ -479,8 +556,20 @@ export class RedisQueue
      * can be used to implement broadcasting some messages to other subscribers
      * on other PubSub channels.
      *
-     * @param {string} [toName]
-     * @param {JsonObject} data
+     * @param data - payload to publish as a channel message
+     * @param toName - optional different pub/sub name to publish to; must be a
+     *        bare name inside the same prefix namespace, not a full Redis channel
+     *        key
+     * @throws TypeError when the queue has no writer connection
+     *
+     * @remarks
+     * Unlike {@link RedisQueue.send}, this does not start the queue
+     * implicitly, so {@link RedisQueue.start} must have completed first. It is
+     * allowed in any {@link IMQMode}, including `WORKER`.
+     *
+     * The payload is always plain JSON — {@link IMQOptions.useGzip} applies to
+     * queue messages only. Redis pub/sub drops the message silently when nobody
+     * is subscribed.
      */
     public async publish(data: JsonObject, toName?: string): Promise<void> {
         if (!this.writer) {
@@ -497,9 +586,25 @@ export class RedisQueue
     }
 
     /**
-     * Initializes and starts current queue routines
+     * Initializes and starts current queue routines: opens the writer (and, in
+     * {@link IMQMode.BOTH} or {@link IMQMode.WORKER} mode, the reader), joins
+     * watcher election and starts the periodic watcher check.
      *
-     * @returns {Promise<RedisQueue>}
+     * @returns this queue instance
+     * @throws TypeError when the queue was constructed without a name
+     *
+     * @remarks
+     * Idempotent — a second call on a started queue resolves immediately — and
+     * the queue can be restarted after {@link RedisQueue.stop}.
+     *
+     * Unless {@link IMQOptions.handleSignals} is false, this installs
+     * process-level SIGTERM/SIGINT/SIGABRT handlers that release watcher locks
+     * and then exit the process without waiting for in-flight handlers.
+     *
+     * If watcher initialization fails the returned promise rejects, but the
+     * writer connection, the instance registration and any acquired watcher lock
+     * remain in place — call {@link RedisQueue.destroy} to clean up after a
+     * failed start.
      */
     public async start(): Promise<RedisQueue> {
         if (!this.name) {
@@ -570,8 +675,6 @@ export class RedisQueue
     /**
      * Frees watcher locks held by all started queue instances and exits
      * the process, forcing exit after IMQ_SHUTDOWN_TIMEOUT at the latest.
-     *
-     * @returns {Promise<void>}
      */
     private static async freeAndExit(): Promise<void> {
         let exitCode = 0;
@@ -616,8 +719,6 @@ export class RedisQueue
      * A single watcher-existence check tick: re-elects a watcher owner when
      * none exists and moves due to delayed messages as a keyspace-notification
      * fallback. Errors are contained so the interval never crashes.
-     *
-     * @returns {Promise<void>}
      */
     private async runWatcherCheck(): Promise<void> {
         if (this.watcherCheckBusy || this.destroyed || !this.writer) {
@@ -652,13 +753,32 @@ export class RedisQueue
     }
 
     /**
-     * Sends a given message to a given queue (by name)
+     * Sends a given message to a given queue (by name).
      *
-     * @param {string} toQueue
-     * @param {JsonObject} message
-     * @param {number} [delay]
-     * @param {(err: Error) => void} [errorHandler]
-     * @returns {Promise<RedisQueue>}
+     * @param toQueue - name of the destination queue
+     * @param message - message payload; must be a JSON object
+     * @param delay - if specified, the message becomes available in the target
+     *        queue only after this many milliseconds. This is a minimum, not a
+     *        schedule — the message is released by the watcher, so availability
+     *        may lag by up to {@link IMQOptions.watcherCheckDelay}. A delay of
+     *        `0` or `undefined` sends immediately.
+     * @param errorHandler - invoked when the write to Redis fails; this is the
+     *        only way to observe such a failure, since the returned promise does
+     *        not reject for it
+     * @returns the identifier assigned to the message. It is generated locally
+     *          before the write is issued, so it is available even if the write
+     *          later fails.
+     * @throws TypeError when the queue is in {@link IMQMode.WORKER}-only mode, or
+     *         when a writer connection cannot be established
+     *
+     * @remarks
+     * The returned promise resolves as soon as the write has been dispatched —
+     * the Redis reply is not awaited — so a resolved promise is not evidence that
+     * the message was enqueued.
+     *
+     * Starts the queue implicitly when it has not been started yet, which has
+     * process-wide side effects: it may install signal handlers and make this
+     * instance the watcher owner.
      */
     public async send(
         toQueue: string,
@@ -748,9 +868,23 @@ export class RedisQueue
     }
 
     /**
-     * Stops current queue routines
+     * Stops consuming messages by tearing down this instance's reader
+     * connection.
      *
-     * @returns {Promise<RedisQueue>}
+     * @returns this queue instance
+     *
+     * @remarks
+     * The queue remains usable as a producer: the shared writer, any held watcher
+     * lock, the watcher-check and maintenance intervals, the subscription
+     * connection and the process signal handlers all stay in place, and
+     * {@link RedisQueue.start} can resume consumption. Use
+     * {@link RedisQueue.destroy} to release resources — an instance that is only
+     * stopped stays registered in a process-wide registry and is not
+     * garbage-collected.
+     *
+     * The reader socket is dropped immediately rather than closed with a graceful
+     * `QUIT`, so Redis stops treating it as a consumer at once and cannot hand it
+     * a message the torn-down read loop would drop.
      */
     @profile()
     public async stop(): Promise<RedisQueue> {
@@ -776,8 +910,23 @@ export class RedisQueue
      * destroying one handle (e.g., on scale-down) never wipes messages
      * still pending for other producers/consumers.
      *
-     * @param {boolean} [clearData] - when true, also clears queue data
-     * @returns {Promise<void>}
+     * @param clearData - when true, also clears queue data
+     *
+     * @remarks
+     * The writer connection is shared per `host:port` and reference-counted, so
+     * it stays open while another started instance in the process still uses it.
+     *
+     * All event listeners are removed, including the caller's `message` and
+     * `error` handlers — and because {@link RedisQueue.start} can revive the
+     * instance, re-register them if you restart it or messages will be consumed
+     * and silently discarded.
+     *
+     * With `clearData` set, only the main and delayed keys are removed: messages
+     * currently leased to a worker key under {@link IMQOptions.safeDelivery} are
+     * not, and the watcher will re-queue them once their lease expires — so
+     * messages can reappear after a clearing destroy.
+     *
+     * Never rejects; unlock and clear failures are logged.
      */
     @profile()
     public async destroy(clearData: boolean = false): Promise<void> {
@@ -808,9 +957,17 @@ export class RedisQueue
     }
 
     /**
-     * Clears queue data in redis
+     * Deletes this queue's message list and its delayed-message set from redis.
      *
-     * @returns {Promise<void>}
+     * @returns this queue instance
+     *
+     * @remarks
+     * A no-op that resolves successfully when the queue has no writer connection.
+     * In-flight messages held in worker keys under
+     * {@link IMQOptions.safeDelivery} are not removed and may be re-queued by the
+     * watcher after their lease expires, so this does not guarantee the queue
+     * stays empty. Errors are logged rather than thrown, so success cannot be
+     * inferred from a resolved promise.
      */
     @profile()
     public async clear(): Promise<RedisQueue> {
@@ -842,9 +999,16 @@ export class RedisQueue
     }
 
     /**
-     * Retrieves the current count of messages in the queue
+     * Returns the number of messages currently waiting in this queue's main list.
      *
-     * @returns {Promise<number>}
+     * @returns count of messages waiting to be consumed
+     *
+     * @remarks
+     * Delayed messages that are not yet due, and messages currently leased to a
+     * worker under {@link IMQOptions.safeDelivery}, are not counted — so this
+     * is not the amount of outstanding work. Returns `0` when the queue has no
+     * writer connection, which makes "disconnected" indistinguishable from
+     * "empty"; it never throws.
      */
     @profile()
     public async queueLength(): Promise<number> {
@@ -857,8 +1021,6 @@ export class RedisQueue
 
     /**
      * Returns true if publisher mode is enabled on this queue, false otherwise.
-     *
-     * @returns {boolean}
      */
     public isPublisher(): boolean {
         return this.mode === IMQMode.BOTH || this.mode === IMQMode.PUBLISHER;
@@ -866,8 +1028,6 @@ export class RedisQueue
 
     /**
      * Returns true if worker mode is enabled on this queue, false otherwise.
-     *
-     * @returns {boolean}
      */
     public isWorker(): boolean {
         return this.mode === IMQMode.BOTH || this.mode === IMQMode.WORKER;
@@ -877,48 +1037,39 @@ export class RedisQueue
      * Returns false only when this queue is known to be unable to accept
      * writes right now — i.e., it has a writer connection currently
      * in a non-ready (reconnecting/closed) state. A queue that has not yet
-     * connected is considered available, since a sending lazily connects it.
+     * connected is considered available, since sending connects it lazily.
      * Used for health-aware routing in the clustered queue.
      *
-     * @returns {boolean}
+     * @remarks
+     * The writer connection is shared per `host:port` within the process, so this
+     * reflects the health of that server connection rather than of this instance
+     * alone — every queue pointing at the same server reports the same value.
      */
     public get available(): boolean {
         return !this.writer || this.writer.status === 'ready';
     }
 
     /**
-     * Writer connection associated with this queue instance
-     *
-     * @type {IRedisClient}
+     * Writer connection associated with this queue instance. Shared by every
+     * queue in the process that targets the same `host:port`.
      */
     private get writer(): IRedisClient {
         return RedisQueue.writers[this.redisKey];
     }
 
-    /**
-     * Writer connection setter.
-     *
-     * @param {IRedisClient} conn
-     */
     private set writer(conn: IRedisClient) {
         RedisQueue.writers[this.redisKey] = conn;
     }
 
     /**
-     * Watcher connection instance associated with this queue instance
-     *
-     * @type {IRedisClient}
+     * Watcher connection associated with this queue instance. Shared by every
+     * queue in the process that targets the same `host:port`; at most one queue
+     * per prefix is the elected watcher owner.
      */
     private get watcher(): IRedisClient {
         return RedisQueue.watchers[this.redisKey];
     }
 
-    /**
-     * Watcher setter sets the watcher connection property for this
-     * queue instance
-     *
-     * @param {IRedisClient} conn
-     */
     private set watcher(conn: IRedisClient) {
         RedisQueue.watchers[this.redisKey] = conn;
     }
@@ -926,8 +1077,7 @@ export class RedisQueue
     /**
      * Returns the connection currently bound to the given channel, if any.
      *
-     * @param {RedisConnectionChannel} channel
-     * @returns {IRedisClient | undefined}
+     * @param channel -
      */
     private connectionOf(
         channel: RedisConnectionChannel,
@@ -947,8 +1097,8 @@ export class RedisQueue
     /**
      * Binds the given connection to the given channel.
      *
-     * @param {RedisConnectionChannel} channel
-     * @param {IRedisClient} conn
+     * @param channel -
+     * @param conn -
      */
     private bindConnection(
         channel: RedisConnectionChannel,
@@ -972,7 +1122,6 @@ export class RedisQueue
 
     /**
      * Logger instance associated with the current queue instance
-     * @type {ILogger}
      */
     private get logger(): ILogger {
         return this.options.logger || console;
@@ -980,8 +1129,6 @@ export class RedisQueue
 
     /**
      * Return a lock key for watcher connection
-     *
-     * @returns {string}
      */
     private get lockKey(): string {
         return `${this.options.prefix}:watch:lock`;
@@ -989,8 +1136,6 @@ export class RedisQueue
 
     /**
      * Returns current queue key
-     *
-     * @returns {string}
      */
     private get key(): string {
         return `${this.options.prefix}:${this.name}`;
@@ -1104,9 +1249,8 @@ export class RedisQueue
     /**
      * Establishes a given connection channel by its name
      *
-     * @param {RedisConnectionChannel} channel
-     * @param {IMQOptions} options
-     * @returns {Promise<IRedisClient>}
+     * @param channel -
+     * @param options -
      */
     private async connect(
         channel: RedisConnectionChannel,
@@ -1189,8 +1333,7 @@ export class RedisQueue
      * Schedules custom reconnection for a given channel with capped
      * exponential backoff
      *
-     * @param {RedisConnectionChannel} channel
-     * @private
+     * @param channel -
      */
     private scheduleReconnect(channel: RedisConnectionChannel): void {
         if (this.destroyed || this.reconnecting[channel]) {
@@ -1226,8 +1369,7 @@ export class RedisQueue
      * rescheduling itself on failure. Errors are handled internally, so the
      * scheduled timer never produces an unhandled rejection.
      *
-     * @param {RedisConnectionChannel} channel
-     * @returns {Promise<void>}
+     * @param channel -
      */
     private async reconnectNow(channel: RedisConnectionChannel): Promise<void> {
         if (this.destroyed) {
@@ -1276,10 +1418,9 @@ export class RedisQueue
     /**
      * Generates channel name
      *
-     * @param {string} contextName
-     * @param {string} prefix
-     * @param {RedisConnectionChannel} name
-     * @returns {string}
+     * @param contextName -
+     * @param prefix -
+     * @param name -
      */
     private getChannelName(
         contextName: string,
@@ -1294,8 +1435,7 @@ export class RedisQueue
     /**
      * Builds and returns connection error handler
      *
-     * @param {RedisConnectionChannel} channel
-     * @returns {(err: Error) => void}
+     * @param channel -
      */
     private onErrorHandler(
         channel: RedisConnectionChannel,
@@ -1327,8 +1467,7 @@ export class RedisQueue
     /**
      * Builds and returns redis connection close handler
      *
-     * @param {RedisConnectionChannel} channel
-     * @returns {() => void}
+     * @param channel -
      */
     private onCloseHandler(channel: RedisConnectionChannel): () => void {
         this.verbose(`Redis ${channel} is closing...`);
@@ -1353,8 +1492,7 @@ export class RedisQueue
     /**
      * Processes given redis-queue message
      *
-     * @param {[string, string]} msg
-     * @returns {RedisQueue}
+     * @param msg -
      */
     private process(msg: [string, string]): RedisQueue {
         const [queue, data] = msg;
@@ -1380,8 +1518,6 @@ export class RedisQueue
 
     /**
      * Returns the number of established watcher connections on redis
-     *
-     * @returns {Promise<number>}
      */
     private async watcherCount(): Promise<number> {
         if (!this.writer) {
@@ -1403,8 +1539,7 @@ export class RedisQueue
     /**
      * Processes delayed a message by its given redis key
      *
-     * @param {string} key
-     * @returns {Promise<void>}
+     * @param key -
      */
     private async processDelayed(key: string): Promise<void> {
         try {
@@ -1447,8 +1582,6 @@ export class RedisQueue
 
     /**
      * Watch routine
-     *
-     * @returns {Promise<void>}
      */
     private async processWatch(): Promise<void> {
         const now = Date.now();
@@ -1487,9 +1620,8 @@ export class RedisQueue
     /**
      * Process given keys from a message queue
      *
-     * @param {string[]} keys
-     * @param {number} now
-     * @returns {Promise<void>}
+     * @param keys -
+     * @param now -
      */
     private async processKeys(keys: string[], now: number): Promise<void> {
         if (!keys.length) {
@@ -1525,8 +1657,7 @@ export class RedisQueue
     /**
      * Watch message processor
      *
-     * @param {...any[]} args
-     * @returns {Promise<void>}
+     * @param args -
      */
     private async onWatchMessage(...args: any[]): Promise<void> {
         try {
@@ -1556,8 +1687,6 @@ export class RedisQueue
 
     /**
      * Setups watch a process on delayed messages
-     *
-     * @returns {RedisQueue}
      */
     private watch(): RedisQueue {
         if (!this.writer || !this.watcher || this.watcher.__ready__) {
@@ -1602,8 +1731,6 @@ export class RedisQueue
     /**
      * A single safe-delivery maintenance tick: recovers messages from dead
      * workers (when safe delivery is on) and prunes orphaned keys.
-     *
-     * @returns {Promise<void>}
      */
     private async runSafeCheck(): Promise<void> {
         if (!this.writer) {
@@ -1621,8 +1748,6 @@ export class RedisQueue
 
     /**
      * Cleans up orphaned keys from redis
-     *
-     * @returns {Promise<RedisQueue | undefined>}
      */
     private async processCleanup(): Promise<RedisQueue | undefined> {
         this.verbose('Cleaning up orphaned keys...');
@@ -1825,8 +1950,6 @@ export class RedisQueue
 
     /**
      * Initializes a read process on the redis message queue
-     *
-     * @returns {RedisQueue}
      */
     private read(): RedisQueue {
         if (!this.reader) {
@@ -1850,8 +1973,6 @@ export class RedisQueue
 
     /**
      * Checks if the watcher connection is locked
-     *
-     * @returns {Promise<boolean>}
      */
     private async isLocked(): Promise<boolean> {
         if (this.writer) {
@@ -1863,8 +1984,6 @@ export class RedisQueue
 
     /**
      * Locks watcher connection
-     *
-     * @returns {Promise<boolean>}
      */
     private async lock(): Promise<boolean> {
         if (this.writer) {
@@ -1876,8 +1995,6 @@ export class RedisQueue
 
     /**
      * Unlocks watcher connection
-     *
-     * @returns {Promise<boolean>}
      */
     private async unlock(): Promise<boolean> {
         if (this.writer) {
@@ -1890,9 +2007,9 @@ export class RedisQueue
     /**
      * Emits error
      *
-     * @param {string} eventName
-     * @param {string} message
-     * @param {unknown} err
+     * @param eventName -
+     * @param message -
+     * @param err -
      */
     private emitError(eventName: string, message: string, err: unknown): void {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -1919,8 +2036,6 @@ export class RedisQueue
 
     /**
      * Acquires an owner for watcher connection to this instance of the queue
-     *
-     * @returns {Promise<void>}
      */
     private async ownWatch(): Promise<void> {
         const owned = await this.lock();
@@ -1960,8 +2075,6 @@ export class RedisQueue
      * Attempts to take over an orphaned watcher lock: if the lock is held
      * but no watcher connection is actually alive, releases and re-acquires
      * ownership. Used to resolve a possible watcher deadlock.
-     *
-     * @returns {Promise<void>}
      */
     private async resolveWatchLock(): Promise<void> {
         const noWatcher = !(await this.watcherCount());
@@ -1975,8 +2088,6 @@ export class RedisQueue
     /**
      * Initializes a single watcher connection across all queues with the same
      * prefix.
-     *
-     * @returns {Promise<void>}
      */
     private async initWatcher(): Promise<void> {
         try {

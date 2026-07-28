@@ -21,6 +21,48 @@
  * purchase a proprietary commercial license. Please contact us at
  * <support@imqueue.com> to get commercial licensing options.
  */
+/**
+ * Redis-backed message queue engine for the `@imqueue` framework — the
+ * transport shared by `@imqueue/rpc` and the job packages.
+ *
+ * Start from `IMQ.create()`, which picks a queue adapter from the options and
+ * returns an unstarted `IMessageQueue`. The two concrete adapters are
+ * `RedisQueue` (a single Redis server) and `ClusteredRedisQueue` (several
+ * servers, with sends distributed between them), and either can also be
+ * constructed directly.
+ *
+ * @remarks
+ * Every queue follows the same lifecycle: construct, `start()`, then either
+ * consume `message` events or `send()`, and finally `destroy()` to release the
+ * connections. `start()` is required before `publish()` or `subscribe()`;
+ * `send()` starts the queue implicitly. `stop()` only stops consuming — it
+ * keeps the writer, the watcher lock and the maintenance timers alive, so
+ * `destroy()` is what actually releases resources.
+ *
+ * Delivery is at-least-once, so message handlers must be idempotent. Within a
+ * single process, writer and watcher connections are shared per `host:port` and
+ * reference-counted, and exactly one queue per key prefix is elected as the
+ * watcher that releases delayed messages and performs maintenance.
+ *
+ * @example
+ * ```typescript
+ * import IMQ, { IMQMode, type IMessageQueue } from '@imqueue/core';
+ *
+ * const queue: IMessageQueue = IMQ.create('my-queue', {
+ *     host: 'localhost',
+ *     port: 6379,
+ * });
+ *
+ * queue.on('message', (message, id, from) => {
+ *     console.log(`got ${id} from ${from}`, message);
+ * });
+ *
+ * await queue.start();
+ * await queue.send('my-queue', { hello: 'world' });
+ * ```
+ *
+ * @packageDocumentation
+ */
 import {
     type IMessageQueue,
     type IMessageQueueConstructor,
@@ -42,25 +84,44 @@ const ADAPTERS: { [name: string]: IMessageQueueConstructor } = {
 };
 
 /**
- * Message Queue Factory
+ * Message queue factory. This is also the default export of `@imqueue/core`.
+ *
+ * @remarks
+ * The factory only selects and instantiates an adapter — it performs no I/O, so
+ * the queue it returns is not connected. Call `start()` on it (or `send()`,
+ * which starts the queue implicitly) before use.
  */
 export default class IMQ {
     /**
-     * Base generic queue factory options
-     *
-     * @type {Partial<IMQOptions>}
+     * Base generic queue factory options.
      */
     private static options: Partial<IMQOptions> = {
         vendor: 'Redis', // default vendor
     };
 
     /**
-     * Instantiate proper message queue instance using given user-options
+     * Instantiates the queue adapter matching the given options and returns it
+     * ready to be started.
      *
-     * @param {string} name
-     * @param {IMQOptions} options
-     * @param {IMQMode} mode
-     * @return {IMessageQueue}
+     * The adapter is chosen from `options.vendor`, of which only `'Redis'` is
+     * supported. When either `options.cluster` or `options.clusterManagers` is
+     * present, the clustered adapter is returned instead of the single-server
+     * one.
+     *
+     * @param name - queue name; the underlying Redis key becomes
+     *        `<prefix>:<name>`
+     * @param options - queue options; anything omitted falls back to
+     *        {@link DEFAULT_IMQ_OPTIONS}
+     * @param mode - whether the queue produces, consumes, or both; defaults to
+     *        {@link IMQMode.BOTH}
+     * @returns an unstarted queue instance — a {@link ClusteredRedisQueue} when
+     *          cluster options were supplied, otherwise a {@link RedisQueue}
+     * @throws TypeError when `options.vendor` names an unknown adapter
+     *
+     * @remarks
+     * `options.vendor` is honoured only here. Constructing a queue class
+     * directly ignores it, because {@link DEFAULT_IMQ_OPTIONS} carries no
+     * `vendor` key.
      */
     public static create(
         name: string,

@@ -1,5 +1,5 @@
 /*!
- * Extends native redis module to be promise-like
+ * Redis client re-export and the internal client type augmentation
  *
  * I'm Queue Software Project
  * Copyright (C) 2025  imqueue.com <support@imqueue.com>
@@ -24,12 +24,22 @@
 import { Redis } from 'ioredis';
 
 /**
- * Extends the default Redis type to allow dynamic properties access on it
- *
- * @type {IRedisClient}
+ * The ioredis `Redis` client type augmented with the two internal bookkeeping
+ * flags imq stamps onto the connections it creates. Not intended for use as an
+ * option or parameter type by consumers.
  */
 export interface IRedisClient extends Redis {
+    /**
+     * Internal flag marking a watcher connection whose keyspace subscriptions
+     * and maintenance interval have already been installed, so watcher setup
+     * runs at most once per connection. Not part of the supported API.
+     */
     __ready__?: boolean;
+    /**
+     * Internal marker stamped on every Redis connection created by the queue,
+     * identifying it as imq-owned. Currently written but not read by the
+     * framework. Not part of the supported API.
+     */
     __imq?: boolean;
 }
 

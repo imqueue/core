@@ -237,20 +237,39 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     useGzip?: boolean;
 
     /**
-     * Enable guaranteed message delivery. When enabled, uses a more complex
-     * algorithm for message handling, ensuring that if a worker fails, the
-     * message will be delivered to another worker. Required only for systems
-     * that demand guaranteed delivery semantics.
+     * Enable guaranteed message delivery. When enabled, reading a message
+     * moves it atomically out of the queue into a worker-owned key instead of
+     * popping it outright, so a worker that dies *before* it starts on a
+     * message leaves that message behind for the watcher to re-queue rather
+     * than taking it down with the process.
      *
+     * The guarantee covers that hand-off, not the processing. The worker key
+     * is released as soon as the message is dispatched to the `message`
+     * listener, so a worker killed while its handler is still running loses
+     * that message exactly as it would with safe delivery off — draining
+     * in-flight work before exit is up to the application. Delivery is
+     * at-least-once in either mode, so handlers should be idempotent.
+     *
+     * @default false
      * @type {boolean}
      */
     safeDelivery?: boolean;
 
     /**
-     * Time-to-live (in milliseconds) for messages in worker queues. After this
-     * period, unacknowledged messages return to the main queue for reprocessing
-     * if the worker died. Only effective when safeDelivery is enabled.
+     * Lease deadline (in milliseconds) stamped onto the worker key when
+     * safeDelivery moves a message out of the queue, and the interval on which
+     * the watcher sweeps for expired keys. A worker key still present once its
+     * deadline has passed is treated as abandoned, and its message is moved
+     * back onto the main queue.
      *
+     * This is a recovery deadline for an abandoned hand-off, not a processing
+     * deadline. The key is released when the message is dispatched, so a slow
+     * handler is neither interrupted nor re-queued for taking too long, and
+     * raising this value extends no protection over long-running work — tune it
+     * for how quickly an abandoned message should come back. Only effective
+     * when safeDelivery is enabled.
+     *
+     * @default 5000
      * @type {number}
      */
     safeDeliveryTtl?: number;
@@ -272,8 +291,10 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
 
     /**
      * Enable process signal handling (SIGTERM, SIGINT, SIGABRT) by the queue.
-     * When enabled, the queue releases its watcher lock and exits gracefully
-     * on these signals. Disable if the host application manages shutdown.
+     * When enabled, the queue releases its watcher lock on these signals and
+     * then exits the process. It does not wait for in-flight `message` handlers
+     * to finish, so drain those yourself if work in progress must not be lost.
+     * Disable if the host application manages shutdown.
      *
      * @default true
      * @type {boolean}

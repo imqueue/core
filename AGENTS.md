@@ -71,7 +71,9 @@ timeout is 15s per test. Run a single spec after a build with
 - **Two delivery modes**, selected by the `safeDelivery` option: *unreliable*
   (fast; a message is lost if a consumer grabs it and dies) and *safe/guaranteed*
   (1.5–2× slower; a grabbed-then-lost message is rescheduled). Safe delivery
-  relies on Redis `LMOVE`/`BLMOVE` — **Redis 6.2+ is required.**
+  relies on Redis `LMOVE`/`BLMOVE` — **Redis 6.2+ is required.** Unreliable
+  delivery uses `BRPOP` alone and works on 3.2+, so quote 6.2+ as the
+  requirement unless the sentence is specifically about the unreliable mode.
 - **No polling / no timers.** Delivery uses blocking Redis ops + keyspace
   notification events. If Redis has the `CONFIG` command disabled (e.g. AWS
   ElastiCache), keyspace notifications must be enabled out of band:

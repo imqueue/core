@@ -47,8 +47,10 @@ With current implementation on RedisQueue:
 # Requirements
 
 Currently this module has only one available adapter, which is Redis. Redis server
-6.2+ is required (the queue relies on `LMOVE`/`BLMOVE` commands for safe message
-delivery).
+6.2+ is required, because safe (guaranteed) delivery moves each message with the
+`LMOVE`/`BLMOVE` commands, which arrived in 6.2. Unreliable delivery uses `BRPOP`
+alone and runs on 3.2+, so an older server is only enough if `safeDelivery` stays
+off — which is not what most deployments want.
 
 If the config command is disabled on Redis, you must manually enable keyspace
 notification events (particularly when using AWS ElasticCache), like this:

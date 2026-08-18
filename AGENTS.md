@@ -78,6 +78,12 @@ timeout is 15s per test. Run a single spec after a build with
   notification events. If Redis has the `CONFIG` command disabled (e.g. AWS
   ElastiCache), keyspace notifications must be enabled out of band:
   `notify-keyspace-events Ex`.
+- **Keyspace-notification flags are merged, never overwritten.**
+  `notify-keyspace-events` is server-global, so `watch()` reads the current
+  value and appends only the missing `E`/`x` flags (`A` counts as covering
+  `x`), skipping `CONFIG SET` when the config already suffices. Do not go back
+  to setting a literal — that silently breaks other consumers of the same
+  Redis.
 - **Messages must be JSON-serializable** (`IJson`/`JsonObject`). Delayed
   delivery is supported via the send `delay` argument.
 - Scaling the number of workers must **not** increase Redis traffic — preserve

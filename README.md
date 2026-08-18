@@ -59,6 +59,12 @@ notification events (particularly when using AWS ElasticCache), like this:
 notify-keyspace-events Ex
 ```
 
+Otherwise the queue configures them itself, and does so without disturbing your
+own setup: it reads `notify-keyspace-events`, appends only the flags it is
+missing (`E` and `x`) and leaves everything else — including flags enabled by
+an operator or by other code sharing the same Redis — in place. Any superset of
+`Ex` is accepted as is, so no `CONFIG SET` is issued at all.
+
 More adapters will be added in the future as needed.
 
 # Install

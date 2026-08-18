@@ -5,6 +5,24 @@ behavior changes needed a written record; earlier history is in the git log.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.3] - 2026-08-18
+
+### Fixed
+
+- **Starting a queue overwrote the redis keyspace-notification configuration.**
+  `notify-keyspace-events` is a server-global setting, and the watcher owner set
+  it to the literal `Ex` on every connection establishment. Any other flag —
+  enabled by an operator through a config file or by other code sharing the same
+  redis — was silently dropped, breaking every consumer that relied on it, and
+  coming back after each reconnect.
+
+  The current value is now read first, only the missing `E`/`x` flags are
+  appended, and `CONFIG SET` is skipped entirely when the configuration already
+  suffices. `A` is recognised as covering `x`, so a server on `AK` only gains
+  `E`. When `CONFIG` is unavailable (e.g. AWS ElastiCache) the read fails and
+  the configuration is left untouched — enable `notify-keyspace-events` out of
+  band there, as before.
+
 ## [3.2.4] - 2026-07-26
 
 ### Fixed

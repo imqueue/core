@@ -59,6 +59,23 @@ const RECONNECT_MAX_DELAY = 30000;
 /** SCAN batch size used while sweeping keys */
 const SCAN_COUNT = '1000';
 
+/** Redis config parameter holding the keyspace-notification flags */
+const NOTIFY_EVENTS_PARAM = 'notify-keyspace-events';
+
+/**
+ * Keyspace-notification flags this queue depends on: `E` to receive
+ * `__keyevent@<db>__` notifications and `x` for expired-key events. Together
+ * they drive delayed-message delivery.
+ */
+const NOTIFY_EVENTS_REQUIRED = 'Ex';
+
+/**
+ * Event classes Redis' `A` shortcut expands to — every class except the
+ * `K`/`E` delivery selectors and the special `m`/`n` classes. A server
+ * configured with `A` therefore already covers `x`.
+ */
+const NOTIFY_EVENTS_ALL = 'g$lshzxetd';
+
 /**
  * ioredis retry strategy that disables the built-in reconnection — this
  * queue performs its own capped-backoff reconnection instead.
@@ -1692,6 +1709,88 @@ export class RedisQueue
     }
 
     /**
+     * Reads the keyspace-notification flags currently configured on the
+     * server.
+     *
+     * @returns the raw flags string, or an empty string when notifications
+     *          are disabled
+     *
+     * @remarks
+     * `CONFIG GET` replies as a flat `[name, value]` array over RESP2 and as a
+     * map over RESP3, so both shapes are accepted.
+     */
+    private async currentKeyspaceEvents(): Promise<string> {
+        const reply = (await this.writer.config('GET', NOTIFY_EVENTS_PARAM)) as
+            | string[]
+            | Record<string, string>
+            | null;
+
+        if (!reply) {
+            return '';
+        }
+
+        let value: unknown;
+
+        if (Array.isArray(reply)) {
+            const at = reply.indexOf(NOTIFY_EVENTS_PARAM);
+
+            // an unnamed parameter means the reply is not what was asked for,
+            // and guessing the value out of it could only make things worse
+            value = at < 0 ? undefined : reply[at + 1];
+        } else {
+            value = reply[NOTIFY_EVENTS_PARAM];
+        }
+
+        return typeof value === 'string' ? value : '';
+    }
+
+    /**
+     * Returns the flags from {@link NOTIFY_EVENTS_REQUIRED} that the given
+     * configuration does not already provide.
+     *
+     * @param current - flags string as reported by `CONFIG GET`
+     */
+    private missingKeyspaceEvents(current: string): string {
+        const covered = current.includes('A')
+            ? current + NOTIFY_EVENTS_ALL
+            : current;
+
+        return [...NOTIFY_EVENTS_REQUIRED]
+            .filter(flag => !covered.includes(flag))
+            .join('');
+    }
+
+    /**
+     * Makes sure the server publishes the keyspace events this queue listens
+     * for, preserving whatever else is already configured.
+     *
+     * @remarks
+     * Flags configured out of band — by an operator, or by other code sharing
+     * the same Redis — are kept: only the missing ones are appended, and
+     * `CONFIG SET` is skipped entirely when nothing needs adding. When the
+     * `CONFIG` command is unavailable (e.g. AWS ElastiCache) the read fails and
+     * the error is reported without touching the configuration; enable
+     * `notify-keyspace-events` out of band in that case.
+     */
+    private async ensureKeyspaceEvents(): Promise<void> {
+        const current = await this.currentKeyspaceEvents();
+        const missing = this.missingKeyspaceEvents(current);
+
+        if (!missing) {
+            this.verbose(
+                `Keyspace events "${current}" already cover ` +
+                    `"${NOTIFY_EVENTS_REQUIRED}", keeping them as is`,
+            );
+
+            return;
+        }
+
+        this.verbose(`Adding "${missing}" to keyspace events "${current}"`);
+
+        await this.writer.config('SET', NOTIFY_EVENTS_PARAM, current + missing);
+    }
+
+    /**
      * Setups watch a process on delayed messages
      */
     private watch(): RedisQueue {
@@ -1699,15 +1798,9 @@ export class RedisQueue
             return this;
         }
 
-        try {
-            this.writer
-                .config('SET', 'notify-keyspace-events', 'Ex')
-                .catch((err: unknown) =>
-                    this.emitError('OnConfig', 'events config error', err),
-                );
-        } catch (err) {
-            this.emitError('OnConfig', 'events config error', err);
-        }
+        this.ensureKeyspaceEvents().catch((err: unknown) =>
+            this.emitError('OnConfig', 'events config error', err),
+        );
 
         this.watcher.on('pmessage', this.onWatchMessage.bind(this));
         this.watcher

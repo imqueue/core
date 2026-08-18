@@ -41,6 +41,8 @@ export class RedisClientMock extends EventEmitter {
     private __rt: any;
     private static __keys: any = {};
     private static __scripts: any = {};
+    private static readonly __notifyEventsParam = 'notify-keyspace-events';
+    private static __notifyEvents: string = '';
     private __name: string = '';
     public connected: boolean = true;
     public status = 'ready';
@@ -365,8 +367,32 @@ export class RedisClientMock extends EventEmitter {
         this.cbExecute(cb, null, 1);
     }
 
-    public config(): Promise<boolean> {
-        return new Promise(resolve => resolve(true));
+    // emulates CONFIG GET/SET for notify-keyspace-events only (the single
+    // parameter the queue touches), replying in the RESP2 [name, value] shape;
+    // any other subcommand/parameter is a no-op returning true
+    public config(...args: any[]): Promise<any> {
+        const [subcommand, parameter, value] = args;
+
+        if (parameter === RedisClientMock.__notifyEventsParam) {
+            if (String(subcommand).toUpperCase() === 'GET') {
+                return Promise.resolve([
+                    parameter,
+                    RedisClientMock.__notifyEvents,
+                ]);
+            }
+
+            RedisClientMock.__notifyEvents = String(value ?? '');
+        }
+
+        return Promise.resolve(true);
+    }
+
+    public static get notifyEvents(): string {
+        return RedisClientMock.__notifyEvents;
+    }
+
+    public static set notifyEvents(flags: string) {
+        RedisClientMock.__notifyEvents = flags;
     }
 
     private cbExecute(cb: any, ...args: any[]): void {

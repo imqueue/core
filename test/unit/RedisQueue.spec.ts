@@ -47,6 +47,44 @@ process.setMaxListeners(100);
 const QS = (): any => (RedisClientMock as any).__queues__;
 const CL = (): any => (RedisClientMock as any).__clientList;
 
+/** Lets pending microtasks of fire-and-forget calls settle */
+const tick = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
+
+/**
+ * Minimal writer stub tracking `notify-keyspace-events` through CONFIG
+ * GET/SET, replying in the RESP2 [name, value] shape or, with `resp3`, as a map
+ */
+const configWriter = (
+    initial: string,
+    resp3 = false,
+): {
+    config: (...args: any[]) => Promise<any>;
+    calls: any[][];
+    flags: () => string;
+} => {
+    const param = 'notify-keyspace-events';
+    const calls: any[][] = [];
+    let flags = initial;
+
+    return {
+        calls,
+        flags: () => flags,
+        config: (...args: any[]): Promise<any> => {
+            calls.push(args);
+
+            if (String(args[0]).toUpperCase() === 'GET') {
+                return Promise.resolve(
+                    resp3 ? { [param]: flags } : [param, flags],
+                );
+            }
+
+            flags = args[2];
+
+            return Promise.resolve('OK');
+        },
+    };
+};
+
 describe('RedisQueue', () => {
     it('should be a class', () => {
         assert.equal(typeof RedisQueue, 'function');
@@ -1907,7 +1945,7 @@ describe('RedisQueue signal, reconnect & watch internals', () => {
         await rq.destroy().catch(() => undefined);
     });
 
-    it('watch() emits a config error when SET fails', async () => {
+    it('watch() emits a config error when CONFIG fails', async () => {
         const rq: any = new RedisQueue(uuid(), { logger });
 
         rq.writer = {
@@ -1925,12 +1963,116 @@ describe('RedisQueue signal, reconnect & watch internals', () => {
         rq.on('error', (err: Error) => errors.push(err));
 
         rq.watch();
+        await tick();
 
         assert.ok(errors.length > 0);
 
         rq.cleanSafeCheckInterval();
         rq.writer = undefined;
         rq.watcher = undefined;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('ensureKeyspaceEvents() enables events when none are configured', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+        const writer = configWriter('');
+
+        rq.writer = writer;
+
+        await rq.ensureKeyspaceEvents();
+
+        assert.equal(writer.flags(), 'Ex');
+
+        rq.writer = undefined;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('ensureKeyspaceEvents() keeps flags configured out of band', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+        // an operator (or other code sharing this Redis) asked for generic
+        // and hash events, delivered on both channel families
+        const writer = configWriter('ghKE');
+
+        rq.writer = writer;
+
+        await rq.ensureKeyspaceEvents();
+
+        // only the missing 'x' is appended - nothing gets dropped
+        assert.equal(writer.flags(), 'ghKEx');
+
+        rq.writer = undefined;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('ensureKeyspaceEvents() does not touch a sufficient config', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+        // Redis reports back its own normalised order, e.g. 'Ex' reads as 'xE'
+        const writer = configWriter('xE');
+
+        rq.writer = writer;
+
+        await rq.ensureKeyspaceEvents();
+
+        assert.equal(writer.flags(), 'xE');
+        assert.deepEqual(
+            writer.calls.map(args => args[0]),
+            ['GET'],
+        );
+
+        rq.writer = undefined;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('ensureKeyspaceEvents() treats "A" as covering expired events', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+        const writer = configWriter('AK');
+
+        rq.writer = writer;
+
+        await rq.ensureKeyspaceEvents();
+
+        // 'A' already implies 'x', so only the 'E' selector is missing
+        assert.equal(writer.flags(), 'AKE');
+
+        rq.writer = undefined;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('ensureKeyspaceEvents() accepts a RESP3 map reply', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+        const writer = configWriter('xE', true);
+
+        rq.writer = writer;
+
+        await rq.ensureKeyspaceEvents();
+
+        assert.deepEqual(
+            writer.calls.map(args => args[0]),
+            ['GET'],
+        );
+
+        rq.writer = undefined;
+        await rq.destroy().catch(() => undefined);
+    });
+
+    it('ensureKeyspaceEvents() leaves config alone when GET is unavailable', async () => {
+        const rq: any = new RedisQueue(uuid(), { logger });
+        const calls: string[] = [];
+
+        rq.writer = {
+            config: (...args: any[]) => {
+                calls.push(args[0]);
+
+                return String(args[0]).toUpperCase() === 'GET'
+                    ? Promise.reject(new Error('unknown command CONFIG'))
+                    : Promise.resolve('OK');
+            },
+        };
+
+        await assert.rejects(rq.ensureKeyspaceEvents());
+        assert.deepEqual(calls, ['GET']);
+
+        rq.writer = undefined;
         await rq.destroy().catch(() => undefined);
     });
 

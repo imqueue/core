@@ -43,6 +43,8 @@ import {
     sha1,
     unpack,
     envInt,
+    errorCode,
+    LOG_MAX_KEYS,
 } from './helpers/index.js';
 import Redis from './redis.js';
 
@@ -284,6 +286,23 @@ export class RedisQueue
     private watcherCheckBusy: boolean = false;
 
     /**
+     * Number of rejected writes in the current failure episode of this
+     * instance's writer, zero while writes succeed. The first rejection of an
+     * episode is logged, the rest only counted, and the first successful
+     * write logs the recovery together with this count.
+     */
+    private rejectedWrites: number = 0;
+
+    /**
+     * Channels a publish currently finds no subscribers on, so that the
+     * condition is reported on entry only and not on every publish. Bounded
+     * by {@link LOG_MAX_KEYS}: channel names may arrive as unique values, so
+     * names above the bound are not remembered and their publishes are
+     * reported every time.
+     */
+    private readonly noSubscribers: Set<string> = new Set();
+
+    /**
      * Connected client keys seen during the previous cleanup sweep. Used
      * to give temporarily disconnected clients one sweep of grace before
      * removing their keys.
@@ -420,6 +439,63 @@ export class RedisQueue
     }
 
     /**
+     * Writes an unconditional line through this queue's logger, in the format
+     * `verbose()` uses.
+     *
+     * @param level - logger method to write the line with
+     * @param message - the line, which must never carry message payload,
+     *        call arguments, raw redis keys or an error text
+     *
+     * @remarks
+     * Never throws: a broken logger must not be able to change what the queue
+     * does.
+     */
+    private logLine(level: 'info' | 'warn' | 'error', message: string): void {
+        try {
+            this.logger[level](`[IMQ-CORE][${this.name}]: ${message}`);
+        } catch {
+            // a failing logger must never influence queue behaviour
+        }
+    }
+
+    /**
+     * Records one logical rejected write of this instance's writer: the first
+     * rejection of a failure episode writes the given line, every following
+     * one only increments the episode counter, and the counter is reported by
+     * {@link RedisQueue.recordWriteSuccess} when a write succeeds again.
+     *
+     * @param message - the line, under the same constraints as
+     *        {@link RedisQueue.logLine}
+     */
+    private recordWriteFailure(message: string): void {
+        this.rejectedWrites++;
+
+        if (this.rejectedWrites === 1) {
+            this.logLine('error', message);
+        }
+    }
+
+    /**
+     * Closes the current write-failure episode, if one is open: reports how
+     * many writes were rejected in it and resets the counter. The counter is
+     * reset before the logger is touched, so a broken logger cannot keep the
+     * episode open forever.
+     */
+    private recordWriteSuccess(): void {
+        if (this.rejectedWrites === 0) {
+            return;
+        }
+
+        const rejected = this.rejectedWrites;
+
+        this.rejectedWrites = 0;
+        this.logLine(
+            'info',
+            `outbound writes resumed after ${rejected} rejected writes`,
+        );
+    }
+
+    /**
      * Creates a subscription channel over redis and sets up channel
      * data read handler. The effective Redis channel is `<prefix>:<channel>`.
      *
@@ -470,6 +546,9 @@ export class RedisQueue
         this.subscriptionHandlers.push(handler);
 
         this.verbose(`Subscribed to ${channel} channel`);
+        // a lifecycle fact, not an alarm: flow continuation hangs on this
+        // subscription, so its absence after a reconnect must be provable
+        this.logLine('info', `subscribed to channel ${channel}`);
     }
 
     /**
@@ -523,6 +602,10 @@ export class RedisQueue
         }
 
         this.verbose(`Restored subscription to ${this.subscriptionName}`);
+        this.logLine(
+            'info',
+            `restored subscription to channel ${this.subscriptionName}`,
+        );
     }
 
     /**
@@ -585,8 +668,9 @@ export class RedisQueue
      * allowed in any {@link IMQMode}, including `WORKER`.
      *
      * The payload is always plain JSON — {@link IMQOptions.useGzip} applies to
-     * queue messages only. Redis pub/sub drops the message silently when nobody
-     * is subscribed.
+     * queue messages only. Redis pub/sub drops the message when nobody is
+     * subscribed; on entering that state the queue writes a warning through
+     * its logger, so the drop is no longer silent.
      */
     public async publish(data: JsonObject, toName?: string): Promise<void> {
         if (!this.writer) {
@@ -596,7 +680,33 @@ export class RedisQueue
         const jsonData = JSON.stringify(data);
         const name = toName || this.name;
 
-        await this.writer.publish(`${this.options.prefix}:${name}`, jsonData);
+        const receivers = await this.writer.publish(
+            `${this.options.prefix}:${name}`,
+            jsonData,
+        );
+
+        // redis replies with the number of subscribers which received the
+        // event: zero means nobody did, and events are how a consumer learns
+        // to continue its work. Reported on entering the state only, and only
+        // on a strict zero - a client whose reply is not a number is left
+        // alone rather than coerced, so reading it can neither throw nor
+        // invent a warning
+        if (receivers === 0) {
+            if (!this.noSubscribers.has(name)) {
+                if (this.noSubscribers.size < LOG_MAX_KEYS) {
+                    this.noSubscribers.add(name);
+                }
+
+                this.logLine(
+                    'warn',
+                    `published to channel ${name} on host ${
+                        this.redisKey
+                    } with no subscribers`,
+                );
+            }
+        } else {
+            this.noSubscribers.delete(name);
+        }
 
         this.verbose(`Published message to ${name} channel, data: ${jsonData}
         `);
@@ -745,7 +855,25 @@ export class RedisQueue
         this.watcherCheckBusy = true;
 
         try {
-            if (!(await this.watcherCount())) {
+            let watchers: number;
+
+            try {
+                watchers = await this.watcherCount();
+            } catch (err) {
+                // the only silent failure of this tick: initWatcher() and
+                // processDelayed() log their own errors unconditionally, so
+                // wrapping the whole body would just duplicate them. The
+                // value is re-thrown, leaving control flow as it was
+                // bounded by watcherCheckDelay: this tick runs on an
+                // interval, so a persistent failure repeats at that pace
+                const code = errorCode(err);
+
+                this.logLine('warn', `watcher check failed, code ${code}`);
+
+                throw err;
+            }
+
+            if (!watchers) {
                 await this.initWatcher();
             }
 
@@ -779,9 +907,12 @@ export class RedisQueue
      *        schedule — the message is released by the watcher, so availability
      *        may lag by up to {@link IMQOptions.watcherCheckDelay}. A delay of
      *        `0` or `undefined` sends immediately.
-     * @param errorHandler - invoked when the write to Redis fails; this is the
-     *        only way to observe such a failure, since the returned promise does
-     *        not reject for it
+     * @param errorHandler - invoked when the write to Redis fails; the returned
+     *        promise does not reject for it, so this is the only programmatic
+     *        way to observe such a failure. The failure is also reported
+     *        through the queue's logger: the first rejected write of a failure
+     *        episode is logged, the rest are counted, and the first successful
+     *        write logs the recovery with that count
      * @returns the identifier assigned to the message. It is generated locally
      *          before the write is issued, so it is available even if the write
      *          later fails.
@@ -819,9 +950,25 @@ export class RedisQueue
         const data: IMessage = { id, message, from: this.name };
         const key = `${this.options.prefix}:${toQueue}`;
         const packet = this.pack(data);
+        const countedOps = new Set<string>();
         const onWriteError = (error: unknown, op: string): void => {
             if (error) {
                 this.verbose(`Writer ${op} error: ${error}`);
+
+                // the caller already holds the message id and gets no
+                // rejection, so without this line a rejected write is
+                // observable through errorHandler only - and most callers
+                // pass none. A client may deliver the same failure through
+                // both its callback and its returned promise: the episode
+                // counts each logical failure once, while errorHandler keeps
+                // being invoked per delivery, exactly as it always was
+                if (!countedOps.has(op)) {
+                    countedOps.add(op);
+                    this.recordWriteFailure(
+                        `write to queue ${toQueue} rejected on ${op}, ` +
+                            `message ${id}, code ${errorCode(error)}`,
+                    );
+                }
 
                 if (errorHandler) {
                     errorHandler(
@@ -858,6 +1005,11 @@ export class RedisQueue
 
                                     return;
                                 }
+
+                                // a delayed send is complete only after both
+                                // ZADD and SET succeeded, so the episode is
+                                // closed here and not on the ZADD alone
+                                this.recordWriteSuccess();
                             },
                         )
                         .catch((err: unknown) => onWriteError(err, 'SET'));
@@ -870,6 +1022,8 @@ export class RedisQueue
                 (err?: Error | null) => {
                     if (err) {
                         onWriteError(err, 'LPUSH');
+                    } else {
+                        this.recordWriteSuccess();
                     }
                 },
             );
@@ -1428,6 +1582,14 @@ export class RedisQueue
         } catch (err) {
             this.reconnecting[channel] = false;
             this.verbose(`Reconnect ${channel} failed: ${err}`);
+            // bounded by the exponential reconnection backoff, so a redis
+            // which stays down cannot make this line flood the log
+            this.logLine(
+                'warn',
+                `reconnect of the ${channel} channel failed, code ${errorCode(
+                    err,
+                )}`,
+            );
             this.scheduleReconnect(channel);
         }
     }
@@ -1651,29 +1813,70 @@ export class RedisQueue
             return;
         }
 
+        const requeued = new Map<string, number>();
+
         this.verbose(
             `Watching ${keys.length} keys: ${keys
                 .map(key => `"${key}"`)
                 .join(', ')}`,
         );
 
-        for (const key of keys) {
-            const kp: string[] = key.split(':');
+        try {
+            for (const key of keys) {
+                const kp: string[] = key.split(':');
 
-            // the last key segment is the worker's lease deadline: only
-            // re-queue messages of workers whose lease has expired (the
-            // worker died mid-processing); fresh leases belong to live
-            // workers and must not be touched
-            if (Number(kp.pop()) >= now) {
-                continue;
+                // the last key segment is the worker's lease deadline: only
+                // re-queue messages of workers whose lease has expired (the
+                // worker died mid-processing); fresh leases belong to live
+                // workers and must not be touched
+                if (Number(kp.pop()) >= now) {
+                    continue;
+                }
+
+                const target = `${kp.shift()}:${kp.shift()}`;
+                const moved = await this.writer.lmove(
+                    key,
+                    target,
+                    'RIGHT',
+                    'LEFT',
+                );
+
+                // a non-empty result means a message whose lease expired is being
+                // delivered a second time - either its worker died or it took
+                // longer than the lease ttl. This is one of the two explanations
+                // a handler can be given for a duplicate, the other being a
+                // worker key that could not be deleted. The packed message is
+                // never unpacked here: it carries the payload, and the worker key
+                // is never logged either
+                if (moved) {
+                    // the raw target is a redis key and is never printed: when
+                    // the exact prefix cannot be stripped off safely (a prefix
+                    // carrying ':' breaks the segment arithmetic above), the
+                    // queue is reported as unknown rather than leaked
+                    const stripped = `${this.options.prefix}:`;
+                    const queue =
+                        target.startsWith(stripped) &&
+                        target.length > stripped.length
+                            ? target.slice(stripped.length)
+                            : 'unknown';
+
+                    requeued.set(queue, (requeued.get(queue) || 0) + 1);
+                }
             }
-
-            await this.writer.lmove(
-                key,
-                `${kp.shift()}:${kp.shift()}`,
-                'RIGHT',
-                'LEFT',
-            );
+        } finally {
+            // one line per queue for the whole pass: a backlog of expired
+            // leases is reported as a count instead of a line per message.
+            // Written in a finally so that re-queues which did happen stay
+            // reported even when a later move of the pass throws - the
+            // exception itself keeps escaping exactly as before
+            for (const [queue, count] of requeued) {
+                this.logLine(
+                    'warn',
+                    `re-queued ${count} messages of expired leases to queue ${
+                        queue
+                    }`,
+                );
+            }
         }
     }
 
@@ -1833,6 +2036,18 @@ export class RedisQueue
      */
     private async runSafeCheck(): Promise<void> {
         if (!this.writer) {
+            // one line per interval instance, because the interval is
+            // dropped right below and re-armed only by a new watcher
+            // connection: from here on nothing recovers abandoned messages
+            // and nothing prunes orphaned keys
+            const safe = !!this.options.safeDelivery;
+            const cleanup = !!this.options.cleanup;
+
+            this.logLine(
+                'warn',
+                'safe delivery maintenance stopped: no writer connection, ' +
+                    `safeDelivery ${safe}, cleanup ${cleanup}`,
+            );
             this.cleanSafeCheckInterval();
 
             return;
@@ -1933,13 +2148,29 @@ export class RedisQueue
             }
 
             if (keysToRemove.length) {
-                await this.writer.del(...keysToRemove);
+                const removed = await this.writer.del(...keysToRemove);
 
                 this.verbose(
                     `Keys ${keysToRemove
                         .map(k => `"${k}"`)
                         .join(', ')} were successfully removed!`,
                 );
+
+                // deleting the keys of a queue considered abandoned is
+                // destructive - a client which was disconnected for two
+                // sweeps loses its queue together with a response it still
+                // waits for. Neither the keys nor the filter are logged:
+                // they carry application names
+                if (typeof removed === 'number' && removed > 0) {
+                    // bounded by the maintenance interval: one line per
+                    // cleanup pass at most, and it already aggregates counts
+                    this.logLine(
+                        'warn',
+                        `cleanup removed ${removed} of ${
+                            keysToRemove.length
+                        } candidate keys`,
+                    );
+                }
             }
         } catch (err) {
             this.logger.warn('Clean-up error occurred:', err);
@@ -2025,8 +2256,40 @@ export class RedisQueue
                     'LEFT',
                     timeout,
                 );
-            } catch {
-                // reader connection ended (stop/reconnect)
+            } catch (err) {
+                // a closed or ended reader connection is the planned case -
+                // the queue is stopping, reconnecting or being destroyed,
+                // and stop() drops the reader socket on purpose - so it
+                // stays quiet. Anything else ends safe reading for good,
+                // which must not be silent: the process stays alive and
+                // simply consumes nothing
+                let planned = this.destroyed || !this.reader;
+
+                if (!planned) {
+                    try {
+                        planned =
+                            err instanceof Error &&
+                            /Stream connection ended|Connection is closed/i.test(
+                                err.message,
+                            );
+                    } catch {
+                        // a message getter which throws is read as an
+                        // unexpected failure - before this catch existed,
+                        // such a value would have escaped readSafe() as an
+                        // unhandled rejection
+                        planned = false;
+                    }
+                }
+
+                if (!planned) {
+                    this.logLine(
+                        'warn',
+                        `safe reading of queue ${
+                            this.name
+                        } stopped, code ${errorCode(err)}`,
+                    );
+                }
+
                 break;
             }
 
@@ -2037,9 +2300,18 @@ export class RedisQueue
 
             try {
                 this.process([key, msg]);
-                this.writer
-                    .del(workerKey)
-                    .catch(e => this.logger.warn('OnReadSafe: del error', e));
+                this.writer.del(workerKey).catch((err: unknown) =>
+                    // an undeleted worker key is re-queued by the watcher
+                    // later, which is the other cause of a duplicate. The
+                    // key itself is never logged: it carries the client
+                    // queue name, the lease uuid and its deadline
+                    this.logLine(
+                        'warn',
+                        `OnReadSafe: del error, queue ${
+                            this.name
+                        }, code ${errorCode(err)}`,
+                    ),
+                );
             } catch (err) {
                 // a single message failure must never kill the read loop
                 this.emitError('OnReadSafe', 'safe reader failed', err);

@@ -38,7 +38,7 @@ import {
 } from 'node:test';
 import { Redis } from 'ioredis';
 import { RedisQueue, IMQMode } from '../../src/index.js';
-import { escapeRegExp, sha1 } from '../../src/helpers/index.js';
+import { escapeRegExp, pack, sha1 } from '../../src/helpers/index.js';
 import { makeLogger } from '../helpers/index.js';
 import { logger, RedisClientMock } from '../mocks/index.js';
 
@@ -2140,5 +2140,835 @@ describe('RedisQueue remaining guards', () => {
         mock.restoreAll();
         rq.watchOwner = false;
         await rq.destroy().catch(() => undefined);
+    });
+});
+
+/** Logger which keeps every line it was given, per level */
+interface Captured {
+    logger: any;
+    info: string[];
+    warn: string[];
+    error: string[];
+}
+
+const capturing = (): Captured => {
+    const join = (args: any[]): string =>
+        args.map(arg => String(arg)).join(' ');
+    const captured: Captured = {
+        info: [],
+        warn: [],
+        error: [],
+        logger: undefined,
+    };
+
+    captured.logger = {
+        log: () => undefined,
+        info: (...args: any[]) => captured.info.push(join(args)),
+        warn: (...args: any[]) => captured.warn.push(join(args)),
+        error: (...args: any[]) => captured.error.push(join(args)),
+    };
+
+    return captured;
+};
+
+const matching = (lines: string[], rx: RegExp): string[] =>
+    lines.filter(line => rx.test(line));
+
+describe('RedisQueue write failure logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('logs the first rejected write of an episode, without payload', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+        mock.method(rq.writer, 'lpush', (_k: any, _v: any, cb: any) => {
+            cb(new Error('WRONGTYPE against a key holding secret-payload'));
+
+            return 0;
+        });
+
+        const handled: Error[] = [];
+        const id = await rq.send(
+            'WriteTarget',
+            { pan: '4111111111111111' },
+            undefined,
+            (err: Error) => handled.push(err),
+        );
+        const lines = matching(cap.error, /write to queue/);
+
+        assert.equal(typeof id, 'string', 'the returned id must not change');
+        assert.equal(handled.length, 1, 'errorHandler must still be called');
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /WriteTarget/);
+        assert.match(lines[0], /LPUSH/);
+        assert.match(lines[0], /WRONGTYPE/);
+        assert.match(lines[0], new RegExp(id));
+        assert.equal(lines[0].includes('4111111111111111'), false);
+        assert.equal(lines[0].includes('secret-payload'), false);
+    });
+
+    it('keeps later failures silent until a write succeeds again', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        let fail = true;
+
+        mock.method(rq.writer, 'lpush', (_k: any, _v: any, cb: any) => {
+            cb(
+                fail
+                    ? Object.assign(new Error('nope'), { code: 'EPIPE' })
+                    : null,
+            );
+
+            return 0;
+        });
+
+        await rq.send('WriteTarget', { a: 1 });
+        await rq.send('WriteTarget', { a: 2 });
+        await rq.send('WriteTarget', { a: 3 });
+
+        assert.equal(matching(cap.error, /write to queue/).length, 1);
+        assert.equal(matching(cap.info, /writes resumed/).length, 0);
+
+        fail = false;
+        await rq.send('WriteTarget', { a: 4 });
+
+        const resumed = matching(cap.info, /writes resumed/);
+
+        assert.equal(resumed.length, 1);
+        assert.match(resumed[0], /after 3 rejected writes/);
+
+        fail = true;
+        await rq.send('WriteTarget', { a: 5 });
+
+        assert.equal(
+            matching(cap.error, /write to queue/).length,
+            2,
+            'a failure after the recovery opens a new episode',
+        );
+    });
+
+    it('counts one rejection once when callback and promise both fire', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        const failure = Object.assign(new Error('nope'), { code: 'EPIPE' });
+
+        mock.method(rq.writer, 'lpush', (_k: any, _v: any, cb: any) => {
+            cb(failure);
+
+            return Promise.reject(failure);
+        });
+
+        const handled: Error[] = [];
+
+        await rq.send('WriteTarget', { a: 1 }, undefined, (err: Error) =>
+            handled.push(err),
+        );
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.equal(
+            matching(cap.error, /write to queue/).length,
+            1,
+            'one logical failure must open the episode once',
+        );
+        assert.equal(
+            handled.length,
+            2,
+            'errorHandler keeps being invoked per delivery, as it always was',
+        );
+
+        mock.method(rq.writer, 'lpush', (_k: any, _v: any, cb: any) => {
+            cb(null);
+
+            return 0;
+        });
+
+        await rq.send('WriteTarget', { a: 2 });
+
+        const resumed = matching(cap.info, /writes resumed/);
+
+        assert.equal(resumed.length, 1);
+        assert.match(
+            resumed[0],
+            /after 1 rejected writes/,
+            'the double delivery must count as one rejected write',
+        );
+    });
+
+    it('does not resume a delayed-write episode until SET succeeds', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        let failSet = true;
+
+        mock.method(rq.writer, 'zadd', (...args: any[]) => {
+            args[args.length - 1](null);
+
+            return 0;
+        });
+        mock.method(rq.writer, 'set', (...args: any[]) => {
+            args[args.length - 1](
+                failSet
+                    ? Object.assign(new Error('nope'), { code: 'EPIPE' })
+                    : null,
+            );
+
+            return Promise.resolve();
+        });
+
+        await rq.send('DelayTarget', { a: 1 }, 1000);
+
+        assert.equal(
+            matching(cap.info, /writes resumed/).length,
+            0,
+            'a successful ZADD alone must not close the episode',
+        );
+        assert.equal(matching(cap.error, /write to queue/).length, 1);
+
+        failSet = false;
+        await rq.send('DelayTarget', { a: 2 }, 1000);
+
+        assert.equal(matching(cap.info, /writes resumed/).length, 1);
+    });
+
+    it('reopens the episode even when the recovery logger throws', async t => {
+        const errors: string[] = [];
+        const broken: any = {
+            log: () => {},
+            info: (...args: any[]) => {
+                if (/writes resumed/.test(args.join(' '))) {
+                    throw new Error('logger is broken');
+                }
+            },
+            warn: () => {},
+            error: (...args: any[]) => errors.push(args.join(' ')),
+        };
+        const rq: any = new RedisQueue(uuid(), { logger: broken });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        let fail = true;
+
+        mock.method(rq.writer, 'lpush', (_k: any, _v: any, cb: any) => {
+            cb(
+                fail
+                    ? Object.assign(new Error('nope'), { code: 'EPIPE' })
+                    : null,
+            );
+
+            return 0;
+        });
+
+        await rq.send('WriteTarget', { a: 1 });
+
+        fail = false;
+        // the recovery line is swallowed by the throwing logger, but the
+        // episode counter was reset before the logger was touched
+        await rq.send('WriteTarget', { a: 2 });
+
+        fail = true;
+        await rq.send('WriteTarget', { a: 3 });
+
+        assert.equal(
+            errors.filter(one => /write to queue/.test(one)).length,
+            2,
+            'a broken recovery logger must not keep the episode open',
+        );
+    });
+
+    it('logs a rejected delayed write with the failing operation', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+        mock.method(rq.writer, 'zadd', (...args: any[]) => {
+            args[args.length - 1](new Error('OOM command not allowed'));
+
+            return false;
+        });
+
+        await rq.send('DelayTarget', { a: 1 }, 1000);
+
+        const lines = matching(cap.error, /write to queue/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /ZADD/);
+        assert.match(lines[0], /OOM/);
+    });
+});
+
+describe('RedisQueue safe reading interruption logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('warns when safe reading ends on an unexpected failure', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), {
+            logger: cap.logger,
+            safeDelivery: true,
+            safeDeliveryTtl: 60000,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+        mock.method(rq.reader, 'blmove', () =>
+            Promise.reject(Object.assign(new Error('nope'), { code: 'EPIPE' })),
+        );
+
+        await rq.readSafe();
+
+        const lines = matching(cap.warn, /safe reading of queue/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /EPIPE/);
+        assert.equal(lines[0].includes('nope'), false);
+    });
+
+    it('neither rejects nor stays quiet on an error whose message throws', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), {
+            logger: cap.logger,
+            safeDelivery: true,
+            safeDeliveryTtl: 60000,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        const evil = new Error('boom');
+
+        Object.defineProperty(evil, 'message', {
+            get() {
+                throw new Error('not your business');
+            },
+        });
+        mock.method(rq.reader, 'blmove', () => Promise.reject(evil));
+
+        await assert.doesNotReject(rq.readSafe());
+        assert.equal(matching(cap.warn, /safe reading of queue/).length, 1);
+    });
+
+    it('stays quiet when the reader connection was closed on purpose', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), {
+            logger: cap.logger,
+            safeDelivery: true,
+            safeDeliveryTtl: 60000,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+        mock.method(rq.reader, 'blmove', () =>
+            Promise.reject(new Error('Stream connection ended')),
+        );
+
+        await rq.readSafe();
+
+        assert.equal(matching(cap.warn, /safe reading of queue/).length, 0);
+    });
+
+    it('stays quiet when the reader is gone, as after stop()', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), {
+            logger: cap.logger,
+            safeDelivery: true,
+            safeDeliveryTtl: 60000,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+        mock.method(rq.reader, 'blmove', () => {
+            delete rq.reader;
+
+            return Promise.reject(new Error('read failed'));
+        });
+
+        await rq.readSafe();
+
+        assert.equal(matching(cap.warn, /safe reading of queue/).length, 0);
+    });
+
+    it('warns with queue and code when a worker key is not deleted', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), {
+            logger: cap.logger,
+            safeDelivery: true,
+            safeDeliveryTtl: 60000,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        let popped = 0;
+
+        mock.method(rq.reader, 'blmove', () => {
+            if (popped++) {
+                delete rq.reader;
+
+                return Promise.resolve(null);
+            }
+
+            return Promise.resolve(
+                pack({ id: uuid(), message: { a: 1 }, from: 'Sender' }),
+            );
+        });
+        mock.method(rq.writer, 'del', () =>
+            Promise.reject(new Error('WRONGTYPE nope')),
+        );
+
+        await rq.readSafe();
+        await tick();
+
+        const lines = matching(cap.warn, /OnReadSafe: del error/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /WRONGTYPE/);
+        assert.equal(/worker/.test(lines[0]), false);
+    });
+});
+
+describe('RedisQueue watcher check logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('warns when the watcher existence check itself fails', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+        mock.method(rq, 'watcherCount', () =>
+            Promise.reject(new Error('LOADING redis is loading')),
+        );
+
+        await rq.runWatcherCheck();
+        await rq.runWatcherCheck();
+
+        const lines = matching(cap.warn, /watcher check failed/);
+
+        // one line per tick: the pace is bounded by watcherCheckDelay
+        assert.equal(lines.length, 2);
+        assert.match(lines[0], /LOADING/);
+        assert.equal(rq.watcherCheckBusy, false);
+    });
+
+    it('does not duplicate the line watcher initialization writes itself', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+        // the real initWatcher() runs and fails inside, so its own
+        // unconditional line is the one under test here
+        mock.method(rq, 'watcherCount', () => Promise.resolve(0));
+        mock.method(rq, 'lock', () =>
+            Promise.reject(new Error('LOADING redis is loading')),
+        );
+
+        await rq.runWatcherCheck();
+
+        assert.equal(
+            matching(cap.error, /error initializing watcher/).length,
+            1,
+            'watcher initialization must keep reporting its own failure',
+        );
+        assert.equal(matching(cap.warn, /watcher check failed/).length, 0);
+    });
+});
+
+describe('RedisQueue subscription lifecycle logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('reports a subscription and its restoration unconditionally', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        t.after(() => rq.destroy().catch(() => undefined));
+
+        await rq.subscribe('FlowEvents', () => undefined);
+
+        assert.equal(
+            matching(cap.info, /subscribed to channel FlowEvents/).length,
+            1,
+        );
+
+        await rq.restoreSubscription();
+
+        assert.equal(
+            matching(cap.info, /restored subscription to channel FlowEvents/)
+                .length,
+            1,
+        );
+    });
+
+    it('warns on every failed reconnection attempt', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), { logger: cap.logger });
+
+        t.after(() => rq.destroy().catch(() => undefined));
+        mock.method(rq, 'connect', () =>
+            Promise.reject(
+                Object.assign(new Error('down'), {
+                    code: 'ECONNREFUSED',
+                }),
+            ),
+        );
+        mock.method(rq, 'scheduleReconnect', () => undefined);
+
+        await rq.reconnectNow('reader');
+        await rq.reconnectNow('reader');
+
+        const lines = matching(cap.warn, /reconnect of the reader channel/);
+
+        // one line per attempt: the retry pace itself is bounded by the
+        // reconnection backoff, so no aggregation is applied here
+        assert.equal(lines.length, 2);
+        assert.match(lines[0], /ECONNREFUSED/);
+    });
+});
+
+describe('RedisQueue maintenance shutdown logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('warns before disabling safe-delivery maintenance for good', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(uuid(), {
+            logger: cap.logger,
+            host: '127.0.0.99',
+            port: 6399,
+            safeDelivery: true,
+            cleanup: true,
+        });
+
+        t.after(() => rq.destroy().catch(() => undefined));
+
+        await rq.runSafeCheck();
+
+        const lines = matching(cap.warn, /safe delivery maintenance stopped/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /safeDelivery true/);
+        assert.match(lines[0], /cleanup true/);
+    });
+});
+
+describe('RedisQueue duplicate-cause logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('aggregates expired-lease requeues by queue for one pass', async t => {
+        const cap = capturing();
+        const name = uuid();
+        const rq: any = new RedisQueue(name, {
+            logger: cap.logger,
+            safeDelivery: true,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        const expired = (queue: string, worker: string) =>
+            `imq:${queue}:worker:${worker}:${Date.now() - 60000}`;
+        const first = expired(name, 'abc-lease');
+        const second = expired(name, 'def-lease');
+        const other = expired('OtherQueue', 'ghi-lease');
+
+        QS()[first] = ['SECRET-MESSAGE-BODY'];
+        QS()[second] = ['SECRET-MESSAGE-BODY-TOO'];
+        QS()[other] = ['SECRET-MESSAGE-BODY-THREE'];
+
+        await rq.processKeys([first, second, other], Date.now());
+
+        const lines = matching(cap.warn, /re-queued/);
+
+        // one line per destination queue for the whole pass, with a count
+        assert.equal(lines.length, 2);
+
+        const own = lines.find(one => one.includes(`queue ${name}`));
+        const foreign = lines.find(one => one.includes('queue OtherQueue'));
+
+        assert.match(own || '', /re-queued 2 messages/);
+        assert.match(foreign || '', /re-queued 1 messages/);
+
+        for (const line of lines) {
+            assert.equal(line.includes('SECRET-MESSAGE-BODY'), false);
+            assert.equal(line.includes('-lease'), false);
+            assert.equal(line.includes(':worker:'), false);
+            assert.equal(line.includes('imq:'), false);
+        }
+    });
+
+    it('still reports requeues done before a move of the pass throws', async t => {
+        const cap = capturing();
+        const name = uuid();
+        const rq: any = new RedisQueue(name, {
+            logger: cap.logger,
+            safeDelivery: true,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        const expired = (worker: string) =>
+            `imq:${name}:worker:${worker}:${Date.now() - 60000}`;
+        const first = expired('abc');
+        const second = expired('def');
+
+        QS()[first] = ['MSG'];
+
+        let calls = 0;
+
+        mock.method(rq.writer, 'lmove', (key: string) => {
+            if (++calls === 2) {
+                return Promise.reject(new Error('LOADING redis is loading'));
+            }
+
+            return Promise.resolve(QS()[key]?.pop() || null);
+        });
+
+        await assert.rejects(
+            rq.processKeys([first, second], Date.now()),
+            /LOADING/,
+            'the exception must keep escaping exactly as before',
+        );
+
+        const lines = matching(cap.warn, /re-queued/);
+
+        assert.equal(
+            lines.length,
+            1,
+            'the requeue which did happen must stay reported',
+        );
+        assert.match(lines[0], /re-queued 1 messages/);
+    });
+
+    it('says unknown instead of leaking a prefix which carries a colon', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue('LeaseColon', {
+            logger: cap.logger,
+            prefix: 'tenant:prod',
+            safeDelivery: true,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        // with such a prefix the two-segment arithmetic reconstructs the
+        // move target as the bare prefix, so the exact-prefix strip fails
+        const expired = `tenant:prod:LeaseColon:worker:abc:${
+            Date.now() - 60000
+        }`;
+
+        QS()[expired] = ['MSG'];
+
+        await rq.processKeys([expired], Date.now());
+
+        const lines = matching(cap.warn, /re-queued/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /to queue unknown/);
+        assert.equal(lines[0].includes('tenant:prod'), false);
+    });
+
+    it('stays quiet when nothing was re-queued', async t => {
+        const cap = capturing();
+        const name = uuid();
+        const rq: any = new RedisQueue(name, {
+            logger: cap.logger,
+            safeDelivery: true,
+        });
+
+        await rq.start();
+        t.after(() => rq.destroy(true).catch(() => undefined));
+
+        const fresh = `imq:${name}:worker:abc:${Date.now() + 60000}`;
+
+        QS()[fresh] = ['MSG'];
+
+        await rq.processKeys([fresh], Date.now());
+
+        assert.equal(matching(cap.warn, /re-queued/).length, 0);
+    });
+});
+
+describe('RedisQueue cleanup deletion logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('warns with counts only when keys were really removed', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(
+            'CleanLogged',
+            { logger: cap.logger, cleanup: true, cleanupFilter: '*' },
+            IMQMode.PUBLISHER,
+        );
+
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+
+        const client = 'imq:GoneLogged:writer:pid:1:host:h';
+
+        QS()['imq:GoneLogged'] = ['pending'];
+        CL()[client] = true;
+        mock.method(rq.writer, 'scan', async () => ['0', ['imq:GoneLogged']]);
+
+        await rq.processCleanup();
+
+        assert.equal(matching(cap.warn, /cleanup removed/).length, 0);
+
+        delete CL()[client];
+
+        await rq.processCleanup();
+
+        assert.equal(matching(cap.warn, /cleanup removed/).length, 0);
+
+        await rq.processCleanup();
+
+        const lines = matching(cap.warn, /cleanup removed/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /removed 1 of 1 candidate keys/);
+        assert.equal(lines[0].includes('GoneLogged'), false);
+    });
+});
+
+describe('RedisQueue publish visibility', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('warns once when redis reports no subscribers', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(
+            'PubNoSubs',
+            { logger: cap.logger },
+            IMQMode.PUBLISHER,
+        );
+
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+        mock.method(rq.writer, 'publish', () => 0);
+
+        await rq.publish({ ssn: '000-00-0000' });
+        await rq.publish({ ssn: '000-00-0000' });
+
+        const lines = matching(cap.warn, /no subscribers/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /PubNoSubs/);
+        assert.equal(lines[0].includes('000-00-0000'), false);
+    });
+
+    it('keeps the state of every channel apart', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(
+            'PubTwoChannels',
+            { logger: cap.logger },
+            IMQMode.PUBLISHER,
+        );
+
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+        mock.method(rq.writer, 'publish', () => 0);
+
+        await rq.publish({ a: 1 }, 'ChannelA');
+        await rq.publish({ a: 1 }, 'ChannelB');
+        await rq.publish({ a: 1 }, 'ChannelA');
+        await rq.publish({ a: 1 }, 'ChannelB');
+
+        assert.equal(matching(cap.warn, /no subscribers/).length, 2);
+    });
+
+    it('keeps the transition state bounded, reporting the rest every time', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(
+            'PubBounded',
+            { logger: cap.logger },
+            IMQMode.PUBLISHER,
+        );
+
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+        mock.method(rq.writer, 'publish', () => 0);
+
+        for (let i = 0; i < 130; i++) {
+            await rq.publish({ a: 1 }, `Channel-${i}`);
+        }
+
+        assert.equal(
+            rq.noSubscribers.size,
+            128,
+            'channel names above the bound must not be remembered',
+        );
+
+        const before = matching(cap.warn, /no subscribers/).length;
+
+        // a channel above the bound is not remembered, so its publishes
+        // keep being reported - the price of a memory-bounded set
+        await rq.publish({ a: 1 }, 'Channel-129');
+        await rq.publish({ a: 1 }, 'Channel-129');
+
+        assert.equal(matching(cap.warn, /no subscribers/).length, before + 2);
+    });
+
+    it('stays quiet when the reply is not a number', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(
+            'PubNoNumber',
+            { logger: cap.logger },
+            IMQMode.PUBLISHER,
+        );
+
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+        mock.method(rq.writer, 'publish', () => undefined);
+
+        await rq.publish({ a: 1 });
+
+        assert.equal(matching(cap.warn, /no subscribers/).length, 0);
+    });
+
+    it('does not reject when the reply resists being read', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(
+            'PubEvilReply',
+            { logger: cap.logger },
+            IMQMode.PUBLISHER,
+        );
+
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+        mock.method(rq.writer, 'publish', () => ({
+            [Symbol.toPrimitive]() {
+                throw new Error('not your business');
+            },
+        }));
+
+        await assert.doesNotReject(rq.publish({ a: 1 }));
+        assert.equal(matching(cap.warn, /no subscribers/).length, 0);
+    });
+
+    it('stays quiet while redis reports subscribers', async t => {
+        const cap = capturing();
+        const rq: any = new RedisQueue(
+            'PubWithSubs',
+            { logger: cap.logger },
+            IMQMode.PUBLISHER,
+        );
+
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+
+        await rq.publish({ a: 1 });
+
+        assert.equal(matching(cap.warn, /no subscribers/).length, 0);
     });
 });

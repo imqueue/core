@@ -3,9 +3,13 @@
 Notable changes to `@imqueue/core`. Entries start with the first release whose
 behavior changes needed a written record; earlier history is in the git log.
 
+A released version absent from this file changed no behavior — it was a
+documentation, CI or packaging-only release. Every release that changed what the
+queue does has an entry.
+
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.0] - 2026-08-20
 
 ### Added
 
@@ -76,6 +80,49 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `E`. When `CONFIG` is unavailable (e.g. AWS ElastiCache) the read fails and
   the configuration is left untouched — enable `notify-keyspace-events` out of
   band there, as before.
+
+## [3.3.0] - 2026-07-28
+
+### Fixed
+
+- **One transient sweep failure permanently disabled safe-delivery lease
+  recovery and the cleanup sweep.** `processWatch()` cleared `safeCheckInterval`
+  in its catch block, while `watch()` re-arms that interval only once per
+  watcher connection, guarded by a `__ready__` flag the teardown did not reset.
+  A single network blip, `CLUSTERDOWN` or slow failover therefore disabled both
+  for that connection's whole lifetime.
+
+  Nothing looked broken when it happened: the queue kept accepting and
+  delivering messages, and only messages abandoned by dead workers quietly
+  stopped coming back. Recovery needed the watcher connection replaced, or
+  another instance winning the lock.
+
+  A failed sweep now abandons only that sweep, and the next tick retries. The
+  legitimate teardowns are unchanged — `runSafeCheck()` still clears the
+  interval when the writer is gone, and `destroy()` clears it on shutdown.
+
+- **The `./debug` export subpath could never resolve.** It pointed at
+  `./debug.d.ts` and `./debug.js`, neither of which exists in the repository or
+  in any published tarball, and nothing in core, rpc or the website imports it.
+  Removed. Not a breaking change: resolving it failed before with
+  `MODULE_NOT_FOUND` and fails now with `ERR_PACKAGE_PATH_NOT_EXPORTED`, so
+  nothing that worked stops working — only the error code differs.
+
+### Deprecated
+
+- **`IMessage.delay` and `IMQOptions.verboseExtended` are inert, and now say
+  so.** `send()` builds the wire packet as `{ id, message, from }` and
+  `process()` reads back the same three, so `IMessage.delay` is never written
+  and never read — a delay lives in the delayed sorted set, not in the envelope.
+  Nothing anywhere reads `IMQOptions.verboseExtended`, so setting it produces no
+  extra output at all, though the published reference claimed it enabled
+  extended verbose logging.
+
+  Deprecated rather than removed because removal is type-level breaking, and
+  inconsistently so: an inline object literal at the call site would stop
+  compiling while the same option in an inferred config variable would not, so
+  two users with identical intent would get different outcomes from one update.
+  Both go in the next major.
 
 ## [3.2.4] - 2026-07-26
 

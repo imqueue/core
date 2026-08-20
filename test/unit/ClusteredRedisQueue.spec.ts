@@ -748,3 +748,196 @@ describe('ClusteredRedisQueue fan-out helpers', () => {
         await cq.destroy();
     });
 });
+
+/** Logger which keeps every line it was given, per level */
+const capturing = (): any => {
+    const join = (args: any[]): string =>
+        args.map(arg => String(arg)).join(' ');
+    const captured: any = { info: [], warn: [], error: [] };
+
+    captured.logger = {
+        log: () => undefined,
+        info: (...args: any[]) => captured.info.push(join(args)),
+        warn: (...args: any[]) => captured.warn.push(join(args)),
+        error: (...args: any[]) => captured.error.push(join(args)),
+    };
+
+    return captured;
+};
+
+const matching = (lines: string[], rx: RegExp): string[] =>
+    lines.filter(line => rx.test(line));
+
+const unavailable = (imq: any, available: boolean): void => {
+    Object.defineProperty(imq, 'available', {
+        configurable: true,
+        get: () => available,
+    });
+};
+
+describe('ClusteredRedisQueue instance selection logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('warns on entering the state where no instance is available', async () => {
+        const cap = capturing();
+        const cq: any = new ClusteredRedisQueue('SelectNone', {
+            ...clusterConfig,
+            logger: cap.logger,
+        });
+
+        cq.imqs.forEach((imq: any) => unavailable(imq, false));
+
+        cq.selectQueue();
+        cq.selectQueue();
+
+        const lines = matching(cap.warn, /no available instance/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /out of 2/);
+
+        unavailable(cq.imqs[0], true);
+        cq.selectQueue();
+
+        assert.equal(matching(cap.warn, /no available instance/).length, 1);
+
+        unavailable(cq.imqs[0], false);
+        cq.selectQueue();
+
+        assert.equal(matching(cap.warn, /no available instance/).length, 2);
+
+        await cq.destroy();
+    });
+
+    it('stays quiet while an instance is available', async () => {
+        const cap = capturing();
+        const cq: any = new ClusteredRedisQueue('SelectOk', {
+            ...clusterConfig,
+            logger: cap.logger,
+        });
+
+        cq.selectQueue();
+        cq.selectQueue();
+
+        assert.equal(matching(cap.warn, /no available instance/).length, 0);
+
+        await cq.destroy();
+    });
+});
+
+describe('ClusteredRedisQueue publish visibility', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('reports an event published to an empty cluster once', async () => {
+        const cap = capturing();
+        const clusterManager = new (ClusterManager as any)();
+        const cq: any = new ClusteredRedisQueue('PubEmpty', {
+            clusterManagers: [clusterManager],
+            logger: cap.logger,
+        });
+
+        await cq.publish({ ssn: '000-00-0000' }, 'FlowEvents');
+        await cq.publish({ ssn: '000-00-0000' }, 'FlowEvents');
+
+        const lines = matching(cap.error, /nothing published/);
+
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /FlowEvents/);
+        assert.match(lines[0], /knownServers=0/);
+        assert.equal(lines[0].includes('000-00-0000'), false);
+
+        await cq.destroy();
+    });
+
+    it('stays quiet when the cluster has servers to publish to', async () => {
+        const cap = capturing();
+        const cq: any = new ClusteredRedisQueue('PubServers', {
+            ...clusterConfig,
+            logger: cap.logger,
+        });
+
+        mock.method(
+            RedisQueue.prototype as any,
+            'publish',
+            async () => undefined,
+        );
+
+        await cq.publish({ a: 1 });
+
+        assert.equal(matching(cap.error, /nothing published/).length, 0);
+
+        await cq.destroy();
+    });
+});
+
+describe('ClusteredRedisQueue joining-server failure logging', () => {
+    afterEach(() => mock.restoreAll());
+
+    it('names the host and the phase when a joining server cannot start', async () => {
+        const cap = capturing();
+        const cq: any = new ClusteredRedisQueue('JoinStartFail', {
+            ...clusterConfig,
+            logger: cap.logger,
+        });
+        const boom = Object.assign(new Error('host is down'), {
+            code: 'ECONNREFUSED',
+        });
+
+        cq.state.started = true;
+
+        let thrown: any;
+
+        try {
+            await cq.initializeQueue({
+                redisKey: '127.0.0.1:9999',
+                start: () => Promise.reject(boom),
+            });
+        } catch (err) {
+            thrown = err;
+        }
+
+        const lines = matching(cap.error, /failed to start/);
+
+        assert.equal(thrown, boom, 'the same value must be re-thrown');
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /127\.0\.0\.1:9999/);
+        assert.match(lines[0], /ECONNREFUSED/);
+        assert.equal(lines[0].includes('host is down'), false);
+
+        await cq.destroy();
+    });
+
+    it('names the channel when a joining server cannot subscribe', async () => {
+        const cap = capturing();
+        const cq: any = new ClusteredRedisQueue('JoinSubFail', {
+            ...clusterConfig,
+            logger: cap.logger,
+        });
+        const boom = new Error('NOPERM no permissions');
+
+        cq.state.started = false;
+        cq.state.subscription = {
+            channel: 'FlowEvents',
+            handler: () => undefined,
+        };
+
+        let thrown: any;
+
+        try {
+            await cq.initializeQueue({
+                redisKey: '127.0.0.1:9999',
+                subscribe: () => Promise.reject(boom),
+            });
+        } catch (err) {
+            thrown = err;
+        }
+
+        const lines = matching(cap.error, /failed to subscribe/);
+
+        assert.equal(thrown, boom, 'the same value must be re-thrown');
+        assert.equal(lines.length, 1);
+        assert.match(lines[0], /FlowEvents/);
+        assert.match(lines[0], /NOPERM/);
+
+        await cq.destroy();
+    });
+});

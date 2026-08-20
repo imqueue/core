@@ -29,3 +29,4 @@ export * from './unpack.js';
 export * from './escapeRegExp.js';
 export * from './copyEventEmitter.js';
 export * from './envInt.js';
+export * from './logging.js';

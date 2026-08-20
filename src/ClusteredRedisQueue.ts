@@ -23,7 +23,7 @@
  */
 import { EventEmitter } from 'node:events';
 import { type InitializedCluster } from './ClusterManager.js';
-import { buildOptions, copyEventEmitter } from './helpers/index.js';
+import { buildOptions, copyEventEmitter, errorCode } from './helpers/index.js';
 import {
     DEFAULT_IMQ_OPTIONS,
     type EventMap,
@@ -136,6 +136,18 @@ export class ClusteredRedisQueue
      * Total length of RedisQueue instances
      */
     private imqLength: number = 0;
+
+    /**
+     * True while round-robin has no available instance left to pick, so that
+     * the condition is reported on entry only and not on every send
+     */
+    private noneAvailable: boolean = false;
+
+    /**
+     * True while a publish had no server to publish to, so that the condition
+     * is reported on entry only and not on every publish
+     */
+    private noPublishTargets: boolean = false;
 
     /**
      * Template EventEmitter instance used to replicate queue EventEmitters when
@@ -332,9 +344,23 @@ export class ClusteredRedisQueue
 
             if (candidate.available) {
                 this.currentQueue = index + 1;
+                this.noneAvailable = false;
 
                 return candidate;
             }
+        }
+
+        // every instance reports its connection as not ready, so the message
+        // goes to a host known to be down. Reported on entering the state
+        // only, and the flag is cleared by the first successful pick above,
+        // so a second outage after a recovery is visible again
+        if (!this.noneAvailable) {
+            this.noneAvailable = true;
+            this.logLine(
+                'warn',
+                `no available instance out of ${count}, sending to an ` +
+                    'instance which is known to be down',
+            );
         }
 
         this.currentQueue = start + 1;
@@ -452,6 +478,29 @@ export class ClusteredRedisQueue
             this.logger.info(
                 `[IMQ-CORE][ClusteredRedisQueue][${this.name}]: ${message}`,
             );
+        }
+    }
+
+    /**
+     * Writes an unconditional line through this cluster's logger, in the
+     * format `verbose()` uses.
+     *
+     * @param level - logger method to write the line with
+     * @param message - the line, which must never carry message payload,
+     *        call arguments, raw redis keys or an error text
+     *
+     * @remarks
+     * Never throws: a broken logger must not be able to change what the
+     * cluster does. Every call site of this reports a state transition or a
+     * lifecycle event, so no rate limiting is needed.
+     */
+    private logLine(level: 'info' | 'warn' | 'error', message: string): void {
+        try {
+            this.logger[level](
+                `[IMQ-CORE][ClusteredRedisQueue][${this.name}]: ${message}`,
+            );
+        } catch {
+            // a failing logger must never influence cluster behaviour
         }
     }
 
@@ -751,14 +800,32 @@ export class ClusteredRedisQueue
      *
      * Publication is not atomic — if any host has no writer connection the call
      * rejects even though other hosts may already have published. On an empty
-     * cluster it resolves without publishing anything, and unlike `send()` it does
-     * not wait for a server to appear.
+     * cluster it resolves without publishing anything — reporting that through
+     * the logger on entering the state — and unlike `send()` it does not wait
+     * for a server to appear.
      */
     public async publish(data: JsonObject, toName?: string): Promise<void> {
         const promises: Array<Promise<void>> = [];
 
         for (const imq of this.imqs) {
             promises.push(imq.publish(data, toName));
+        }
+
+        // an empty cluster resolves an empty Promise.all, so the caller is
+        // told the event went out while nothing was published at all.
+        // Reported on entering the state only
+        if (!promises.length) {
+            if (!this.noPublishTargets) {
+                this.noPublishTargets = true;
+                this.logLine(
+                    'error',
+                    `nothing published to channel ${
+                        toName || this.name
+                    }: knownServers=0`,
+                );
+            }
+        } else {
+            this.noPublishTargets = false;
         }
 
         await Promise.all(promises);
@@ -938,15 +1005,43 @@ export class ClusteredRedisQueue
             `Initializing queue with state: ${JSON.stringify(this.state)}`,
         );
 
+        // both failures are reported here, inside the function, and the
+        // value is re-thrown as it was: the caller starts this without
+        // awaiting it, so a new .catch() would either swallow the failure or
+        // add a second unhandled rejection
         if (this.state.started) {
-            await imq.start();
+            try {
+                await imq.start();
+            } catch (err) {
+                this.logLine(
+                    'error',
+                    `server ${imq.redisKey} failed to start, code ${errorCode(
+                        err,
+                    )}: the node is not ready to serve queues`,
+                );
+
+                throw err;
+            }
         }
 
         if (this.state.subscription) {
-            await imq.subscribe(
-                this.state.subscription.channel,
-                this.state.subscription.handler,
-            );
+            try {
+                await imq.subscribe(
+                    this.state.subscription.channel,
+                    this.state.subscription.handler,
+                );
+            } catch (err) {
+                this.logLine(
+                    'error',
+                    `server ${imq.redisKey} failed to subscribe to channel ${
+                        this.state.subscription.channel
+                    }, code ${errorCode(
+                        err,
+                    )}: events from this node will never arrive`,
+                );
+
+                throw err;
+            }
         }
     }
 

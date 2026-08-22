@@ -1,6 +1,8 @@
 # I Message Queue (@imqueue/core)
 
-[![License](https://img.shields.io/badge/license-GPL-blue.svg)](https://rawgit.com/imqueue/core/master/LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/imqueue/core/build.yml)](https://github.com/imqueue/core/actions/workflows/build.yml)
+[![npm version](https://img.shields.io/npm/v/@imqueue/core)](https://www.npmjs.com/package/@imqueue/core)
+[![License](https://img.shields.io/badge/license-GPL-blue.svg)](https://github.com/imqueue/core/blob/master/LICENSE)
 
 Simple JSON-based messaging queue for inter-service communication in Node.js &
 TypeScript back-ends — the Redis-backed transport that powers the @imqueue
@@ -11,7 +13,9 @@ framework. Fast, poll-free delivery with optional guaranteed mode.
 closed-source products at [imqueue.com](https://imqueue.com/).
 
 **Using an AI assistant?** Point it at [imqueue.org/llms.txt](https://imqueue.org/llms.txt)
-for a machine-readable index of the docs, or see [AGENTS.md](./AGENTS.md).
+for a machine-readable index of the docs, or see [AGENTS.md](./AGENTS.md). Current
+version, licence and Node floor for every package:
+[imqueue.org/status.json](https://imqueue.org/status.json).
 
 **Related packages:**
 

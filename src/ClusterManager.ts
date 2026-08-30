@@ -82,6 +82,11 @@ export abstract class ClusterManager {
      */
     protected clusters: InitializedCluster[] = [];
 
+    /**
+     * Protected so that a manager is only ever obtained through a subclass —
+     * this base class holds the registry but implements no transport of its
+     * own.
+     */
     protected constructor() {}
 
     /**

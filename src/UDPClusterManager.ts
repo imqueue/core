@@ -212,6 +212,13 @@ export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS: UDPClusterManagerOptions = {
  * announcement removes it immediately.
  */
 export class UDPClusterManager extends ClusterManager {
+    /**
+     * The broadcast worker thread per worker key.
+     *
+     * @remarks
+     * Shared process-wide: managers configured alike use one worker between
+     * them rather than each binding its own socket to the same port.
+     */
     private static workers: Record<string, Worker> = {};
 
     /** Number of manager instances sharing each worker (by worker key) */
@@ -233,9 +240,17 @@ export class UDPClusterManager extends ClusterManager {
      */
     private static intentionallyStopped: WeakSet<Worker> = new WeakSet();
 
+    /** This manager's effective options, defaults already applied */
     private readonly options: UDPClusterManagerOptions;
+    /**
+     * Key identifying the worker this manager shares, derived from every option
+     * that affects what the worker listens to — so managers differing in any of
+     * them get workers of their own.
+     */
     private workerKey!: string;
+    /** The worker thread this manager is attached to */
     private worker!: Worker;
+    /** Set by {@link UDPClusterManager.destroy}, to keep it idempotent */
     private destroyed: boolean = false;
 
     /**
@@ -328,6 +343,14 @@ export class UDPClusterManager extends ClusterManager {
         process.kill(process.pid, signal);
     }
 
+    /**
+     * Tears down every shared worker in this process, on the way out.
+     *
+     * @remarks
+     * Called from the process signal handlers, so it works across all managers
+     * rather than just one, and marks the process as shutting down first so a
+     * worker exiting is not mistaken for a crash and respawned.
+     */
     private static async free(): Promise<void> {
         UDPClusterManager.shuttingDown = true;
 
@@ -535,6 +558,18 @@ export class UDPClusterManager extends ClusterManager {
         await UDPClusterManager.destroyWorker(this.workerKey, this.worker);
     }
 
+    /**
+     * Terminates one shared worker and forgets it.
+     *
+     * @param workerKey - the key it is registered under
+     * @param worker - the worker itself; absent when it is already gone, in
+     *        which case this does nothing
+     *
+     * @remarks
+     * The worker is marked as intentionally stopped before termination, because
+     * `terminate()` makes the `exit` event fire with a non-zero code that would
+     * otherwise read as a crash and trigger a respawn.
+     */
     private static async destroyWorker(
         workerKey: string,
         worker?: Worker,

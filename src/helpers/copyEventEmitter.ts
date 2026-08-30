@@ -24,6 +24,27 @@
 import { EventEmitter } from 'node:events';
 import { inspect } from 'node:util';
 
+/**
+ * Re-attaches every listener registered on one emitter to another.
+ *
+ * @param source - emitter to copy listeners from; left untouched
+ * @param target - emitter to attach them to, in addition to whatever it already
+ *        has
+ *
+ * @remarks
+ * Used when a queue handle is replaced by another instance that must keep
+ * serving the original's listeners — the caller registered them on the object
+ * it was given, and has no way to know it was swapped.
+ *
+ * `once` listeners stay `once`. They are detected by inspecting the wrapper
+ * Node puts around them, and the wrapped listener is unwrapped through its
+ * `.listener` property before being re-registered, so a one-shot listener does
+ * not silently become permanent on the target.
+ *
+ * The max-listeners limit is carried across too, but only when the source has
+ * one set: reading it unconditionally would replace the target's default with
+ * Node's, which is the same number today and need not stay so.
+ */
 export function copyEventEmitter(
     source: EventEmitter & {
         _maxListeners?: number;

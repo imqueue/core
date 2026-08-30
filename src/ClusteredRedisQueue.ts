@@ -161,11 +161,25 @@ export class ClusteredRedisQueue
      */
     private readonly clusterEmitter: EventEmitter;
 
+    /**
+     * What has been done to this queue so far, so that a server joining later
+     * can be brought to the same point.
+     *
+     * @remarks
+     * Cluster membership changes at runtime, so a per-host queue may be created
+     * long after `start()` and `subscribe()` were called on the cluster. This
+     * records those calls; {@link ClusteredRedisQueue.initializeQueue} replays
+     * them onto each new queue.
+     */
     private state: ClusterState = {
         started: false,
         subscription: null,
     };
 
+    /**
+     * Handles for the cluster managers this queue is registered with, kept so
+     * that {@link ClusteredRedisQueue.destroy} can deregister from each.
+     */
     private initializedClusters: InitializedCluster[] = [];
 
     /**
@@ -473,6 +487,11 @@ export class ClusteredRedisQueue
         return lengths.reduce((total, length) => total + length, 0);
     }
 
+    /**
+     * Writes a diagnostic line, but only under {@link IMQOptions.verbose}.
+     *
+     * @param message - the line to write
+     */
     private verbose(message: string): void {
         if (this.options.verbose) {
             this.logger.info(
@@ -956,6 +975,17 @@ export class ClusteredRedisQueue
         });
     }
 
+    /**
+     * Adds a server to the cluster, optionally bringing its queue up to the
+     * cluster's current state.
+     *
+     * @param server - the server to add
+     * @param initializeQueue - whether to replay `start`/`subscribe` onto the
+     *        new queue. Passed `false` while the cluster is still being
+     *        constructed, when there is no state to replay yet
+     * @returns the server as registered, which is the existing entry when one
+     *          already matched
+     */
     private addServerWithQueueInitializing(
         server: ClusterServer,
         initializeQueue: boolean = true,
@@ -996,10 +1026,29 @@ export class ClusteredRedisQueue
         return newServer;
     }
 
+    /**
+     * Every emitter a listener registered on this cluster must reach.
+     *
+     * @returns the per-host queues plus the template emitter
+     *
+     * @remarks
+     * The template emitter is included so that listeners registered now are
+     * also carried onto queues created later, as servers join.
+     */
     private eventEmitters(): EventEmitter[] {
         return [...this.imqs, this.templateEmitter];
     }
 
+    /**
+     * Brings a newly created per-host queue up to the cluster's current state.
+     *
+     * @param imq - the queue to initialize
+     *
+     * @remarks
+     * Replays whatever {@link ClusteredRedisQueue.state} records, so a server
+     * that joins after the cluster started is started and subscribed too rather
+     * than sitting idle.
+     */
     private async initializeQueue(imq: RedisQueue): Promise<void> {
         this.verbose(
             `Initializing queue with state: ${JSON.stringify(this.state)}`,
@@ -1045,12 +1094,25 @@ export class ClusteredRedisQueue
         }
     }
 
+    /**
+     * Finds an already-registered server matching the given one.
+     *
+     * @param server - the server to look for
+     * @returns the registered entry, or `undefined` when it is new
+     */
     private findServer(server: IServerInput): ClusterServer | undefined {
         return this.servers.find(existing =>
             ClusteredRedisQueue.matchServers(existing, server),
         );
     }
 
+    /**
+     * Decides whether two server descriptions refer to the same server.
+     *
+     * @param source - one server description
+     * @param target - the other
+     * @returns whether they are the same server
+     */
     private static matchServers(
         source: IServerInput,
         target: IServerInput,

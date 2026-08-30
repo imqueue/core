@@ -113,6 +113,81 @@ import IMQ, { IMessageQueue, IJson } from '@imqueue/core';
 })();
 ```
 
+# Guaranteed delivery
+
+`safeDelivery` moves a message atomically out of the queue into a worker-owned
+key as it is popped, and keeps it there until the message has been handled. A
+worker that dies at any point before then — before it starts, or halfway through
+the handler — leaves the message behind to be re-queued rather than taking it
+down.
+
+**How a listener says it has finished is its return value.** Return a promise and
+the message stays checked out until it settles:
+
+```typescript
+const queue = IMQ.create('Orders', { safeDelivery: true });
+
+queue.on('message', async (message, id, fromQueue) => {
+    await handle(message);      // the message is checked out for all of this
+});
+```
+
+Return anything else and the message is released as the listener returns. Every
+registered listener is consulted, and the message is released once all the
+promises they returned have settled — settled, not fulfilled: a handler that
+throws has still had its turn, and re-delivering on a rejection would retry a
+poison message forever.
+
+That return value is also the lever for opting out. To have a message released
+at dispatch, as releases before 4.0 did, simply do not return its promise:
+
+```typescript
+queue.on('message', message => {
+    void handle(message);       // released immediately; a crash loses it
+});
+```
+
+`safeDeliveryTtl` is not that lever and never was — the key used to be deleted
+at dispatch, so no value of it bounded a dispatched message's lifetime then, and
+none bounds one now.
+
+| option | default | meaning |
+|---|---|---|
+| `safeDelivery` | `false` | move messages through a worker-owned key, held until handled |
+| `safeDeliveryTtl` | `300000` | the longest a message may be worked on |
+
+A message comes back on either of two counts, because there are two ways to lose
+one.
+
+The **process dying** is caught by the broker: the worker key names the process
+that took it, and the watcher reclaims the lease once that process leaves
+`CLIENT LIST`. That is a fact the broker holds rather than an inference from a
+clock, so it is noticed as fast as the socket closes, and nothing has to be
+renewed to keep a live lease alive. Workers riding out a reconnect get one sweep
+of grace, and if the client list cannot be read at all, leases are left to their
+budget rather than guessed at.
+
+**One handler wedging** is caught by `safeDeliveryTtl`, and only by it. A worker
+can be up, connected and happily serving other messages while one handler is
+stuck forever — liveness cannot see that, and restarting an otherwise healthy
+process is not a recovery strategy. Set the budget to the longest a handler in
+your system can legitimately take, with headroom: a slow upstream is the usual
+reason for a large value — a data vendor with no job API, screen-scraping behind
+an HTTP call, anything that can run for minutes. Set it too low and a message is
+reclaimed from a worker still legitimately working on it.
+
+Two internals deliberately do not scale with this value. The maintenance sweep
+runs on `watcherCheckDelay` (5 s by default), so a dead worker is still found
+within seconds however generous the budget — that, not `safeDeliveryTtl`, is the
+latency for a crashed worker's message coming back. And the reader's blocking
+pop is half the budget capped at 5 s, so a message is not born having already
+spent much of it.
+
+Delivery is **at-least-once** in every mode. Holding the lease narrows the window
+in which in-flight work is lost — it does not close it, and `SIGKILL` on the
+whole node, an OOM kill or a lost machine still take work with them — so handlers
+must be idempotent.
+
 # Benchmarking
 
 First, make sure redis-server is running on localhost. The current version of the

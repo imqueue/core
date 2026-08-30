@@ -9,6 +9,114 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`safeDelivery` lost a message when a worker died mid-handler.** It released
+  the message's worker key the instant the message was dispatched to the
+  `message` listener, so a worker killed while its handler was still running
+  took that message with it and nothing brought it back — the option guaranteed
+  the hand-off while its name and documentation promised guaranteed delivery.
+  The key is now held until the listener has finished with the message.
+
+  **A listener says it has finished by what it returns.** Return a promise and
+  the message stays checked out until it settles; return anything else and it is
+  released as the listener returns. Every registered listener is consulted, and
+  the message is released once all the promises they returned have settled —
+  settled, not fulfilled, because a handler that threw has still had its turn
+  and re-delivering on a rejection would retry a poison message forever.
+
+  Nothing needs changing to get this: a listener that already returns a promise
+  — as `@imqueue/rpc` and `@imqueue/job` both do — is covered as it stands, and
+  a synchronous listener behaves exactly as it did.
+
+  A message that cannot be unpacked releases its lease rather than coming back
+  on every sweep.
+
+- **A dead worker's message is recovered by asking the broker, not a clock.**
+  The worker key now carries the identity of the process that took it, and the
+  watcher reclaims it once that process has left `CLIENT LIST` — detected as
+  fast as the socket closes, and needing nothing renewed to keep a live lease
+  alive. Reconnecting workers get one sweep of grace, mirroring what the cleanup
+  pass already gave them, so a reconnect backoff does not cost a duplicate. If
+  the client list cannot be read at all, liveness is unknown and a lease is left
+  to its budget rather than guessed at.
+
+### Changed
+
+- **`safeDeliveryTtl` is now the longest a message may be worked on**, and its
+  default moves from `5000` to `300000`. It used to be a hand-off recovery
+  deadline, which meant it bounded nothing that mattered: the key was deleted at
+  dispatch, so it never covered processing at all. It now bounds processing,
+  which is the only thing that recovers a message from a worker that is alive,
+  connected and serving other messages while one handler has wedged on this one.
+  Liveness cannot see that case, and restarting an otherwise healthy process is
+  not a recovery strategy.
+
+  Set it to the longest a handler in this system can legitimately take, with
+  headroom — a slow upstream is the usual reason for a large value, such as a
+  data vendor with no job API or screen-scraping behind an HTTP call. Too low
+  and a message is reclaimed from a worker still legitimately working on it.
+
+  The default rose because the meaning changed: 5000 was a sane hand-off
+  deadline and is a poor processing budget.
+
+- **The maintenance sweep now runs on `watcherCheckDelay`** (5000 ms by
+  default) rather than on `safeDeliveryTtl`. How long a message may be worked on
+  and how often the watcher looks for abandoned ones are different questions,
+  and tying them would make a crashed worker's message wait out a budget meant
+  for a live one. `watcherCheckDelay` is therefore the worst-case latency for a
+  crashed worker's message coming back; with the watcher check disabled the
+  sweep falls back to `safeDeliveryTtl`.
+
+- **The reader's blocking pop is half `safeDeliveryTtl` capped at 5000 ms.** A
+  lease deadline is stamped before the pop that fills the key, so an uncapped
+  wait would hand a message a sizeable part of its budget already spent. At the
+  old defaults both of these resolve to exactly what they were.
+
+- No option was added or removed.
+
+### Keeping the old behaviour
+
+Release-at-dispatch is still available per listener, and exactly: **do not
+return the handler's promise.**
+
+```typescript
+// held until the handler finishes — the fix
+queue.on('message', async message => { await handle(message); });
+
+// released at dispatch, bit-for-bit the old behaviour
+queue.on('message', message => { void handle(message); });
+```
+
+Note that `safeDeliveryTtl` is not the lever for this. It never bounded a
+dispatched message's lifetime before — the key was already deleted — and it does
+not bound one now, so no value of it reproduces the old behaviour.
+
+### Notes for upgrading
+
+- A synchronous listener needs no change.
+- A listener returning a promise now holds its message for the life of that
+  promise, bounded by `safeDeliveryTtl`. Check that budget is above your slowest
+  handler, since the default of five minutes is a guess about your workload and
+  nothing else.
+- Messages that used to vanish when a worker died now come back, so a handler
+  that was quietly getting away with not being idempotent will start seeing
+  repeats. Delivery was documented as at-least-once throughout; this makes the
+  implementation match.
+- Worker keys written by 3.x carry no owner and are still honoured by their
+  deadline, so a rolling upgrade does not strand them. New keys put the owner
+  *before* the deadline, so a 3.x watcher still reads the queue off the front
+  and a number off the end rather than parsing garbage. While a 3.x watcher is
+  the elected one it will still reclaim 4.x leases on that deadline, so expect
+  duplicates for the length of the upgrade and finish it promptly.
+- No new redis traffic and no new timers: the maintenance tick already read
+  `CLIENT LIST` for the cleanup pass and lease recovery shares that one read.
+  Nothing is renewed, polled or scheduled per message — a heartbeat would prove
+  only that the event loop is free, not that work is progressing, and so would
+  reclaim exactly when a worker is busiest.
+
 ## [3.4.0] - 2026-08-20
 
 ### Added

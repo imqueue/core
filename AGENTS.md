@@ -71,12 +71,24 @@ timeout is 15s per test. Run a single spec after a build with
 - **Two delivery modes**, selected by the `safeDelivery` option: *unreliable*
   (fast; a message is lost if a consumer grabs it and dies) and *safe/guaranteed*
   (1.5–2× slower; a grabbed-then-lost message is rescheduled). Safe delivery
-  relies on Redis `LMOVE`/`BLMOVE` — **Redis 6.2+ is required.** Unreliable
-  delivery uses `BRPOP` alone and works on 3.2+, so quote 6.2+ as the
-  requirement unless the sentence is specifically about the unreliable mode.
+  covers the **processing**, not only the hand-off: the worker key is held until
+  the `message` listener is done, and **a listener says so by what it
+  returns** — a returned promise keeps the message checked out until it
+  settles, anything else releases it as the listener returns. Listeners are
+  therefore invoked through `rawListeners()` rather than `emit()`, which
+  discards return values. Safe delivery relies on Redis `LMOVE`/`BLMOVE` —
+  **Redis 6.2+ is required.** Unreliable delivery uses `BRPOP` alone and works
+  on 3.2+, so quote 6.2+ as the requirement unless the sentence is specifically
+  about the unreliable mode.
 - **No polling / no timers.** Delivery uses blocking Redis ops + keyspace
-  notification events. If Redis has the `CONFIG` command disabled (e.g. AWS
-  ElastiCache), keyspace notifications must be enabled out of band:
+  notification events. This is why a lease is reclaimed by asking the broker who
+  is still connected (`CLIENT LIST`, already read once per maintenance tick for
+  the cleanup pass) rather than by renewing a deadline: a per-message heartbeat
+  would be a timer, and would prove only that the event loop is free rather than
+  that work is progressing. `safeDeliveryTtl` bounds processing on top of that,
+  for the handler that wedges inside a process which is otherwise healthy. If
+  Redis has the `CONFIG` command disabled (e.g. AWS ElastiCache), keyspace
+  notifications must be enabled out of band:
   `notify-keyspace-events Ex`.
 - **Keyspace-notification flags are merged, never overwritten.**
   `notify-keyspace-events` is server-global, so `watch()` reads the current

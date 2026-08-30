@@ -44,6 +44,13 @@
  * reference-counted, and exactly one queue per key prefix is elected as the
  * watcher that releases delayed messages and performs maintenance.
  *
+ * Under {@link IMQOptions.safeDelivery} a message stays checked out to its
+ * worker until the `message` listener has finished with it, and what a listener
+ * **returns** is how it says so: return a promise and the message is held until
+ * that promise settles, so a worker that dies mid-handler leaves the message to
+ * be re-queued rather than taking it down. Return anything else — as the
+ * synchronous example below does — and it is released as the listener returns.
+ *
  * @example
  * ```typescript
  * import IMQ, { IMQMode, type IMessageQueue } from '@imqueue/core';

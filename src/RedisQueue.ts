@@ -61,6 +61,28 @@ const RECONNECT_MAX_DELAY = 30000;
 /** SCAN batch size used while sweeping keys */
 const SCAN_COUNT = '1000';
 
+/**
+ * This process, as it appears inside every connection name this queue registers
+ * with the broker (see `getChannelName`). Stamped into each worker key so the
+ * watcher can ask the broker whether a lease's owner is still alive instead of
+ * asking a clock whether time has run out.
+ */
+const OWNER = `pid:${process.pid}:host:${hostname()}`;
+
+/** Matches the owner inside a worker key, which ends with its deadline */
+const RX_LEASE_OWNER = /:(pid:\d+:host:[^:]+):\d+$/;
+
+/** Matches the owner inside a `name=` entry of `CLIENT LIST` */
+const RX_CLIENT_OWNER = /(pid:\d+:host:\S+)$/;
+
+/**
+ * Upper bound (ms) on the reader's blocking pop. A lease deadline is stamped
+ * before the pop that fills the key, so a message is born having already spent
+ * whatever the pop waited; capping it keeps that negligible against a budget of
+ * minutes.
+ */
+const READ_MAX_BLOCK = 5000;
+
 /** Redis config parameter holding the keyspace-notification flags */
 const NOTIFY_EVENTS_PARAM = 'notify-keyspace-events';
 
@@ -117,7 +139,7 @@ export const DEFAULT_IMQ_OPTIONS: IMQOptions = {
     logger: console,
     prefix: 'imq',
     safeDelivery: false,
-    safeDeliveryTtl: 5000,
+    safeDeliveryTtl: 300000,
     useGzip: false,
     watcherCheckDelay: 5000,
     handleSignals: true,
@@ -308,6 +330,8 @@ export class RedisQueue
      * removing their keys.
      */
     private lastConnectedKeys: string[] = [];
+    /** Lease owners seen connected on the previous sweep (one sweep of grace) */
+    private lastOwners: Set<string> = new Set<string>();
 
     /**
      * True while this instance holds a reference to the shared writer
@@ -320,8 +344,19 @@ export class RedisQueue
     private reconnectTimers: Partial<
         Record<RedisConnectionChannel, NodeJS.Timeout>
     > = {};
+    /**
+     * Consecutive failed reconnection attempts per channel, which is what the
+     * backoff delay is computed from. Reset once a channel connects again.
+     */
     private reconnectAttempts: Partial<Record<RedisConnectionChannel, number>> =
         {};
+    /**
+     * Channels with a reconnection already in progress.
+     *
+     * @remarks
+     * A guard, not a status: several `close` events can arrive for one channel,
+     * and without this each would start its own reconnection loop.
+     */
     private reconnecting: Partial<Record<RedisConnectionChannel, boolean>> = {};
 
     /**
@@ -364,14 +399,19 @@ export class RedisQueue
     /**
      * Serializes a given data object into string
      *
-     * @param data -
+     * @param data - the value to serialize; must be JSON-serializable
+     * @returns the wire representation, gzipped when
+     *          {@link IMQOptions.useGzip} is on
      */
     private readonly pack: (data: unknown) => string;
 
     /**
      * Deserialize string data into an object
      *
-     * @param data -
+     * @param data - the wire representation, as produced by `pack`
+     * @returns the deserialized value
+     * @throws when the payload is malformed, or was packed with a different
+     *         {@link IMQOptions.useGzip} setting
      */
     private readonly unpack: (data: string) => unknown;
 
@@ -405,6 +445,14 @@ export class RedisQueue
          */
         public name: string,
         options?: Partial<IMQOptions>,
+        /**
+         * Whether this handle publishes, consumes, or both.
+         *
+         * @remarks
+         * Fixed at construction: it decides which connections `start()` opens,
+         * so a publisher never opens a reader and cannot consume even by
+         * accident.
+         */
         private readonly mode: IMQMode = IMQMode.BOTH,
     ) {
         super();
@@ -432,6 +480,15 @@ export class RedisQueue
         );
     }
 
+    /**
+     * Writes a diagnostic line, but only under {@link IMQOptions.verbose}.
+     *
+     * @param message - the line to write, tagged with this queue's name
+     *
+     * @remarks
+     * For tracing the queue's own lifecycle. Anything a user must see whether
+     * or not verbose is on goes through `logLine` instead.
+     */
     private verbose(message: string): void {
         if (this.options.verbose) {
             this.logger.info(`[IMQ-CORE][${this.name}]: ${message}`);
@@ -555,8 +612,8 @@ export class RedisQueue
      * Attaches a subscription message handler to a given channel
      * connection
      *
-     * @param chan -
-     * @param handler -
+     * @param chan - the pub/sub channel to deliver messages from
+     * @param handler - called with the decoded payload of each message
      */
     private attachSubscriptionHandler(
         chan: IRedisClient,
@@ -1093,9 +1150,11 @@ export class RedisQueue
      * and silently discarded.
      *
      * With `clearData` set, only the main and delayed keys are removed: messages
-     * currently leased to a worker key under {@link IMQOptions.safeDelivery} are
-     * not, and the watcher will re-queue them once their lease expires — so
-     * messages can reappear after a clearing destroy.
+     * currently checked out to a worker key under
+     * {@link IMQOptions.safeDelivery} are not, and the watcher returns them to
+     * the queue once their worker is gone or their
+     * {@link IMQOptions.safeDeliveryTtl} is spent — so messages can reappear
+     * after a clearing destroy.
      *
      * Never rejects; unlock and clear failures are logged.
      */
@@ -1135,9 +1194,10 @@ export class RedisQueue
      * @remarks
      * A no-op that resolves successfully when the queue has no writer connection.
      * In-flight messages held in worker keys under
-     * {@link IMQOptions.safeDelivery} are not removed and may be re-queued by the
-     * watcher after their lease expires, so this does not guarantee the queue
-     * stays empty. Errors are logged rather than thrown, so success cannot be
+     * {@link IMQOptions.safeDelivery} are not removed, and the watcher returns
+     * them to the queue once their worker is gone or their
+     * {@link IMQOptions.safeDeliveryTtl} is spent — so this does not guarantee
+     * the queue stays empty. Errors are logged rather than thrown, so success cannot be
      * inferred from a resolved promise.
      */
     @profile()
@@ -1175,11 +1235,14 @@ export class RedisQueue
      * @returns count of messages waiting to be consumed
      *
      * @remarks
-     * Delayed messages that are not yet due, and messages currently leased to a
-     * worker under {@link IMQOptions.safeDelivery}, are not counted — so this
-     * is not the amount of outstanding work. Returns `0` when the queue has no
-     * writer connection, which makes "disconnected" indistinguishable from
-     * "empty"; it never throws.
+     * Delayed messages that are not yet due, and messages currently checked out
+     * to a worker under {@link IMQOptions.safeDelivery}, are not counted — so
+     * this is not the amount of outstanding work. Under safe delivery a message
+     * is checked out for as long as its handler runs, so on a busy queue the
+     * shortfall is roughly everything in flight, not a rounding error.
+     *
+     * Returns `0` when the queue has no writer connection, which makes
+     * "disconnected" indistinguishable from "empty"; it never throws.
      */
     @profile()
     public async queueLength(): Promise<number> {
@@ -1248,7 +1311,8 @@ export class RedisQueue
     /**
      * Returns the connection currently bound to the given channel, if any.
      *
-     * @param channel -
+     * @param channel - which of the queue's connections to look up
+     * @returns the connection, or `undefined` when that channel is not open
      */
     private connectionOf(
         channel: RedisConnectionChannel,
@@ -1268,8 +1332,8 @@ export class RedisQueue
     /**
      * Binds the given connection to the given channel.
      *
-     * @param channel -
-     * @param conn -
+     * @param channel - which of the queue's connections to bind
+     * @param conn - the client to bind, or `undefined` to unbind it
      */
     private bindConnection(
         channel: RedisConnectionChannel,
@@ -1420,8 +1484,9 @@ export class RedisQueue
     /**
      * Establishes a given connection channel by its name
      *
-     * @param channel -
-     * @param options -
+     * @param channel - which of the queue's connections to open
+     * @param options - connection options; falls back to this queue's own
+     * @returns the ready client
      */
     private async connect(
         channel: RedisConnectionChannel,
@@ -1504,7 +1569,7 @@ export class RedisQueue
      * Schedules custom reconnection for a given channel with capped
      * exponential backoff
      *
-     * @param channel -
+     * @param channel - which of the queue's connections to reconnect
      */
     private scheduleReconnect(channel: RedisConnectionChannel): void {
         if (this.destroyed || this.reconnecting[channel]) {
@@ -1540,7 +1605,7 @@ export class RedisQueue
      * rescheduling itself on failure. Errors are handled internally, so the
      * scheduled timer never produces an unhandled rejection.
      *
-     * @param channel -
+     * @param channel - which of the queue's connections to reconnect
      */
     private async reconnectNow(channel: RedisConnectionChannel): Promise<void> {
         if (this.destroyed) {
@@ -1597,9 +1662,12 @@ export class RedisQueue
     /**
      * Generates channel name
      *
-     * @param contextName -
-     * @param prefix -
-     * @param name -
+     * @param contextName - the queue name the connection belongs to
+     * @param prefix - the key prefix this queue works under
+     * @param name - which of the queue's connections this is
+     * @returns the name registered with the broker, ending in this process's
+     *          pid and host — which is what makes a connection, and so a lease
+     *          owner, identifiable in `CLIENT LIST`
      */
     private getChannelName(
         contextName: string,
@@ -1614,7 +1682,8 @@ export class RedisQueue
     /**
      * Builds and returns connection error handler
      *
-     * @param channel -
+     * @param channel - which of the queue's connections the handler is for
+     * @returns the handler to attach to that connection's `error` event
      */
     private onErrorHandler(
         channel: RedisConnectionChannel,
@@ -1646,7 +1715,8 @@ export class RedisQueue
     /**
      * Builds and returns redis connection close handler
      *
-     * @param channel -
+     * @param channel - which of the queue's connections the handler is for
+     * @returns the handler to attach to that connection's `close` event
      */
     private onCloseHandler(channel: RedisConnectionChannel): () => void {
         this.verbose(`Redis ${channel} is closing...`);
@@ -1669,21 +1739,44 @@ export class RedisQueue
     }
 
     /**
-     * Processes given redis-queue message
+     * Unpacks one raw queue message and hands it to the `message` listeners.
      *
-     * @param msg -
+     * @param msg - the `[queue key, packed message]` pair as read off redis
+     * @returns the promises the listeners returned, empty when none did
+     *
+     * @remarks
+     * The return value is how the caller learns when the listeners are actually
+     * finished, which is what {@link RedisQueue.readSafe} needs in order to know
+     * when a message's lease may be dropped. `emit()` discards what a listener
+     * returns, so the listeners are invoked directly; raw listeners are used so
+     * a `once` listener still removes itself and still yields its value, exactly
+     * as `emit()` would have arranged.
+     *
+     * A listener throwing synchronously propagates, as it does through `emit()`.
+     * An unreadable message dispatches nothing and reports nothing pending.
      */
-    private process(msg: [string, string]): RedisQueue {
+    private process(msg: [string, string]): Promise<unknown>[] {
         const [queue, data] = msg;
+        const pending: Promise<unknown>[] = [];
 
         if (!queue || queue !== this.key) {
-            return this;
+            return pending;
         }
 
         try {
             const { id, message, from } = this.unpack(data) as IMessage;
 
-            this.emit('message', message, id, from);
+            for (const listener of this.rawListeners('message')) {
+                const result = (
+                    listener as (...args: unknown[]) => unknown
+                ).call(this, message, id, from);
+
+                if (
+                    typeof (result as PromiseLike<unknown>)?.then === 'function'
+                ) {
+                    pending.push(result as Promise<unknown>);
+                }
+            }
         } catch (err) {
             this.emitError(
                 'OnMessage',
@@ -1692,7 +1785,7 @@ export class RedisQueue
             );
         }
 
-        return this;
+        return pending;
     }
 
     /**
@@ -1716,9 +1809,9 @@ export class RedisQueue
     }
 
     /**
-     * Processes delayed a message by its given redis key
+     * Moves messages whose delay has elapsed onto their queue.
      *
-     * @param key -
+     * @param key - the queue key whose `:delayed` companion to drain
      */
     private async processDelayed(key: string): Promise<void> {
         try {
@@ -1760,9 +1853,17 @@ export class RedisQueue
     }
 
     /**
-     * Watch routine
+     * Sweeps for leases whose worker is not coming back and returns their
+     * messages to the queue.
+     *
+     * @param clients - raw `CLIENT LIST` output for this tick, or `undefined`
+     *        when it could not be read, in which case liveness is unknown and a
+     *        lease is left to its budget rather than guessed at
      */
-    private async processWatch(): Promise<void> {
+    private async processWatch(clients?: string): Promise<void> {
+        const owners =
+            clients === undefined ? undefined : this.connectedOwners(clients);
+
         const now = Date.now();
         let cursor: string = '0';
 
@@ -1778,7 +1879,7 @@ export class RedisQueue
 
                 cursor = next;
 
-                await this.processKeys(keys, now);
+                await this.processKeys(keys, now, owners);
 
                 if (cursor === '0') {
                     return;
@@ -1803,12 +1904,61 @@ export class RedisQueue
     }
 
     /**
-     * Process given keys from a message queue
+     * Decides whether one worker key has been abandoned.
      *
-     * @param keys -
-     * @param now -
+     * @param key - the worker key
+     * @param now - the timestamp this sweep started at
+     * @param owners - processes currently connected, or `undefined` when the
+     *        client list could not be read
+     * @returns whether this key's message should go back on the queue
+     *
+     * @remarks
+     * Which scheme applies is read off the key itself rather than off this
+     * queue's options, because the sweeper serves every queue sharing the
+     * prefix and they need not be configured alike.
+     *
+     * A key naming its owner is abandoned on either of two counts, because
+     * there are two ways to lose a message. The owner having left the broker's
+     * client list catches the process dying — the common case, detected as fast
+     * as the socket closes and needing nothing renewed to keep a live lease
+     * alive. The deadline catches what liveness cannot see: a worker that is up,
+     * connected and serving other messages while one handler has wedged on this
+     * one. The budget is honoured even when liveness is unknown, since an
+     * exhausted budget is exhausted either way.
+     *
+     * A key with no owner was written by 3.x, before leases named one. Its
+     * deadline is the whole story, exactly as it was then, so a rolling upgrade
+     * does not strand it.
      */
-    private async processKeys(keys: string[], now: number): Promise<void> {
+    private isAbandoned(
+        key: string,
+        now: number,
+        owners?: Set<string>,
+    ): boolean {
+        const owner = RX_LEASE_OWNER.exec(key);
+        const expired = Number(key.split(':').pop()) < now;
+
+        if (!owner) {
+            return expired;
+        }
+
+        return expired || (owners ? !owners.has(owner[1]) : false);
+    }
+
+    /**
+     * Returns the messages of abandoned leases to their queues.
+     *
+     * @param keys - worker keys from one page of the sweep's `SCAN`
+     * @param now - the timestamp the sweep started at, so every key in a pass
+     *        is judged against the same instant
+     * @param owners - processes currently connected, or `undefined` when the
+     *        client list could not be read
+     */
+    private async processKeys(
+        keys: string[],
+        now: number,
+        owners?: Set<string>,
+    ): Promise<void> {
         if (!keys.length) {
             return;
         }
@@ -1823,15 +1973,13 @@ export class RedisQueue
 
         try {
             for (const key of keys) {
-                const kp: string[] = key.split(':');
-
-                // the last key segment is the worker's lease deadline: only
-                // re-queue messages of workers whose lease has expired (the
-                // worker died mid-processing); fresh leases belong to live
-                // workers and must not be touched
-                if (Number(kp.pop()) >= now) {
+                if (!this.isAbandoned(key, now, owners)) {
                     continue;
                 }
+
+                const kp: string[] = key.split(':');
+
+                kp.pop();
 
                 const target = `${kp.shift()}:${kp.shift()}`;
                 const moved = await this.writer.lmove(
@@ -1881,9 +2029,10 @@ export class RedisQueue
     }
 
     /**
-     * Watch message processor
+     * Handles one keyspace notification from the watcher subscription.
      *
-     * @param args -
+     * @param args - the `pmessage` arguments; only the last, the expired key,
+     *        is used, and only when it is a delayed message's ttl marker
      */
     private async onWatchMessage(...args: any[]): Promise<void> {
         try {
@@ -2017,9 +2166,17 @@ export class RedisQueue
 
         // watch for expired unhandled safe queues
         if (!this.safeCheckInterval && this.options.safeDeliveryTtl != null) {
+            // the sweep is watcher maintenance, so it runs on the watcher's own
+            // cadence rather than on the processing budget: how long a message
+            // may be worked on and how often we look for abandoned ones are
+            // different questions, and tying them would make a crashed worker's
+            // message wait out a budget meant for a live one. Falls back to the
+            // budget only when the watcher check is switched off outright
             this.safeCheckInterval = setInterval(
                 this.runSafeCheck.bind(this),
-                this.options.safeDeliveryTtl,
+                Number(this.options.watcherCheckDelay) > 0
+                    ? Number(this.options.watcherCheckDelay)
+                    : Number(this.options.safeDeliveryTtl),
             );
             // maintenance timer must not keep the process alive on its own
             this.safeCheckInterval.unref();
@@ -2053,17 +2210,94 @@ export class RedisQueue
             return;
         }
 
+        // one CLIENT LIST for the tick. The cleanup pass has always needed it
+        // and lease recovery needs the same answer, so asking twice would be
+        // the only redis traffic this design could add - and it does not.
+        // `undefined` means it could not be read, which is emphatically not
+        // "nobody is connected": both consumers treat it as unknown and do
+        // nothing rather than reclaiming or deleting
+        const clients =
+            this.options.cleanup || this.options.safeDelivery
+                ? await this.readClients()
+                : undefined;
+
         if (this.options.safeDelivery) {
-            await this.processWatch();
+            await this.processWatch(clients);
         }
 
-        await this.processCleanup();
+        await this.processCleanup(clients);
     }
 
     /**
-     * Cleans up orphaned keys from redis
+     * Reads the broker's client list.
+     *
+     * @returns the raw `CLIENT LIST` output, or `undefined` when it could not
+     *          be read
+     *
+     * @remarks
+     * A failure must not read as "nobody is connected" — that would reclaim
+     * every lease in flight and delete every key in the prefix — so it is
+     * reported as unknown rather than as an empty list.
      */
-    private async processCleanup(): Promise<RedisQueue | undefined> {
+    private async readClients(): Promise<string | undefined> {
+        try {
+            return ((await this.writer.client('LIST')) as string).toString();
+        } catch (err) {
+            this.logLine(
+                'warn',
+                `client list read failed, code ${errorCode(err)}`,
+            );
+
+            return undefined;
+        }
+    }
+
+    /**
+     * Extracts the processes currently connected to the broker, as the owner
+     * tokens stamped into worker keys.
+     *
+     * @param clients - raw `CLIENT LIST` output
+     * @returns owners seen connected now, plus those seen on the previous sweep
+     *
+     * @remarks
+     * Previous-sweep owners are included deliberately, mirroring the grace the
+     * cleanup pass already gives reconnecting clients: a worker riding out a
+     * reconnect backoff briefly leaves the client list, and reclaiming its
+     * leases then would re-deliver work that is still running. One sweep of
+     * grace costs one sweep of recovery latency and removes that whole class of
+     * duplicate.
+     */
+    private connectedOwners(clients: string): Set<string> {
+        const seen = new Set<string>();
+
+        for (const name of clients.match(RX_CLIENT_NAME) || []) {
+            const owner = RX_CLIENT_OWNER.exec(name);
+
+            if (owner) {
+                seen.add(owner[1]);
+            }
+        }
+
+        const owners = new Set<string>([...seen, ...this.lastOwners]);
+
+        this.lastOwners = seen;
+
+        return owners;
+    }
+
+    /**
+     * Removes keys left behind by clients that are no longer connected.
+     *
+     * @param clients - raw `CLIENT LIST` output for this tick, so the list is
+     *        read once per sweep. Called on its own, this reads its own; a read
+     *        that fails throws into the catch below and deletes nothing,
+     *        because treating an unreadable list as "no client owns anything"
+     *        would delete every key in the prefix
+     * @returns this queue instance, or `undefined` when cleanup is disabled
+     */
+    private async processCleanup(
+        clients?: string,
+    ): Promise<RedisQueue | undefined> {
         this.verbose('Cleaning up orphaned keys...');
 
         try {
@@ -2083,9 +2317,10 @@ export class RedisQueue
 
             this.verbose(`Cleaning up keys matching ${filter}`);
 
-            const clients: string =
-                ((await this.writer.client('LIST')) as string).toString() || '';
-            const connectedKeys = (clients.match(RX_CLIENT_NAME) || [])
+            const list =
+                clients ??
+                ((await this.writer.client('LIST')) as string).toString();
+            const connectedKeys = (list.match(RX_CLIENT_NAME) || [])
                 .filter(
                     (name: string) =>
                         RX_CLIENT_TEST.test(name) && filter.test(name),
@@ -2222,6 +2457,30 @@ export class RedisQueue
     }
 
     /**
+     * Ends one lease, dropping the worker key and with it the message.
+     *
+     * @param workerKey - the key holding the message
+     *
+     * @remarks
+     * Idempotent, and never throws: an undeleted worker key is re-queued by the
+     * watcher later, which is one of the causes a handler can be given for a
+     * duplicate. The key itself is never logged, as it carries the queue name
+     * and the lease id.
+     */
+    private releaseLease(workerKey: string): void {
+        this.writer
+            ?.del(workerKey)
+            .catch((err: unknown) =>
+                this.logLine(
+                    'warn',
+                    `OnReadSafe: del error, queue ${this.name}, code ${errorCode(
+                        err,
+                    )}`,
+                ),
+            );
+    }
+
+    /**
      * Reliable but slow method of message handling by message queue.
      *
      * Uses a bounded blocking pop so the lease deadline embedded into the
@@ -2235,7 +2494,8 @@ export class RedisQueue
         // a claimed message always has at least half the ttl remaining
         const timeout = Math.max(
             0.1,
-            Number(this.options.safeDeliveryTtl) / 2000,
+            Math.min(Number(this.options.safeDeliveryTtl) / 2, READ_MAX_BLOCK) /
+                1000,
         );
 
         while (true) {
@@ -2245,7 +2505,7 @@ export class RedisQueue
 
             const expire: number =
                 Date.now() + Number(this.options.safeDeliveryTtl);
-            const workerKey = `${key}:worker:${randomUUID()}:${expire}`;
+            const workerKey = `${key}:worker:${randomUUID()}:${OWNER}:${expire}`;
             let msg: string | null;
 
             try {
@@ -2299,21 +2559,26 @@ export class RedisQueue
             }
 
             try {
-                this.process([key, msg]);
-                this.writer.del(workerKey).catch((err: unknown) =>
-                    // an undeleted worker key is re-queued by the watcher
-                    // later, which is the other cause of a duplicate. The
-                    // key itself is never logged: it carries the client
-                    // queue name, the lease uuid and its deadline
-                    this.logLine(
-                        'warn',
-                        `OnReadSafe: del error, queue ${
-                            this.name
-                        }, code ${errorCode(err)}`,
-                    ),
-                );
+                const pending = this.process([key, msg]);
+
+                if (pending.length) {
+                    // the listeners are still working: the message stays in
+                    // its worker key, so a worker that dies now leaves it to
+                    // be re-queued instead of taking it down. Settled, not
+                    // fulfilled - a handler that threw has had its turn, and
+                    // re-delivering on a rejection would retry forever
+                    void Promise.allSettled(pending).then(() =>
+                        this.releaseLease(workerKey),
+                    );
+                } else {
+                    // nothing asynchronous was started, so the listeners are
+                    // already done - all a synchronous handler can offer
+                    this.releaseLease(workerKey);
+                }
             } catch (err) {
-                // a single message failure must never kill the read loop
+                // a single message failure must never kill the read loop, and
+                // must not strand its lease either
+                this.releaseLease(workerKey);
                 this.emitError('OnReadSafe', 'safe reader failed', err);
             }
         }
@@ -2378,9 +2643,10 @@ export class RedisQueue
     /**
      * Emits error
      *
-     * @param eventName -
-     * @param message -
-     * @param err -
+     * @param eventName - the internal routine that caught it, used as a
+     *        diagnostic label such as `OnMessage` or `OnReadSafe`
+     * @param message - human-readable context for the log line
+     * @param err - the caught value, wrapped when it is not an `Error`
      */
     private emitError(eventName: string, message: string, err: unknown): void {
         const error = err instanceof Error ? err : new Error(String(err));

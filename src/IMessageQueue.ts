@@ -177,12 +177,16 @@ export interface IMessageQueueConnection extends IMessageQueueAuthConnection {
     id?: string;
 
     /**
-     * Host name or IP address of the queue host. Defaults to `localhost`.
+     * Host name or IP address of the queue host.
+     *
+     * @defaultValue "localhost"
      */
     host: string;
 
     /**
-     * TCP port of the queue host. Defaults to `6379`.
+     * TCP port of the queue host.
+     *
+     * @defaultValue 6379
      */
     port: number;
 }
@@ -223,8 +227,9 @@ export interface IMessageQueueAuthConnection {
  */
 export interface IMQOptions extends Partial<IMessageQueueConnection> {
     /**
-     * Turns on/off the watcher's periodic removal of orphaned keys. Defaults to
-     * `false`.
+     * Turns on/off the watcher's periodic removal of orphaned keys.
+     *
+     * @defaultValue false
      *
      * @remarks
      * This is a destructive sweep. Only the instance holding the watcher lock
@@ -239,8 +244,10 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
 
     /**
      * Redis glob pattern, appended to the prefix as `<prefix>:<cleanupFilter>`,
-     * selecting which keys the cleanup sweep considers. Defaults to `'*'` —
+     * selecting which keys the cleanup sweep considers. The default matches
      * every key in the namespace.
+     *
+     * @defaultValue "*"
      *
      * @remarks
      * This matches Redis key names, not queue names. The same pattern is also
@@ -250,8 +257,9 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     cleanupFilter: string;
 
     /**
-     * Queue adapter vendor name. Defaults to `'Redis'`, which is the only
-     * supported value.
+     * Queue adapter vendor name, and the only supported value.
+     *
+     * @defaultValue "Redis"
      *
      * @remarks
      * Honoured only by {@link IMQ.create}, which throws a `TypeError` for any
@@ -261,7 +269,9 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     vendor?: string;
 
     /**
-     * Global key namespace for everything this queue writes. Defaults to `'imq'`.
+     * Global key namespace for everything this queue writes.
+     *
+     * @defaultValue "imq"
      *
      * @remarks
      * The prefix scopes more than the queue keys: it also scopes the delayed set,
@@ -274,7 +284,9 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     prefix?: string;
 
     /**
-     * Logger used for queue diagnostics. Defaults to `console`.
+     * Logger used for queue diagnostics.
+     *
+     * @defaultValue console
      *
      * @remarks
      * Connection lifecycle messages and all internal errors are written here
@@ -284,7 +296,9 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     logger?: ILogger;
 
     /**
-     * Interval in milliseconds of the periodic watcher check. Defaults to 5000.
+     * Interval in milliseconds of the periodic watcher check.
+     *
+     * @defaultValue 5000
      *
      * @remarks
      * Each tick re-elects a watcher owner if none exists and, on
@@ -292,6 +306,14 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
      * fallback when Redis keyspace notifications are unavailable. That makes this
      * value the worst-case extra latency for a delayed message. Setting it to `0`
      * disables both behaviours.
+     *
+     * It also paces the watcher's maintenance sweep, which recovers the
+     * messages of workers that have died and drives the
+     * {@link IMQOptions.cleanup} pass — so this, not
+     * {@link IMQOptions.safeDeliveryTtl}, is the worst-case latency for a
+     * crashed worker's message coming back. With the check disabled the sweep
+     * falls back to `safeDeliveryTtl`, which on a large budget is very slow;
+     * leave it on if safe delivery matters.
      */
     watcherCheckDelay?: number;
 
@@ -304,8 +326,9 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
      * Must be set identically on every producer and consumer of a queue: a
      * mismatch makes deserialization fail, which emits an `error` event with the
      * event name `OnMessage` and drops the message — permanently, even under
-     * {@link IMQOptions.safeDelivery}, because the worker key is released
-     * immediately afterwards.
+     * {@link IMQOptions.safeDelivery}: a message that cannot be unpacked reaches
+     * no listener, so nothing is pending on it and its lease is released at
+     * once. Re-delivering it would only fail the same way.
      *
      * Applies to queue messages only. {@link IMessageQueue.publish} and
      * {@link IMessageQueue.subscribe} payloads are always plain JSON.
@@ -319,43 +342,59 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
      * message leaves that message behind for the watcher to re-queue rather
      * than taking it down with the process.
      *
-     * The guarantee covers that hand-off, not the processing. The worker key
-     * is released as soon as the message is dispatched to the `message`
-     * listener, so a worker killed while its handler is still running loses
-     * that message exactly as it would with safe delivery off — draining
-     * in-flight work before exit is up to the application. Delivery is
-     * at-least-once in either mode, so handlers should be idempotent.
+     * The guarantee covers the processing too, not only the hand-off: the
+     * worker key is held until the `message` listener has finished with the
+     * message, which for a listener returning a promise means until that
+     * promise settles. A worker killed at any point before then leaves the
+     * message behind to be re-queued.
+     *
+     * A message comes back on either of two counts. The owning process leaving
+     * the broker's client list catches it dying — a fact the broker holds
+     * rather than an inference from a clock, so it is noticed as fast as the
+     * socket closes and nothing has to be renewed to keep a live lease alive.
+     * {@link IMQOptions.safeDeliveryTtl} catches what liveness cannot see: one
+     * handler wedged inside a worker that is otherwise up and serving.
+     *
+     * Delivery is at-least-once in either mode, so handlers should be
+     * idempotent: this narrows the window in which in-flight work is lost, it
+     * does not close it.
      *
      * @defaultValue false
      */
     safeDelivery?: boolean;
 
     /**
-     * Lease deadline (in milliseconds) stamped onto the worker key when
-     * safeDelivery moves a message out of the queue, and the interval on which
-     * the watcher sweeps for expired keys. A worker key still present once its
-     * deadline has passed is treated as abandoned, and its message is moved
-     * back onto the main queue.
+     * The longest (in milliseconds) a message may be worked on before it is
+     * treated as abandoned and moved back onto the queue.
      *
-     * This is a recovery deadline for an abandoned hand-off, not a processing
-     * deadline. The key is released when the message is dispatched, so a slow
-     * handler is neither interrupted nor re-queued for taking too long, and
-     * raising this value extends no protection over long-running work — tune it
-     * for how quickly an abandoned message should come back.
-     *
-     * @defaultValue 5000
+     * @defaultValue 300000
      *
      * @remarks
-     * This value applies whether or not {@link IMQOptions.safeDelivery} is on:
-     * it always sets the period of the watcher's maintenance sweep, which also
-     * drives the {@link IMQOptions.cleanup} pass. Setting it to `null` or
-     * `undefined` disables that interval altogether, so neither lease recovery
-     * nor cleanup runs.
+     * Set it to the longest a handler in this system can legitimately take,
+     * with headroom. A slow upstream is the usual reason for a large value — a
+     * data vendor with no job API, screen-scraping behind an HTTP call,
+     * anything that can take minutes — and a budget below that reclaims a
+     * message from a worker still legitimately working on it, handing somebody
+     * else a duplicate.
      *
-     * In safe-delivery mode it additionally sets the reader's blocking-pop
-     * timeout to half the TTL, with a 100 ms floor, after which the reader
-     * regenerates the lease and blocks again. Very small values therefore
-     * increase Redis round-trips without further reducing latency.
+     * This is the **only** thing that recovers a message from a worker that is
+     * alive, connected and serving other messages while one handler has wedged
+     * on this one. Death of the whole process is caught separately and far
+     * faster, by the owner leaving the broker's client list, so this value does
+     * not govern how quickly an ordinary crash is recovered from.
+     *
+     * Two internals follow this value but deliberately do not scale with it:
+     *
+     * - The watcher's maintenance sweep — which recovers abandoned leases and
+     *   drives the {@link IMQOptions.cleanup} pass — runs on
+     *   {@link IMQOptions.watcherCheckDelay}, so a dead worker is still noticed
+     *   within seconds however generous the budget is. Setting this to `null`
+     *   or `undefined` disables that sweep altogether, so neither lease
+     *   recovery nor cleanup runs.
+     * - The reader's blocking pop is half this value capped at 5000 ms, with a
+     *   100 ms floor. The cap matters: a lease deadline is stamped before the
+     *   pop that fills the key, so an uncapped wait would hand a message a
+     *   sizeable part of its budget already spent.
      */
     safeDeliveryTtl?: number;
 
@@ -438,6 +477,20 @@ export interface EventMap {
     /**
      * Emitted for every message consumed from the queue, with the payload, the
      * message id, and the name of the queue that sent it.
+     *
+     * @remarks
+     * Under {@link IMQOptions.safeDelivery} the value a listener **returns**
+     * decides when the message counts as handled. Return a promise and the
+     * message stays checked out until it settles, so a worker that dies
+     * mid-handler leaves it behind to be re-queued. Return anything else and it
+     * is released as the listener returns, which is all a synchronous handler
+     * can offer — and is also how to opt out, by starting the work and
+     * returning nothing.
+     *
+     * Every registered listener is consulted, and the message is released once
+     * all the promises they returned have settled — settled, not fulfilled: a
+     * handler that throws has still had its turn, and re-delivering on a
+     * rejection would retry a poison message forever.
      */
     message: [data: JsonObject, id: string, from: string];
     /**
@@ -698,9 +751,11 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
      *
      * @remarks
      * Other queues in the namespace, the watcher lock, and messages currently
-     * leased to a worker under {@link IMQOptions.safeDelivery} are all untouched —
-     * a leased message can be re-queued by the watcher once its lease expires, so
-     * this does not guarantee the queue stays empty.
+     * checked out to a worker under {@link IMQOptions.safeDelivery} are all
+     * untouched — such a message returns to the queue if its worker dies or
+     * overruns {@link IMQOptions.safeDeliveryTtl}, so this does not guarantee
+     * the queue stays empty. A message is checked out for as long as its
+     * handler runs, so that window is as long as your slowest handler.
      *
      * It never rejects: with no writer connection it silently does nothing, and
      * host failures are logged rather than raised, so success cannot be inferred
@@ -714,9 +769,11 @@ export interface IMessageQueue extends EventEmitter<EventMap> {
      * @returns count of messages waiting to be consumed
      *
      * @remarks
-     * Delayed messages that are not yet due, and messages currently leased to a
-     * worker under {@link IMQOptions.safeDelivery}, are not counted — so this
-     * is not the amount of outstanding work.
+     * Delayed messages that are not yet due, and messages currently checked out
+     * to a worker under {@link IMQOptions.safeDelivery}, are not counted — so
+     * this is not the amount of outstanding work. Under safe delivery a message
+     * is checked out for as long as its handler runs, so on a busy queue the
+     * shortfall is roughly everything in flight, not a rounding error.
      *
      * Returns `0` when the queue has no writer connection, which makes
      * "disconnected" indistinguishable from "empty".

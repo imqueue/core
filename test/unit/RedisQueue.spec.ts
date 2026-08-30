@@ -1581,7 +1581,8 @@ describe('RedisQueue read loops & connection handlers', () => {
     it('process() ignores messages for a different queue', async () => {
         const rq: any = new RedisQueue(uuid(), { logger });
 
-        assert.equal(rq.process(['some:other:key', 'data']), rq);
+        // nothing dispatched, so nothing is pending on it
+        assert.deepEqual(rq.process(['some:other:key', 'data']), []);
 
         await rq.destroy().catch(() => undefined);
     });

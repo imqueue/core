@@ -1,6 +1,6 @@
 {
   "name": "@imqueue/core",
-  "version": "3.4.2",
+  "version": "3.4.3",
   "description": "Fast JSON message queue over Redis for inter-service communication in Node.js & TypeScript microservices — the transport layer of the @imqueue framework",
   "keywords": [
     "message-queue",

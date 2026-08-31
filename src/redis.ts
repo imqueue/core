@@ -36,6 +36,12 @@ export interface IRedisClient extends Redis {
      */
     __ready__?: boolean;
     /**
+     * Internal flag marking a connection whose socket has been given a durable
+     * `error` listener, so that the guard is installed at most once per
+     * connection. Not part of the supported API.
+     */
+    __guarded__?: boolean;
+    /**
      * Internal marker stamped on every Redis connection created by the queue,
      * identifying it as imq-owned. Currently written but not read by the
      * framework. Not part of the supported API.

@@ -11,39 +11,69 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- **`safeDelivery` lost a message when a worker died mid-handler.** It released
-  the message's worker key the instant the message was dispatched to the
-  `message` listener, so a worker killed while its handler was still running
-  took that message with it and nothing brought it back — the option guaranteed
-  the hand-off while its name and documentation promised guaranteed delivery.
-  The key is now held until the listener has finished with the message.
+- **TLS on connections to the redis broker.** A new `tls` option encrypts every
+  connection a queue opens — reader, writer, watcher and subscription alike.
+  Pass `true` for Node's defaults, or an object handed to `tls.connect()` as
+  given, so a private CA (`ca`) and mutual TLS (`cert`/`key`) both work. The
+  option was previously accepted by the type system and dropped on the way to
+  the client, which meant the bus could not be encrypted at all.
 
-  **A listener says it has finished by what it returns.** Return a promise and
-  the message stays checked out until it settles; return anything else and it is
-  released as the listener returns. Every registered listener is consulted, and
-  the message is released once all the promises they returned have settled —
-  settled, not fulfilled, because a handler that threw has still had its turn
-  and re-delivering on a rejection would retry a poison message forever.
+  Cluster entries may carry their own `tls`, overriding the cluster-wide one
+  for that server alone; an entry that omits it falls back to the top level.
+  Per-entry `username` and `password` are still ignored, exactly as before —
+  honouring them would change what an existing cluster authenticates with, and
+  that has nothing to do with this feature.
 
-  Nothing needs changing to get this: a listener that already returns a promise
-  — as `@imqueue/rpc` and `@imqueue/job` both do — is covered as it stands, and
-  a synchronous listener behaves exactly as it did.
+  With `tls` left unset the environment is consulted — `IMQ_REDIS_TLS`,
+  `IMQ_REDIS_TLS_CA_FILE`, `IMQ_REDIS_TLS_CERT_FILE`, `IMQ_REDIS_TLS_KEY_FILE`,
+  `IMQ_REDIS_TLS_KEY_PASSPHRASE`, `IMQ_REDIS_TLS_SERVERNAME` and
+  `IMQ_REDIS_TLS_REJECT_UNAUTHORIZED` — so a deployment can encrypt a fleet
+  without a code change. Certificate files are read as the queue is
+  constructed, and an unreadable one throws: an unmounted secret stops the
+  process rather than leaving it talking to the broker in the clear. Passing
+  `tls` explicitly always wins, `tls: false` included, and
+  `rejectUnauthorized: false` is warned about because it leaves a connection
+  encrypted but unauthenticated.
 
-  A message that cannot be unpacked releases its lease rather than coming back
-  on every sweep.
+  This covers the queue's own connections. `UDPClusterManager` announcements
+  remain unauthenticated UDP broadcast and are unaffected.
 
-- **A dead worker's message is recovered by asking the broker, not a clock.**
-  The worker key now carries the identity of the process that took it, and the
-  watcher reclaims it once that process has left `CLIENT LIST` — detected as
-  fast as the socket closes, and needing nothing renewed to keep a live lease
-  alive. Reconnecting workers get one sweep of grace, mirroring what the cleanup
-  pass already gave them, so a reconnect backoff does not cost a duplicate. If
-  the client list cannot be read at all, liveness is unknown and a lease is left
-  to its budget rather than guessed at.
+- **Integration specs covering TLS against a real broker**, in
+  `test/integration/`, run by `npm run test-integration`. They stand up a
+  throwaway TLS-only redis and assert what a mocked `ioredis` cannot: that the
+  handshake completes and is verified, that a message crosses it, that the
+  connection pool keeps differing TLS configurations apart, and that plaintext,
+  an unverifiable certificate and a wrong server name are all refused rather
+  than downgraded. They skip themselves, with a reason, wherever
+  `redis-server` and `openssl` are not both available, so a checkout without
+  redis still passes. `npm test` now globs `test/unit` and does not run them.
 
 ### Changed
+
+- **Nothing changes for a queue that does not use TLS.** The option is absent
+  from `options` unless it was configured, the connection pool key stays the
+  plain `host:port`, the redis client is handed no `tls` option, and no new
+  warning is emitted. The only added work on that path is one environment
+  lookup per queue construction, about a microsecond, and nothing at all per
+  message. This is covered by its own group of specs rather than left as a
+  claim.
+
+- **A connection failure no longer takes the process down during teardown.**
+  This is a behaviour change for everyone, not only TLS users: a socket that
+  reported a second failure after the one that closed it used to reach an
+  `error` with no listener and terminate the process. Such a process now stays
+  up, and the failure is still logged and emitted as it always was. Nothing
+  that previously succeeded behaves differently; a crash becomes a log line.
+
+- **Shared writer and watcher connections are now keyed by TLS configuration as
+  well as by `host:port`.** These connections are shared per server within a
+  process; queues reaching one server under different TLS configurations now get
+  separate connections, so a queue that asked for encryption can never be handed
+  a plaintext socket another queue opened first, nor the reverse. Configurations
+  equal by value still share, and the public `redisKey` still reports the plain
+  `host:port` address.
 
 - **`safeDeliveryTtl` is now the longest a message may be worked on**, and its
   default moves from `5000` to `300000`. It used to be a hand-off recovery
@@ -75,7 +105,55 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   wait would hand a message a sizeable part of its budget already spent. At the
   old defaults both of these resolve to exactly what they were.
 
-- No option was added or removed.
+- The safe-delivery changes above alter meanings and defaults only —
+  `safeDelivery`, `safeDeliveryTtl` and `watcherCheckDelay` are the same three
+  options they were.
+
+### Fixed
+
+- **A failed connection could crash the process as it was being torn down.**
+  The redis client guards its socket with a one-shot `error` listener, which
+  the failure that brings the connection down spends. A socket that goes on to
+  report a second failure — a rejected TLS handshake is answered by an alert
+  that arrives after the rejection itself — then reached a socket with nothing
+  attached, and the unhandled `error` took the process with it. The queue now
+  installs a durable listener on the socket when a connection first fails and
+  again before teardown, and `destroyChannel` no longer strips the client's
+  own `error` handler before writing its `QUIT`.
+
+  Reachable without TLS in principle, but TLS is what makes it ordinary: a
+  service started against a broker it cannot verify would reject `start()` and
+  then die inside `destroy()` rather than reporting the misconfiguration.
+
+- **`safeDelivery` lost a message when a worker died mid-handler.** It released
+  the message's worker key the instant the message was dispatched to the
+  `message` listener, so a worker killed while its handler was still running
+  took that message with it and nothing brought it back — the option guaranteed
+  the hand-off while its name and documentation promised guaranteed delivery.
+  The key is now held until the listener has finished with the message.
+
+  **A listener says it has finished by what it returns.** Return a promise and
+  the message stays checked out until it settles; return anything else and it is
+  released as the listener returns. Every registered listener is consulted, and
+  the message is released once all the promises they returned have settled —
+  settled, not fulfilled, because a handler that threw has still had its turn
+  and re-delivering on a rejection would retry a poison message forever.
+
+  Nothing needs changing to get this: a listener that already returns a promise
+  — as `@imqueue/rpc` and `@imqueue/job` both do — is covered as it stands, and
+  a synchronous listener behaves exactly as it did.
+
+  A message that cannot be unpacked releases its lease rather than coming back
+  on every sweep.
+
+- **A dead worker's message is recovered by asking the broker, not a clock.**
+  The worker key now carries the identity of the process that took it, and the
+  watcher reclaims it once that process has left `CLIENT LIST` — detected as
+  fast as the socket closes, and needing nothing renewed to keep a live lease
+  alive. Reconnecting workers get one sweep of grace, mirroring what the cleanup
+  pass already gave them, so a reconnect backoff does not cost a duplicate. If
+  the client list cannot be read at all, liveness is unknown and a lease is left
+  to its budget rather than guessed at.
 
 ### Keeping the old behaviour
 

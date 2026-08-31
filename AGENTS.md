@@ -38,7 +38,8 @@ Redis blocking list moves and keyspace notifications.
 ```bash
 npm install
 npm run build          # clean-compiled + tsc (emits alongside sources)
-npm test               # build + node:test over every test/**/*.spec.js
+npm test               # build + node:test over test/unit/**/*.spec.js (mocked)
+npm run test-integration  # build + test/integration/**/*.spec.js (real redis)
 npm run lint           # oxlint
 npm run format         # oxfmt (write)  |  npm run format:check (verify)
 npm run test-coverage  # tests + experimental coverage summary
@@ -46,10 +47,36 @@ npm run test-lcov      # writes coverage/lcov.info
 npm run benchmark      # message-throughput benchmark (see below)
 ```
 
-Tests use the native `node:test` runner with
-`--experimental-test-module-mocks` and preload `./test/mocks/index.js`;
+Unit specs live in `test/unit/` and use the native `node:test` runner with
+`--experimental-test-module-mocks` and a preload of `./test/mocks/index.js`;
 timeout is 15s per test. Run a single spec after a build with
-`node --experimental-test-module-mocks --import ./test/mocks/index.js --test test/src/RedisQueue.spec.js`.
+`node --experimental-test-module-mocks --import ./test/mocks/index.js --test test/unit/RedisQueue.spec.js`.
+
+`npm test` deliberately globs `test/unit` rather than `test`: the integration
+specs must not run under a preload that replaces `ioredis` wholesale. Keep that
+glob scoped when adding runners.
+
+**The unit specs never open a socket** — `test/mocks/redis.ts` replaces
+`ioredis` wholesale. That is fine for everything except the TLS option, whose
+entire point is what happens during a handshake the mock does not perform.
+`test/integration/` covers that against a real broker, and anything touching
+`tls`, the connection literal in `RedisQueue.connect()`, the pool key or
+connection teardown must be checked with `npm run test-integration` as well as
+`npm test`.
+
+`test/integration/tlsBroker.ts` issues a throwaway CA, server and client
+certificate with `openssl`, then starts `redis-server` on a port picked at run
+time with `--port 0 --tls-port <n>`. `--port 0` is the part that matters: with
+no plaintext listener at all, a queue that reaches the broker has demonstrably
+done so over TLS. It is started twice, once with `--tls-auth-clients no` and
+once with `yes`, so both server-authenticated and mutual TLS are exercised.
+
+**The integration specs skip, never fail, when the machine cannot host a
+broker.** `startTlsBroker()` returns a reason string instead of throwing when
+`redis-server` or `openssl` is missing, or when redis will not start with TLS
+enabled, and that reason becomes the suite's `skip`. CI has no redis and must
+stay green, so keep that contract: report a skip reason, do not throw, and do
+not add these specs to a runner that CI invokes.
 
 ## Layout
 

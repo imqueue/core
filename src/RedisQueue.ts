@@ -43,6 +43,8 @@ import {
     sha1,
     unpack,
     envInt,
+    envTls,
+    tlsFingerprint,
     errorCode,
     LOG_MAX_KEYS,
 } from './helpers/index.js';
@@ -190,11 +192,12 @@ const IMQ_REDIS_MAX_LISTENERS_LIMIT = envInt(
  * @remarks
  * Connection model: the reader is per instance and exists only in
  * {@link IMQMode.BOTH} or {@link IMQMode.WORKER} mode, while the writer and
- * watcher connections are shared per `host:port` across every queue in the
- * process and reference-counted. Exactly one queue per key prefix is elected as
- * the watcher through a `<prefix>:watch:lock` key, and that owner also releases
- * delayed messages, recovers abandoned safe-delivery hand-offs and — when
- * {@link IMQOptions.cleanup} is on — prunes orphaned keys.
+ * watcher connections are shared per `host:port` — and per TLS configuration —
+ * across every queue in the process and reference-counted. Exactly one queue
+ * per key prefix is elected as the watcher through a `<prefix>:watch:lock` key,
+ * and that owner also releases delayed messages, recovers abandoned
+ * safe-delivery hand-offs and — when {@link IMQOptions.cleanup} is on — prunes
+ * orphaned keys.
  *
  * Lifecycle: {@link RedisQueue.start} is required before consuming or
  * publishing, while {@link RedisQueue.send} starts the queue lazily.
@@ -364,13 +367,34 @@ export class RedisQueue
      *
      * @remarks
      * This is not an instance identifier. It is deliberately shared by every
-     * queue in the process that targets the same server, and is the key under
-     * which the writer and watcher connections (and the writer reference count)
-     * are stored. It includes neither the key prefix nor the credentials, so two
-     * queues differing only in those share the same underlying connections — the
-     * first one created wins.
+     * queue in the process that targets the same server, and it is what
+     * identifies that server in logs. It includes neither the key prefix nor
+     * the credentials.
+     *
+     * It is no longer the whole of the connection pool key — see
+     * {@link RedisQueue.poolKey} — because connections differing in their
+     * transport security must not be shared.
      */
     public readonly redisKey: string;
+
+    /**
+     * Key under which the shared writer and watcher connections, and the writer
+     * reference count, are stored.
+     *
+     * @remarks
+     * This is {@link RedisQueue.redisKey} for a plaintext connection, and that
+     * address plus a fingerprint of {@link IMQOptions.tls} for an encrypted
+     * one. Two queues reaching one server under equal TLS configurations
+     * therefore still share a connection, while queues that differ in their
+     * trust anchors, client certificate or verification callbacks get separate
+     * ones — a queue asking for TLS can never be handed a plaintext socket
+     * another queue opened first, nor the reverse.
+     *
+     * The prefix and the credentials remain outside the key, so queues
+     * differing only in those still share a connection and the first one
+     * created still wins.
+     */
+    private readonly poolKey: string;
 
     /**
      * Lua scripts for redis
@@ -459,9 +483,39 @@ export class RedisQueue
 
         this.options = buildOptions<IMQOptions>(DEFAULT_IMQ_OPTIONS, options);
 
+        if (this.options.tls === undefined) {
+            // an unreadable CA or client key throws out of here rather than
+            // yielding a queue that would quietly talk to the broker in clear
+            const fromEnv = envTls();
+
+            if (fromEnv !== undefined) {
+                // assigned only when the environment actually asks for TLS, so
+                // that a queue nobody configured for it carries no `tls` key at
+                // all and `options` keeps exactly the shape it always had
+                this.options.tls = fromEnv;
+            }
+        }
+
         this.pack = this.options.useGzip ? pack : JSON.stringify;
         this.unpack = this.options.useGzip ? unpack : JSON.parse;
         this.redisKey = `${this.options.host}:${this.options.port}`;
+        this.poolKey = this.options.tls
+            ? `${this.redisKey}#${tlsFingerprint(this.options.tls)}`
+            : this.redisKey;
+
+        if (
+            this.options.tls &&
+            this.options.tls !== true &&
+            this.options.tls.rejectUnauthorized === false
+        ) {
+            this.logger.warn(
+                '%s: TLS certificate verification is disabled for redis host' +
+                    ' %s — the connection is encrypted but the server is not' +
+                    ' authenticated, so it is open to interception',
+                this.name,
+                this.redisKey,
+            );
+        }
 
         for (const script of Object.keys(this.scripts)) {
             this.scripts[script].checksum = sha1(this.scripts[script].code);
@@ -824,8 +878,8 @@ export class RedisQueue
         }
 
         if (!this.writerAcquired) {
-            RedisQueue.writerRefs[this.redisKey] =
-                (RedisQueue.writerRefs[this.redisKey] || 0) + 1;
+            RedisQueue.writerRefs[this.poolKey] =
+                (RedisQueue.writerRefs[this.poolKey] || 0) + 1;
             this.writerAcquired = true;
         }
 
@@ -1275,9 +1329,10 @@ export class RedisQueue
      * Used for health-aware routing in the clustered queue.
      *
      * @remarks
-     * The writer connection is shared per `host:port` within the process, so this
-     * reflects the health of that server connection rather than of this instance
-     * alone — every queue pointing at the same server reports the same value.
+     * The writer connection is shared per `host:port` and TLS configuration
+     * within the process, so this reflects the health of that server connection
+     * rather than of this instance alone — every queue pointing at the same
+     * server the same way reports the same value.
      */
     public get available(): boolean {
         return !this.writer || this.writer.status === 'ready';
@@ -1285,27 +1340,27 @@ export class RedisQueue
 
     /**
      * Writer connection associated with this queue instance. Shared by every
-     * queue in the process that targets the same `host:port`.
+     * queue in the process that targets the same {@link RedisQueue.poolKey}.
      */
     private get writer(): IRedisClient {
-        return RedisQueue.writers[this.redisKey];
+        return RedisQueue.writers[this.poolKey];
     }
 
     private set writer(conn: IRedisClient) {
-        RedisQueue.writers[this.redisKey] = conn;
+        RedisQueue.writers[this.poolKey] = conn;
     }
 
     /**
      * Watcher connection associated with this queue instance. Shared by every
-     * queue in the process that targets the same `host:port`; at most one queue
-     * per prefix is the elected watcher owner.
+     * queue in the process that targets the same {@link RedisQueue.poolKey}; at
+     * most one queue per prefix is the elected watcher owner.
      */
     private get watcher(): IRedisClient {
-        return RedisQueue.watchers[this.redisKey];
+        return RedisQueue.watchers[this.poolKey];
     }
 
     private set watcher(conn: IRedisClient) {
-        RedisQueue.watchers[this.redisKey] = conn;
+        RedisQueue.watchers[this.poolKey] = conn;
     }
 
     /**
@@ -1384,7 +1439,7 @@ export class RedisQueue
         if (this.watcher) {
             this.verbose('Destroying watcher...');
             this.destroyChannel('watcher');
-            delete RedisQueue.watchers[this.redisKey];
+            delete RedisQueue.watchers[this.poolKey];
             this.verbose('Watcher destroyed!');
         }
     }
@@ -1396,12 +1451,12 @@ export class RedisQueue
     private destroyWriter(release: boolean = true): void {
         if (release && this.writerAcquired) {
             this.writerAcquired = false;
-            RedisQueue.writerRefs[this.redisKey] = Math.max(
+            RedisQueue.writerRefs[this.poolKey] = Math.max(
                 0,
-                (RedisQueue.writerRefs[this.redisKey] || 1) - 1,
+                (RedisQueue.writerRefs[this.poolKey] || 1) - 1,
             );
 
-            if (RedisQueue.writerRefs[this.redisKey] > 0) {
+            if (RedisQueue.writerRefs[this.poolKey] > 0) {
                 // the shared writer connection is still used by other
                 // queue instances within this process
                 this.verbose('Writer is still in use, skipping destroy...');
@@ -1413,9 +1468,36 @@ export class RedisQueue
         if (this.writer) {
             this.verbose('Destroying writer...');
             this.destroyChannel('writer');
-            delete RedisQueue.writers[this.redisKey];
+            delete RedisQueue.writers[this.poolKey];
             this.verbose('Writer destroyed!');
         }
+    }
+
+    /**
+     * Installs a durable `error` listener on a connection's socket.
+     *
+     * @param client - the connection whose socket to guard
+     *
+     * @remarks
+     * The redis client guards the socket with a one-shot listener, which the
+     * first failure consumes. A socket that goes on to report a second one -
+     * a rejected TLS handshake is answered by an alert that arrives after the
+     * failure that caused it - then reaches a socket with nothing attached,
+     * and an unhandled `error` takes the process down. Nothing is left to act
+     * on it by then, so it is swallowed.
+     *
+     * Idempotent: connections are marked once guarded, so repeated failures on
+     * one socket do not accumulate listeners.
+     */
+    private guardSocket(client: IRedisClient): void {
+        const stream = client.stream;
+
+        if (!stream || client.__guarded__) {
+            return;
+        }
+
+        client.__guarded__ = true;
+        stream.on('error', () => undefined);
     }
 
     /**
@@ -1430,7 +1512,16 @@ export class RedisQueue
         }
 
         try {
+            this.guardSocket(client);
             client.removeAllListeners();
+
+            // removing the listeners leaves the client with no `error` handler
+            // while the teardown below still writes to it. On a socket that has
+            // already failed - a TLS handshake the peer rejected, most
+            // obviously - that write raises an error an EventEmitter with no
+            // listener rethrows, taking the process down as it is shutting the
+            // connection cleanly. Nothing is left to report it to, so swallow.
+            client.on('error', () => undefined);
 
             let disconnected = false;
             const forceDisconnect = (): void => {
@@ -1505,6 +1596,13 @@ export class RedisQueue
             host: options.host || 'localhost',
             username: options.username,
             password: options.password,
+            // spread conditionally: the literal stays closed on purpose, so
+            // that nothing a caller passes can override the retry strategy,
+            // the offline queue or the lazy connect this queue's reconnection
+            // logic is built on
+            ...(options.tls
+                ? { tls: options.tls === true ? {} : options.tls }
+                : {}),
             connectionName: this.getChannelName(
                 this.name,
                 options.prefix || '',
@@ -1690,6 +1788,14 @@ export class RedisQueue
     ): (error: Error) => void {
         return (error: Error & { code?: string }) => {
             this.verbose(`Redis Error: ${error}`);
+
+            // the failure that brings a socket down is rarely the last thing
+            // it reports, and the client's own guard is spent by this one
+            const failed = this.connectionOf(channel);
+
+            if (failed) {
+                this.guardSocket(failed);
+            }
 
             if (this.destroyed) {
                 return;

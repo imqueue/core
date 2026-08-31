@@ -22,6 +22,7 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { EventEmitter } from 'node:events';
+import type { ConnectionOptions as TlsOptions } from 'node:tls';
 import { IMQMode } from './IMQMode.js';
 import { ClusterManager } from './ClusterManager.js';
 
@@ -193,10 +194,11 @@ export interface IMessageQueueConnection extends IMessageQueueAuthConnection {
 
 /**
  * Optional credentials for a queue host, forwarded to the Redis client as
- * `username` and `password`.
+ * `username` and `password`, plus the transport security to reach it with.
  *
- * Supply both for a Redis ACL user, or just `password` for a `requirepass`-only
- * server. Omit both to connect unauthenticated, which is the default.
+ * Supply both credentials for a Redis ACL user, or just `password` for a
+ * `requirepass`-only server. Omit both to connect unauthenticated, which is the
+ * default.
  */
 export interface IMessageQueueAuthConnection {
     /**
@@ -208,6 +210,38 @@ export interface IMessageQueueAuthConnection {
      * Password for the queue host.
      */
     password?: string;
+
+    /**
+     * Encrypts this connection with TLS. `true` connects with Node's defaults,
+     * verifying the server against the system trust store; an object is handed
+     * to `tls.connect()` as given, so supply `ca` for a private certificate
+     * authority and `cert` with `key` for mutual TLS.
+     *
+     * Applies to every channel the queue opens — reader, writer, watcher and
+     * subscription alike — so enabling it here encrypts the whole bus. The
+     * broker must be listening for TLS (`tls-port`); a server that is not will
+     * refuse the handshake rather than fall back to plaintext.
+     *
+     * @defaultValue undefined
+     *
+     * @remarks
+     * The certificate is verified against {@link IMessageQueueConnection.host}
+     * unless `servername` says otherwise. A host that is a bare IP address
+     * therefore needs a certificate carrying that address as an IP SAN — reach
+     * the broker by the name on its certificate, or set `servername` to it.
+     *
+     * The writer and watcher connections are shared per server within the
+     * process, and that sharing accounts for this option: queues reaching the
+     * same host and port under different TLS configurations get separate
+     * connections rather than silently inheriting whichever was opened first.
+     * Configurations that are equal by value still share.
+     *
+     * When omitted, the environment is consulted instead — see
+     * `IMQ_REDIS_TLS` and its companions in {@link envTls} — which lets a
+     * deployment turn encryption on without a code change. Passing `false`
+     * declines that fallback and forces a plaintext connection.
+     */
+    tls?: boolean | TlsOptions;
 }
 
 /**
@@ -408,8 +442,12 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
      * cluster-membership matching. Sends are distributed across the servers by
      * health-aware round-robin, preferring ones whose connection is ready.
      *
-     * Note that per-entry `username` and `password` are currently ignored — the
-     * underlying queues authenticate with the top-level credentials.
+     * An entry may carry its own `tls`, overriding the top-level one for that
+     * server alone — for a cluster whose members do not share trust anchors.
+     * An entry that leaves it out falls back to the top level.
+     *
+     * Per-entry `username` and `password` remain ignored: the underlying
+     * queues authenticate with the top-level credentials.
      */
     cluster?: IMessageQueueConnection[];
 

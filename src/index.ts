@@ -21,6 +21,8 @@
  */
 export * from './profile.js';
 export * from './redis.js';
+export { envTls } from './helpers/envTls.js';
+export { tlsFingerprint } from './helpers/tlsFingerprint.js';
 export * from './IMQMode.js';
 export * from './IMessageQueue.js';
 export * from './RedisQueue.js';

@@ -1002,6 +1002,14 @@ export class ClusteredRedisQueue
             port: server.port,
         };
 
+        // carried through only when the entry actually states it: the entry is
+        // spread over the cluster-wide options below, and a key present but
+        // undefined would blank out the top-level value rather than fall back
+        // to it
+        if (server.tls !== undefined) {
+            newServer.tls = server.tls;
+        }
+
         const opts = { ...this.mqOptions, ...newServer };
         const imq = new RedisQueue(this.name, opts);
 

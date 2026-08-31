@@ -41,8 +41,9 @@
  *
  * Delivery is at-least-once, so message handlers must be idempotent. Within a
  * single process, writer and watcher connections are shared per `host:port` and
- * reference-counted, and exactly one queue per key prefix is elected as the
- * watcher that releases delayed messages and performs maintenance.
+ * TLS configuration and reference-counted, and exactly one queue per key prefix
+ * is elected as the watcher that releases delayed messages and performs
+ * maintenance.
  *
  * Under {@link IMQOptions.safeDelivery} a message stays checked out to its
  * worker until the `message` listener has finished with it, and what a listener

@@ -46,6 +46,12 @@ export class RedisClientMock extends EventEmitter {
     private __name: string = '';
     public connected: boolean = true;
     public status = 'ready';
+    /**
+     * Stand-in for the client's underlying socket. The queue installs a
+     * durable `error` listener on it during teardown, so the mock has to carry
+     * something that can hold one.
+     */
+    public stream: EventEmitter = new EventEmitter();
     public options: any;
 
     constructor(options: any = {}) {

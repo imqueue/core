@@ -38,6 +38,8 @@ With current implementation on RedisQueue:
   no delays in delivery and low CPU usage on application workers. When idle,
   it consumes no resources.
 - **Supports Gzip compression for messages** (decreases traffic usage but is slower).
+- **TLS on the wire**, including mutual TLS, on every connection the queue
+  opens — and switchable from the environment, without a code change.
 - **Concurrent workers model supported**, the same queue can have multiple
   consumers.
 - **Delayed messages supported**, fast as ~10K of 1Kb messages per second on i7
@@ -187,6 +189,154 @@ Delivery is **at-least-once** in every mode. Holding the lease narrows the windo
 in which in-flight work is lost — it does not close it, and `SIGKILL` on the
 whole node, an OOM kill or a lost machine still take work with them — so handlers
 must be idempotent.
+
+# Transport encryption (TLS)
+
+Set `tls` and every connection the queue opens — reader, writer, watcher and
+subscription alike — is encrypted. `true` connects with Node's defaults,
+verifying the broker against the system trust store; an object is handed to
+`tls.connect()` as given:
+
+```typescript
+import { readFileSync } from 'node:fs';
+
+const queue = IMQ.create('Orders', {
+    host: 'redis.internal',
+    port: 6380,
+    password: process.env.REDIS_PASSWORD,
+    tls: {
+        ca: readFileSync('/etc/redis-tls/ca.crt'),          // a private CA
+        cert: readFileSync('/etc/redis-tls/client.crt'),    // mutual TLS,
+        key: readFileSync('/etc/redis-tls/client.key'),     // if the broker
+    },                                                      // asks for it
+});
+```
+
+The broker has to be listening for TLS — `tls-port 6380` and a server
+certificate, plus `tls-auth-clients yes` if you are using client certificates.
+A server that is not will refuse the handshake, and the queue reports the
+failure rather than falling back to plaintext: there is no downgrade path.
+
+| option | default | meaning |
+|---|---|---|
+| `tls` | `undefined` | `true` for Node's defaults, an object for `tls.connect()`, `false` to force plaintext |
+
+## Turning it on without a code change
+
+With `tls` left unset, the environment is consulted, so a deployment can encrypt
+a fleet it does not want to edit:
+
+| variable | meaning |
+|---|---|
+| `IMQ_REDIS_TLS` | `1` enables TLS with default verification; `0` forces plaintext and wins over everything below |
+| `IMQ_REDIS_TLS_CA_FILE` | PEM bundle to verify the broker against — implies `IMQ_REDIS_TLS=1` |
+| `IMQ_REDIS_TLS_CERT_FILE`, `IMQ_REDIS_TLS_KEY_FILE` | client certificate and key for mutual TLS — imply `IMQ_REDIS_TLS=1` |
+| `IMQ_REDIS_TLS_KEY_PASSPHRASE` | passphrase of an encrypted private key |
+| `IMQ_REDIS_TLS_SERVERNAME` | expected certificate name, when it is not the host you connect to |
+| `IMQ_REDIS_TLS_REJECT_UNAUTHORIZED` | `0` accepts an unverified certificate — see the warning below |
+
+Passing `tls` explicitly always wins, `tls: false` included. The certificate
+files are read as the queue is constructed, and an unreadable one throws: a
+mistyped path or an unmounted secret stops the process rather than leaving it
+talking to the broker in the clear.
+
+## Two things that will bite you
+
+**The certificate is checked against the host you connect to**, which is a
+problem the moment you connect to an address. See below.
+
+**`rejectUnauthorized: false` is not "TLS with less fuss".** It encrypts the
+connection and then accepts whatever certificate answers, which is exactly what
+an interceptor needs. The queue logs a warning when it sees it. Use it to poke
+at a self-signed broker on your laptop, never in a deployment — supply the `ca`
+instead, which is no harder and actually authenticates the server.
+
+## Rotating certificates
+
+Certificates expire, and the material is read **once**, as the queue is
+constructed. A file replaced in place at the same path — which is what
+cert-manager, Vault and a rotated Kubernetes secret all do — is not picked up
+by a running process, and neither a reconnect nor a broker restart re-reads it.
+
+So plan for a restart. Roll the pods when the secret changes and the new
+material is loaded on the way up, which is what most deployments do anyway.
+What you must not do is let the old certificate expire before that restart
+happens.
+
+Rotating the **certificate authority** is the case that needs care, because
+every client must trust the new CA before the broker starts presenting
+certificates signed by it. `ca` takes an array, so trust both across the
+overlap:
+
+```typescript
+tls: { ca: [readFileSync('ca-old.crt'), readFileSync('ca-new.crt')] }
+```
+
+Roll the fleet with both trusted, switch the broker, then drop the old one on
+the next roll. `IMQ_REDIS_TLS_CA_FILE` points at a single file, but a PEM
+bundle — several certificates concatenated into one file — works there and is
+the usual way to do this from the environment.
+
+## Brokers addressed by IP
+
+Cluster discovery announces **addresses**, not names, so a queue dials
+`10.1.2.3` and the default check compares that against the certificate — which
+cannot carry an address nobody knew when it was issued. The handshake fails
+with `ERR_TLS_CERT_ALTNAME_INVALID`.
+
+Pin `servername` and the check runs against that name instead of the address:
+
+```typescript
+tls: { ca, servername: 'redis-broker.internal' }
+```
+
+Or, with no code at all, `IMQ_REDIS_TLS_SERVERNAME=redis-broker.internal`.
+
+This is not a weakening. Certificate verification is two independent checks —
+*is this certificate signed by an authority I trust*, and *does it name who I
+expected to reach*. Pinning `servername` changes only the second, from an
+address that is an accident of scheduling to an identity that is stable. A
+broker without a certificate from your CA is refused exactly as before; so is
+one whose certificate names something else. The specs in `test/integration/`
+assert all three.
+
+Issuing an IP SAN instead works, and needs no `servername` — but only where
+broker addresses are stable and known in advance. An autoscaled pool's are
+neither, and that is the point: **the certificate names an identity, not a
+location.** A broker that scales out, is rescheduled, or comes back on a
+different address presents the same certificate as before, and the client
+verifies it against the same pinned name. Nothing is issued, re-issued or
+reloaded when an address changes — there is no per-pod PKI to run, and one
+certificate serves the whole pool.
+
+Concretely, on Kubernetes: one `Certificate` for `redis-broker.internal`, its
+Secret mounted by every broker pod, its `ca.crt` mounted by every service pod,
+and `IMQ_REDIS_TLS_CA_FILE` plus `IMQ_REDIS_TLS_SERVERNAME` set in the service
+deployment. Scaling the broker pool changes nothing about any of it.
+
+**This is also what makes UDP discovery safe to keep.** The announce channel is
+unauthenticated, so anyone who can inject a broadcast can point a service at an
+address of their choosing. With TLS and a private CA, the worst that address can
+do is fail to complete a handshake: it cannot present a certificate your CA
+signed, so a spoofed announcement costs you a connection rather than the
+traffic on it. That converts an interception risk into a denial-of-service one.
+It does not authenticate the announcements themselves.
+
+## Connection sharing
+
+Writer and watcher connections are shared per server within a process, and that
+sharing accounts for TLS: queues reaching the same host and port under different
+TLS configurations get separate connections. A queue that asked for encryption
+can never be handed a plaintext socket another queue opened first, nor the
+reverse. Configurations equal by value — the same anchors, the same client
+certificate, the same callbacks — still share.
+
+## What it does not cover
+
+`UDPClusterManager` announces cluster membership over unauthenticated UDP
+broadcast, and `tls` does not touch that: it secures the queue's connections to
+the broker, not the discovery channel that tells it which brokers exist. Treat
+UDP discovery as trusted-network-only regardless of this setting.
 
 # Benchmarking
 

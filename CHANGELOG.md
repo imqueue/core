@@ -11,6 +11,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+The clustered subscription changes below are **patch-level bug fixes**: they
+restore additive subscription replay and close lifecycle races without adding a
+public API. Package versions are updated separately; other unreleased features may require a minor
+release.
+
 ### Added
 
 - **TLS on connections to the redis broker.** A new `tls` option encrypts every
@@ -40,6 +45,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   This covers the queue's own connections. `UDPClusterManager` announcements
   remain unauthenticated UDP broadcast and are unaffected.
 
+- **Integration specs covering clustered subscription against a real broker**,
+  in `test/integration/clusterSubscription.spec.ts`. Unit mocks verify call
+  ordering and simulated delivery; these additionally verify Redis subscription
+  acknowledgments and actual deliveries. Unlike the TLS specs they do not stand
+  up their own server: they use an ambient one at `REDIS_HOST`/`REDIS_PORT` (default
+  `127.0.0.1:6379`) and skip, with a reason, when none answers. `npm test` does
+  not run them.
+
 - **Integration specs covering TLS against a real broker**, in
   `test/integration/`, run by `npm run test-integration`. They stand up a
   throwaway TLS-only redis and assert what a mocked `ioredis` cannot: that the
@@ -51,6 +64,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   redis still passes. `npm test` now globs `test/unit` and does not run them.
 
 ### Changed
+
+- **Clustered subscribe()/unsubscribe() now serialise per host.** A call can
+  block behind an earlier subscription operation on that host that never
+  settles. Different hosts proceed independently. Rejected registrations remain
+  remembered and may have succeeded on some hosts; **subscribe() is not
+  retryable**. Repeating it adds another registration, including on future
+  hosts. To rebuild a known set, await unsubscribe() and register that set again.
+  Function-identity deduplication would break deliberate additive registrations;
+  rolling back a partial fan-out would require tearing down working subscribers.
+
+- **Clustered destroy() clears routing membership and subscription state
+  synchronously.** Queued work cannot reopen a destroyed host. Teardown bypasses
+  subscription chains so a wedged operation cannot hold it up. Concurrent callers
+  await the same teardown (including manager removal) and observe the same
+  AggregateError if it fails. Every independent host teardown and manager removal
+  is attempted even if others fail. A later destroy() retries only failed tasks;
+  successful cleanup is not repeated. Discovery admission closes synchronously
+  and stays closed during and after teardown, including retries. A `send()`
+  already parked waiting for the first server is rejected as teardown begins,
+  rather than waiting out `IMQ_SEND_INIT_TIMEOUT` on a timer that keeps the
+  process alive; `send()` and `subscribe()` on a destroyed instance are
+  rejected outright instead of stalling or repopulating the cleared state.
+  Destroyed instances must not be reused.
+
+- **`ClusteredRedisQueue.subscribe()` now rejects a bad channel on an empty
+  cluster, where it used to resolve.** Validation lived in the underlying
+  queues, so with no servers yet there was nothing to raise it: a second
+  channel name, or an empty one, resolved and left the remembered subscription
+  naming a channel nothing was subscribed to. The cluster now applies the same
+  two checks itself, with the same messages the underlying queue uses, before
+  touching any state. An empty cluster is the normal starting point for
+  membership discovered at runtime, so a caller that registers before the first
+  server arrives will see an error it previously did not.
 
 - **Nothing changes for a queue that does not use TLS.** The option is absent
   from `options` unless it was configured, the connection pool key stays the
@@ -110,6 +156,48 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   options they were.
 
 ### Fixed
+
+- **A clustered queue gave a server that joined later only the last-registered
+  subscription handler, silencing every other handler on that host.**
+  `ClusteredRedisQueue` remembered one `{ channel, handler }` pair, so each
+  `subscribe()` overwrote the previous one. Handlers were still forwarded to the
+  hosts already known, which is why this stayed invisible while cluster
+  membership was stable — but a host added afterwards (a broker replaced, or
+  discovery completing after the calls at start-up) was subscribed with the
+  **last** handler alone. With one handler carrying business events and another
+  carrying cache invalidation, a host could serve the second and silently drop
+  the first: the socket stays subscribed, the publisher still sees a subscriber
+  and RPC is unaffected, so nothing surfaces the loss.
+
+  Every registration is now remembered and installed, in registration order,
+  including the same function registered twice — `subscribe()` remains additive
+  as documented.
+
+  Live registration and joining-host catch-up share a serialised operation per
+  host. Each run reads a cluster-owned per-host installation count and installs
+  the remaining registrations, advancing only after success. Direct host
+  registrations do not count towards cluster progress. Cluster unsubscribe
+  resets that count inside the same chain, including after a rejected teardown.
+  Overlapping runs do not duplicate a cluster registration within an
+  uninterrupted subscription. This is not an unconditional exactly-once delivery
+  guarantee: deliberate repeated registrations still invoke twice, publication
+  across hosts can deliver more than once, and unsubscribe/replacement can cause
+  a temporary installation that teardown removes before catch-up reinstalls it.
+
+  A host dropped mid-catch-up receives no further installations and is not
+  announced as initialized. Two kinds of `info` line report the ordinal and
+  channel of each registration, and how many handlers a catch-up run installed. The verbose
+  `Initializing queue with state` line has been removed.
+
+- **A server that failed to start while joining could take the process down.**
+  Its background initialization now observes rejection, preventing an unhandled
+  rejection and process exit. Startup and subscription catch-up run independently:
+  a failed or stalled start does not block pub/sub, preserving the documented
+  ability to subscribe without start(). Joining hosts still start automatically
+  in a started cluster; later subscribe() calls do not retry startup. Deferred
+  joining-host startup and cluster start() share pending startup per host, so
+  they cannot start that host concurrently. Settled startup is released so an
+  explicit later start() can retry.
 
 - **A failed connection could crash the process as it was being torn down.**
   The redis client guards its socket with a one-shot `error` listener, which

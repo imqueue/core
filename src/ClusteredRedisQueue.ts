@@ -55,16 +55,36 @@ export interface ClusterServer extends IMessageQueueConnection {
     /**
      * Queue instance created for this host. Present once the server has been
      * registered; the queue may still be starting.
+     *
+     * @remarks
+     * Exposed to inspect or address one specific host. Subscribing through it
+     * directly is safe only on the channel the cluster itself uses: a queue
+     * accepts one channel, so a direct subscription to another name makes every
+     * later cluster registration on that host fail. `unsubscribe()` and
+     * `destroy()` on it are not
+     * supported: the cluster tracks how many of its own registrations a host
+     * has taken, and it cannot see a handler removed behind its back, so a
+     * registration made afterwards would be installed while an earlier one
+     * stayed missing. Use {@link ClusteredRedisQueue.unsubscribe} and
+     * {@link ClusteredRedisQueue.removeServer} instead.
      */
     imq?: RedisQueue;
 }
 
 interface ClusterState {
     started: boolean;
-    subscription: {
-        channel: string;
-        handler: (data: JsonObject) => void;
-    } | null;
+    channel: string | null;
+    handlers: Array<(data: JsonObject) => void>;
+}
+
+/**
+ * Serialises subscription changes for one host.
+ */
+interface HostProgress {
+    /** Repaired tail; callers receive the original operation's rejection. */
+    chain: Promise<void>;
+    /** Registrations successfully installed by this cluster since teardown. */
+    installed: number;
 }
 
 /**
@@ -80,8 +100,8 @@ interface ClusterState {
  * `clear`, `destroy`, `publish`, `subscribe`, `unsubscribe` and `queueLength` —
  * fans out to every server.
  *
- * Every fan-out uses `Promise.all`, so one failing host fails the whole call with
- * no partial-failure reporting and no rollback.
+ * Fan-out normally uses `Promise.all`, with no rollback on failure. Destroy
+ * attempts every cleanup task and reports failures together in an AggregateError.
  *
  * The class only `implements` the `EventEmitter` interface rather than extending
  * it, so `instanceof EventEmitter` is false and every emitter method is a
@@ -168,13 +188,40 @@ export class ClusteredRedisQueue
      * @remarks
      * Cluster membership changes at runtime, so a per-host queue may be created
      * long after `start()` and `subscribe()` were called on the cluster. This
-     * records those calls; {@link ClusteredRedisQueue.initializeQueue} replays
-     * them onto each new queue.
+     * records those calls; joining hosts replay startup and subscription
+     * catch-up independently.
      */
     private state: ClusterState = {
         started: false,
-        subscription: null,
+        channel: null,
+        handlers: [],
     };
+
+    /**
+     * Tracks this cluster's successful installations, independently of handlers
+     * registered directly on a host. Teardown resets the installation count.
+     */
+    private readonly progress = new WeakMap<RedisQueue, HostProgress>();
+
+    /**
+     * Sends parked in {@link ClusteredRedisQueue.sendWhenInitialized}, waiting
+     * for a server to appear. Kept so {@link ClusteredRedisQueue.destroy} can
+     * settle them at once rather than leaving each to time out against a
+     * cluster that can no longer admit a server.
+     */
+    private readonly waitingSends = new Set<(reason: Error) => void>();
+
+    /** Pending startup shared by batch startup and joining-host initialization. */
+    private readonly starting = new WeakMap<RedisQueue, Promise<void>>();
+
+    /** Membership admission stays closed after the first destroy() call. */
+    private closed = false;
+
+    /** Failed cleanup tasks remain here for an explicit destroy() retry. */
+    private readonly cleanup = new Set<() => Promise<void>>();
+
+    /** Teardown shared by concurrent destroy() callers. */
+    private destroying?: Promise<void>;
 
     /**
      * Handles for the cluster managers this queue is registered with, kept so
@@ -328,6 +375,16 @@ export class ClusteredRedisQueue
         delay?: number,
         errorHandler?: (err: Error) => void,
     ): Promise<string> {
+        if (this.closed) {
+            // admission is closed, so no server can ever arrive: waiting out
+            // the initialisation timeout would stall a shutdown path for
+            // IMQ_SEND_INIT_TIMEOUT on a timer that is not unref()'d
+            throw new TypeError(
+                'ClusteredRedisQueue: the queue was destroyed and cannot be ' +
+                    'reused, so this message has nowhere to go!',
+            );
+        }
+
         if (!this.imqLength) {
             return this.sendWhenInitialized(
                 toQueue,
@@ -396,24 +453,38 @@ export class ClusteredRedisQueue
         return new Promise<string>((resolve, reject) => {
             const onInitialized = ({ imq }: { imq: RedisQueue }): void => {
                 clearTimeout(timer);
+                this.waitingSends.delete(giveUp);
                 imq.send(toQueue, message, delay, errorHandler).then(
                     resolve,
                     reject,
                 );
             };
 
-            const timer = setTimeout(() => {
+            const giveUp = (reason: Error): void => {
+                clearTimeout(timer);
                 this.clusterEmitter.removeListener(
                     'initialized',
                     onInitialized,
                 );
-                reject(
-                    new Error(
-                        'ClusteredRedisQueue: no cluster server became ' +
-                            'available to send the message',
+                this.waitingSends.delete(giveUp);
+                reject(reason);
+            };
+
+            const timer = setTimeout(
+                () =>
+                    giveUp(
+                        new Error(
+                            'ClusteredRedisQueue: no cluster server became ' +
+                                'available to send the message',
+                        ),
                     ),
-                );
-            }, this.sendInitTimeout);
+                this.sendInitTimeout,
+            );
+
+            // registered so destroy() can settle this immediately: once
+            // admission is closed no server can ever initialise, and waiting
+            // out the timeout would hold the event loop open on a shutdown
+            this.waitingSends.add(giveUp);
 
             this.clusterEmitter.once('initialized', onInitialized);
         });
@@ -421,34 +492,91 @@ export class ClusteredRedisQueue
 
     /**
      * Destroys every server's queue — closing their connections and removing
-     * their event listeners — then unregisters this cluster from all configured
+     * their event listeners — and unregisters this cluster from all configured
      * cluster managers.
      *
      * @remarks
      * Unregistering shuts a manager down entirely once it has no clusters left,
      * which for {@link UDPClusterManager} also terminates its shared UDP worker.
      *
-     * The instance must not be reused afterwards: internal routing state is not
-     * cleared, so a subsequent {@link ClusteredRedisQueue.send} would silently
-     * re-open a connection.
+     * Routing membership and remembered subscriptions are cleared synchronously,
+     * so queued subscription work cannot reopen a destroyed host. Teardown does
+     * not wait for the subscription chain; concurrent callers await the same
+     * teardown, including manager removal. Every independent cleanup is attempted;
+     * failures are reported together in an AggregateError. A later destroy()
+     * retries only failed tasks; successful tasks are not repeated. Membership
+     * admission stays closed, including during retries. The instance must not
+     * be reused.
      */
     public async destroy(): Promise<void> {
-        this.state.started = false;
-
-        await this.batch(
-            'destroy',
-            'Destroying clustered redis message queue...',
-        );
-
-        if (!this.options.clusterManagers?.length) {
-            return;
+        if (this.destroying) {
+            return this.destroying;
         }
 
-        for (const manager of this.options.clusterManagers) {
-            for (const cluster of this.initializedClusters) {
-                await manager.remove(cluster);
+        if (!this.closed) {
+            this.closed = true;
+            this.state.started = false;
+
+            for (const imq of this.imqs) {
+                this.cleanup.add(() => imq.destroy());
+            }
+
+            for (const manager of this.options.clusterManagers || []) {
+                for (const cluster of this.initializedClusters) {
+                    this.cleanup.add(() => manager.remove(cluster));
+                }
+            }
+
+            // Close routing before queued subscription or startup work can run.
+            // Teardown bypasses those chains so a stalled install cannot block it.
+            this.imqs = [];
+            this.servers = [];
+            this.imqLength = 0;
+            this.state.channel = null;
+            this.state.handlers = [];
+
+            // a send parked waiting for a server can never be satisfied once
+            // admission is closed, and its timer is referenced, so leaving it
+            // to expire holds the event loop open for the whole timeout
+            const parked = Array.from(this.waitingSends);
+
+            this.waitingSends.clear();
+
+            for (const giveUp of parked) {
+                giveUp(
+                    new Error(
+                        'ClusteredRedisQueue: the queue was destroyed before ' +
+                            'a cluster server became available',
+                    ),
+                );
             }
         }
+
+        this.destroying = Promise.resolve()
+            .then(async () => {
+                this.logLine(
+                    'info',
+                    'Destroying clustered redis message queue...',
+                );
+                const results = await Promise.allSettled(
+                    [...this.cleanup].map(async operation => {
+                        await operation();
+                        this.cleanup.delete(operation);
+                    }),
+                );
+                const errors = results
+                    .filter(result => result.status === 'rejected')
+                    .map(result => result.reason);
+
+                if (errors.length) {
+                    throw new AggregateError(errors, 'Cluster teardown failed');
+                }
+            })
+            .finally(() => {
+                this.destroying = undefined;
+            });
+
+        return this.destroying;
     }
 
     /**
@@ -530,7 +658,7 @@ export class ClusteredRedisQueue
      * @param message -
      */
     private async batch(
-        action: 'start' | 'stop' | 'destroy' | 'clear',
+        action: 'start' | 'stop' | 'clear',
         message: string,
     ): Promise<this> {
         this.logger.info(message);
@@ -538,9 +666,9 @@ export class ClusteredRedisQueue
         const promises: Promise<unknown>[] = [];
 
         for (const imq of this.imqs) {
-            const run = imq[action] as () => Promise<unknown>;
-
-            promises.push(run.call(imq));
+            promises.push(
+                action === 'start' ? this.startHost(imq) : imq[action](),
+            );
         }
 
         await Promise.all(promises);
@@ -857,15 +985,30 @@ export class ClusteredRedisQueue
      *
      * @param channel - channel name within the queue's prefix namespace
      * @param handler - invoked with the parsed payload of each published message
-     * @throws TypeError when a different channel name is supplied while a
-     *         subscription is already open on the underlying queues
+     * @throws TypeError when no channel name is given, or when a different
+     *         channel name is supplied while this instance already remembers
+     *         one - both are raised here, so they fire on an empty cluster too,
+     *         where there is no underlying queue to raise them
      *
      * @remarks
      * Only one channel per instance is supported. Calling this again with the
-     * same channel registers the handler a second time; calling it with a
-     * different channel rejects — and the remembered subscription is left
-     * pointing at the rejected name, which is what newly joining servers would
-     * then use.
+     * same channel registers an additional handler — every registration is
+     * remembered and all of them are invoked, including the same function
+     * registered twice. Calling it with a different channel throws before any
+     * state is touched, so the remembered channel keeps naming the channel that
+     * is actually subscribed.
+     *
+     * Servers joining later are given every handler registered before they
+     * joined, in registration order.
+     *
+     * Subscription uses its own connection and does not require start(), even
+     * when a host's startup fails or stalls. Subscription changes serialise per
+     * host, so a call can wait behind an earlier operation that never settles.
+     *
+     * A rejected call is not retryable: its registration remains remembered and
+     * may already be installed on some hosts. Calling again adds another copy,
+     * including for future hosts. To rebuild a known registration set, await
+     * unsubscribe() and then register the desired handlers again.
      *
      * The handler receives one invocation per host that delivers the message.
      */
@@ -873,35 +1016,68 @@ export class ClusteredRedisQueue
         channel: string,
         handler: (data: JsonObject) => void,
     ): Promise<void> {
-        this.state.subscription = { channel, handler };
-
-        const promises: Array<Promise<void>> = [];
-
-        for (const imq of this.imqs) {
-            promises.push(imq.subscribe(channel, handler));
+        if (this.closed) {
+            throw new TypeError(
+                'ClusteredRedisQueue: the queue was destroyed and cannot be ' +
+                    'reused, so this subscription would never reach a server!',
+            );
         }
 
-        await Promise.all(promises);
+        if (!channel) {
+            throw new TypeError(
+                `${channel}: No subscription channel name provided!`,
+            );
+        }
+
+        if (this.state.channel && this.state.channel !== channel) {
+            throw new TypeError(
+                `Invalid channel name provided: expected "${
+                    this.state.channel
+                }", but "${channel}" given instead!`,
+            );
+        }
+
+        this.state.channel = channel;
+        this.state.handlers.push(handler);
+
+        this.logLine(
+            'info',
+            `registered handler #${this.state.handlers.length} for channel ` +
+                `${channel}`,
+        );
+
+        await Promise.all(this.imqs.map(imq => this.syncHost(imq)));
     }
 
     /**
-     * Unsubscribes from the channel on every redis host and forgets the
-     * remembered subscription, so servers joining later are no longer subscribed
+     * Unsubscribes from the channel on every redis host and forgets every
+     * remembered handler, so servers joining later are no longer subscribed
      * automatically.
      *
      * @remarks
      * Resolves without effect on an empty cluster.
+     *
+     * Clears the remembered channel and handlers immediately, then queues each
+     * host's teardown behind its current subscription work. A stalled operation
+     * on that host therefore also stalls unsubscribe(). Later catch-up reads the
+     * cluster's installation count after teardown, even if an earlier run
+     * temporarily installed handlers from the replacement list.
      */
     public async unsubscribe(): Promise<void> {
-        this.state.subscription = null;
+        this.state.channel = null;
+        this.state.handlers = [];
 
-        const promises: Array<Promise<void>> = [];
-
-        for (const imq of this.imqs) {
-            promises.push(imq.unsubscribe());
-        }
-
-        await Promise.all(promises);
+        await Promise.all(
+            this.imqs.map(imq =>
+                this.enqueue(imq, async () => {
+                    try {
+                        await imq.unsubscribe();
+                    } finally {
+                        this.progressOf(imq).installed = 0;
+                    }
+                }),
+            ),
+        );
     }
 
     /**
@@ -921,7 +1097,8 @@ export class ClusteredRedisQueue
      *
      * For a genuinely new server this returns as soon as the record is created —
      * starting the queue and re-applying any active subscription happen
-     * asynchronously afterwards.
+     * asynchronously afterwards. Once destroy() begins, discovery is ignored:
+     * the returned address has no queue and is not admitted to membership.
      */
     protected addServer(server: IServerInput): ClusterServer {
         this.verbose(`Adding new server: ${JSON.stringify(server)}`);
@@ -955,9 +1132,16 @@ export class ClusteredRedisQueue
         const imqToRemove = remove.imq;
 
         if (imqToRemove) {
+            // dropped from routing first: a catch-up run in progress tests
+            // membership between handlers and stops as soon as it sees this
             this.imqs = this.imqs.filter(
                 imq => imqToRemove.redisKey !== imq.redisKey,
             );
+
+            // not queued behind this host's other work: a queue wedged on a
+            // connection that never answers would then never be torn down at
+            // all, and teardown is the one operation that has to happen
+            // regardless of what the host is doing
             imqToRemove
                 .destroy()
                 .catch((err: unknown) =>
@@ -990,6 +1174,10 @@ export class ClusteredRedisQueue
         server: ClusterServer,
         initializeQueue: boolean = true,
     ): ClusterServer {
+        if (this.closed) {
+            return { ...server, imq: undefined };
+        }
+
         const existingServer = this.findServer(server);
 
         if (existingServer) {
@@ -1015,19 +1203,39 @@ export class ClusteredRedisQueue
 
         copyEventEmitter(this.templateEmitter, imq);
 
-        if (initializeQueue) {
-            this.initializeQueue(imq).then(() => {
-                this.clusterEmitter.emit('initialized', {
-                    server: newServer,
-                    imq,
-                });
-            });
-        }
-
         newServer.imq = imq;
 
+        // registered before the catch-up run starts, so that run can test
+        // membership against `imqs` and see the host it is working on. Nothing
+        // can observe the order: there is no await between here and the call
         this.imqs.push(imq);
         this.servers.push(newServer);
+
+        if (initializeQueue) {
+            // Lifecycle and subscription use separate connections: a stalled
+            // start must not hold up the host's subscription chain.
+            Promise.all([this.startHost(imq), this.syncHost(imq)]).then(
+                () => {
+                    // a host dropped while it was being brought up to date
+                    // never became a member, and announcing it would release a
+                    // send that is waiting for a usable server onto a queue
+                    // that is being destroyed
+                    if (!this.imqs.includes(imq)) {
+                        return;
+                    }
+
+                    this.clusterEmitter.emit('initialized', {
+                        server: newServer,
+                        imq,
+                    });
+                },
+                // reported inside the run; without a handler here a host that
+                // simply refuses a connection - routine - becomes an unhandled
+                // rejection, which is fatal on current node defaults
+                () => undefined,
+            );
+        }
+
         this.clusterEmitter.emit('add', { server: newServer, imq });
         this.imqLength = this.imqs.length;
 
@@ -1048,58 +1256,176 @@ export class ClusteredRedisQueue
     }
 
     /**
-     * Brings a newly created per-host queue up to the cluster's current state.
+     * Appends one operation to a host's serialised queue.
      *
-     * @param imq - the queue to initialize
+     * @param imq - the queue the operation belongs to
+     * @param operation - the work to run once everything before it has finished
+     * @returns a promise for this operation alone, which rejects if it fails
      *
      * @remarks
-     * Replays whatever {@link ClusteredRedisQueue.state} records, so a server
-     * that joins after the cluster started is started and subscribed too rather
-     * than sitting idle.
+     * Every `subscribe`, `unsubscribe` and catch-up run for a host goes through
+     * here, so operations on one host never overlap, while different hosts stay
+     * independent. The tail kept for the next operation is deliberately
+     * repaired with a `catch`: chaining onto a rejected tail would make one
+     * failed operation reject every operation the host is ever given again,
+     * which is precisely the "host that silently stopped working" this class
+     * has to avoid. The caller still receives the failure, through the returned
+     * promise.
      */
-    private async initializeQueue(imq: RedisQueue): Promise<void> {
-        this.verbose(
-            `Initializing queue with state: ${JSON.stringify(this.state)}`,
-        );
+    private enqueue(
+        imq: RedisQueue,
+        operation: () => Promise<void>,
+    ): Promise<void> {
+        const progress = this.progressOf(imq);
+        const run = progress.chain.then(operation);
 
-        // both failures are reported here, inside the function, and the
-        // value is re-thrown as it was: the caller starts this without
-        // awaiting it, so a new .catch() would either swallow the failure or
-        // add a second unhandled rejection
-        if (this.state.started) {
+        progress.chain = run.catch(() => undefined);
+
+        return run;
+    }
+
+    /**
+     * Returns the progress record for a host, creating it on first use.
+     *
+     * @param imq - the queue to look up
+     * @returns that host's progress record
+     */
+    private progressOf(imq: RedisQueue): HostProgress {
+        let progress = this.progress.get(imq);
+
+        if (!progress) {
+            progress = {
+                chain: Promise.resolve(),
+                installed: 0,
+            };
+
+            this.progress.set(imq, progress);
+        }
+
+        return progress;
+    }
+
+    /**
+     * Starts a joining host if it still belongs to a started cluster.
+     * Subscription catch-up proceeds independently of this lifecycle operation.
+     */
+    private startHost(imq: RedisQueue): Promise<void> {
+        // initial eligibility is decided here, synchronously, and rechecked
+        // again before starting: the
+        // promise is cached the moment it is created, so a body that decides
+        // later hands a caller arriving afterwards a settled promise whose
+        // decision was made against state this caller has since changed. That
+        // is how `cluster.start()` could join a run created while the cluster
+        // was still stopped and never start the host at all
+        if (!this.state.started || !this.imqs.includes(imq)) {
+            return Promise.resolve();
+        }
+
+        const pending = this.starting.get(imq);
+
+        if (pending) {
+            return pending;
+        }
+
+        const run = Promise.resolve()
+            .then(async () => {
+                // rechecked here as well as synchronously above: a stop() can
+                // land between creating this run and the microtask that runs
+                // it, and starting a host the cluster has just stopped leaves
+                // the cluster stopped with a host running
+                if (this.state.started && this.imqs.includes(imq)) {
+                    try {
+                        await imq.start();
+                    } catch (err) {
+                        this.logLine(
+                            'error',
+                            `server ${imq.redisKey} failed to start, code ` +
+                                `${errorCode(err)}: the node is not ready to serve queues`,
+                        );
+
+                        throw err;
+                    }
+                }
+            })
+            .finally(() => {
+                this.starting.delete(imq);
+            });
+
+        this.starting.set(imq, run);
+
+        return run;
+    }
+
+    /**
+     * Installs registrations this cluster has not yet installed on a host.
+     *
+     * @param imq - the queue to bring up to date
+     * @returns this run's completion, rejecting on a failed installation
+     *
+     * @remarks
+     * Both live registrations and joining hosts use the same serialised path.
+     * Each run reads the cluster-owned count inside the chain, so repeating it adds
+     * nothing. A queued teardown may erase a temporary installation; the run
+     * behind that teardown will then see and install the missing suffix again.
+     */
+    private syncHost(imq: RedisQueue): Promise<void> {
+        return this.enqueue(imq, async () => {
+            const progress = this.progressOf(imq);
+            const channel = this.state.channel;
+
+            if (!channel) {
+                return;
+            }
+
+            let installed = 0;
+
             try {
-                await imq.start();
+                for (
+                    let i = progress.installed;
+                    i < this.state.handlers.length;
+                    i++
+                ) {
+                    if (!this.imqs.includes(imq)) {
+                        return;
+                    }
+
+                    if (this.state.channel !== channel) {
+                        return;
+                    }
+
+                    await imq.subscribe(channel, this.state.handlers[i]);
+
+                    // rechecked after the await: teardown bypasses this chain,
+                    // so the host can have been removed or destroyed while the
+                    // subscribe was in flight. Recording it would leave the
+                    // counter claiming an install on a queue that is gone, and
+                    // the handler it just attached is torn down with the host
+                    if (!this.imqs.includes(imq)) {
+                        return;
+                    }
+
+                    progress.installed = i + 1;
+                    installed++;
+                }
             } catch (err) {
                 this.logLine(
                     'error',
-                    `server ${imq.redisKey} failed to start, code ${errorCode(
-                        err,
-                    )}: the node is not ready to serve queues`,
+                    `server ${imq.redisKey} failed to subscribe to channel ` +
+                        `${channel}, code ${errorCode(err)}: some handlers remain ` +
+                        'uninstalled until a later registration triggers another catch-up',
                 );
 
                 throw err;
+            } finally {
+                if (installed) {
+                    this.logLine(
+                        'info',
+                        `server ${imq.redisKey} installed ${installed} handler(s) ` +
+                            `for channel ${channel}`,
+                    );
+                }
             }
-        }
-
-        if (this.state.subscription) {
-            try {
-                await imq.subscribe(
-                    this.state.subscription.channel,
-                    this.state.subscription.handler,
-                );
-            } catch (err) {
-                this.logLine(
-                    'error',
-                    `server ${imq.redisKey} failed to subscribe to channel ${
-                        this.state.subscription.channel
-                    }, code ${errorCode(
-                        err,
-                    )}: events from this node will never arrive`,
-                );
-
-                throw err;
-            }
-        }
+        });
     }
 
     /**

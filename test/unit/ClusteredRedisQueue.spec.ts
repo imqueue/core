@@ -997,17 +997,21 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         // nothing is recorded, so the connection layer has nothing to replay
         const host = hostOf(cq);
         let refuse = true;
-        const sub = mock.method(host, 'subscribe', async function (
-            this: any,
-            channel: string,
-            handler: (data: any) => void,
-        ) {
-            if (refuse) {
-                throw new Error('refused');
-            }
+        const sub = mock.method(
+            host,
+            'subscribe',
+            async function (
+                this: any,
+                channel: string,
+                handler: (data: any) => void,
+            ) {
+                if (refuse) {
+                    throw new Error('refused');
+                }
 
-            this.subscriptionHandlers.push(handler);
-        });
+                this.subscriptionHandlers.push(handler);
+            },
+        );
 
         await assert.rejects(cq.syncHost(host), /refused/);
         assert.deepEqual(host.subscriptionHandlers, []);
@@ -1151,17 +1155,21 @@ describe('ClusteredRedisQueue handler catch-up', () => {
 
         // the second registration fails on this host, the first is already in
         let refuse = true;
-        const sub = mock.method(host, 'subscribe', async function (
-            this: any,
-            channel: string,
-            handler: (data: any) => void,
-        ) {
-            if (refuse) {
-                throw new Error('refused');
-            }
+        const sub = mock.method(
+            host,
+            'subscribe',
+            async function (
+                this: any,
+                channel: string,
+                handler: (data: any) => void,
+            ) {
+                if (refuse) {
+                    throw new Error('refused');
+                }
 
-            this.subscriptionHandlers.push(handler);
-        });
+                this.subscriptionHandlers.push(handler);
+            },
+        );
 
         await assert.rejects(cq.subscribe('Events', second), /refused/);
 

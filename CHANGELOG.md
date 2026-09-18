@@ -183,6 +183,18 @@ release.
   parked waiting for a usable server wait on that event, so without it they
   would time out against a cluster that had recovered.
 
+- **A cluster member that refused a live registration stayed silent as well.**
+  The retry above covered a joining host only. `subscribe()` on a cluster that
+  already has members — the only route a statically configured cluster ever
+  takes, since its hosts are added without a catch-up — installed the handler on
+  each member, and where one refused it recorded nothing and nothing asked
+  again. The call rejected, but a rejected `subscribe()` cannot be repeated
+  without registering a duplicate, so the application had no repair of its own.
+  A member that refuses a registration is now retried by the same
+  capped-backoff catch-up as a joining host, under the same cancellation rules.
+  The call still rejects, so the caller learns that a host was unreachable when
+  it subscribed; it no longer means that host stays unsubscribed.
+
 - **A subscription handler could be attached twice to the same connection,
   delivering every message twice.** `connect()` binds a connection before it
   awaits it and returns that same object to any concurrent caller, so a

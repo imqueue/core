@@ -1084,6 +1084,38 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         await cq.destroy().catch(() => undefined);
     });
 
+    it('a member that refuses a live registration is retried by the cluster itself', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = clusterOf();
+
+        // already a member when the registration arrives: the live path, and
+        // the only one a statically configured cluster ever takes
+        const host = hostOf(cq);
+        const { gate, sub } = refusing(host);
+
+        await assert.rejects(cq.subscribe('Events', first), /refused/);
+        assert.deepEqual(host.subscriptionHandlers, []);
+
+        // nothing in the test touches scheduleSync. A rejected subscribe()
+        // cannot be repeated without registering a duplicate, so removing the
+        // cluster's own retry must fail here
+        gate.refuse = false;
+        t.mock.timers.tick(1000);
+        await settled();
+        await settled();
+
+        assert.deepEqual(
+            host.subscriptionHandlers,
+            [first],
+            'the refused registration should have been installed by the retry',
+        );
+
+        sub.mock.restore();
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
     it('releases a parked send once a retried host recovers', async t => {
         t.mock.timers.enable({ apis: ['setTimeout'] });
 
@@ -1143,9 +1175,9 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         // the second registration fails on this host, the first is already in
         const { gate, sub } = refusing(host);
 
+        // the rejection schedules the retry itself: nothing here asks for one
         await assert.rejects(cq.subscribe('Events', second), /refused/);
 
-        cq.scheduleSync(host, Promise.resolve(), () => undefined);
         gate.refuse = false;
 
         t.mock.timers.tick(1000);

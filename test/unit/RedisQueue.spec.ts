@@ -701,6 +701,43 @@ describe('RedisQueue lifecycle', () => {
         );
     });
 
+    it('restoring a subscription leaves one listener per remembered handler', async t => {
+        const logger = makeLogger();
+        const rq: any = new RedisQueue(
+            'SubReconcile',
+            { logger },
+            IMQMode.PUBLISHER,
+        );
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+
+        const received: any[] = [];
+        await rq.subscribe('SubReconcile', (data: any) => received.push(data));
+
+        // what a reconnect finds when a subscribe() raced it: connect() hands
+        // the same, not yet restored connection to both callers, so the handler
+        // is already attached by the time the restore runs
+        await rq.restoreSubscription();
+
+        assert.equal(
+            rq.subscription.listenerCount('message'),
+            1,
+            'restore must reconcile the listeners, not append to them',
+        );
+
+        rq.subscription.emit(
+            'message',
+            'imq:SubReconcile',
+            JSON.stringify({ ok: 1 }),
+        );
+
+        assert.deepEqual(
+            received,
+            [{ ok: 1 }],
+            'a message must reach a remembered handler exactly once',
+        );
+    });
+
     it('unsubscribe() survives a rejecting quit()', async t => {
         const logger = makeLogger();
         const rq: any = new RedisQueue(

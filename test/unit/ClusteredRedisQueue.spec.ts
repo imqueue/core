@@ -629,6 +629,30 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         return host;
     };
 
+    // Makes `subscribe` refuse until the gate opens, on one host or, through
+    // the prototype, on every host. Once open it records the handler at
+    // completion, just as RedisQueue.subscribe does.
+    const refusing = (target: any) => {
+        const gate = { refuse: true };
+        const sub = mock.method(
+            target,
+            'subscribe',
+            async function (
+                this: any,
+                _channel: string,
+                handler: (data: any) => void,
+            ) {
+                if (gate.refuse) {
+                    throw new Error('refused');
+                }
+
+                this.subscriptionHandlers.push(handler);
+            },
+        );
+
+        return { gate, sub };
+    };
+
     it('rejects an empty channel name and a second channel, even with no hosts', async () => {
         const cq = clusterOf();
         await assert.rejects(cq.subscribe('', first), TypeError);
@@ -996,28 +1020,13 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         // a host that joins while its subscription connection is refused:
         // nothing is recorded, so the connection layer has nothing to replay
         const host = hostOf(cq);
-        let refuse = true;
-        const sub = mock.method(
-            host,
-            'subscribe',
-            async function (
-                this: any,
-                channel: string,
-                handler: (data: any) => void,
-            ) {
-                if (refuse) {
-                    throw new Error('refused');
-                }
-
-                this.subscriptionHandlers.push(handler);
-            },
-        );
+        const { gate, sub } = refusing(host);
 
         await assert.rejects(cq.syncHost(host), /refused/);
         assert.deepEqual(host.subscriptionHandlers, []);
 
         cq.scheduleSync(host, Promise.resolve(), () => undefined);
-        refuse = false;
+        gate.refuse = false;
 
         t.mock.timers.tick(1000);
         await settled();
@@ -1044,18 +1053,7 @@ describe('ClusteredRedisQueue handler catch-up', () => {
 
         await cq.subscribe('Events', first);
 
-        let refuse = true;
-        const sub = mock.method(
-            RedisQueue.prototype,
-            'subscribe',
-            async function (this: any, channel: string, handler: any) {
-                if (refuse) {
-                    throw new Error('refused');
-                }
-
-                this.subscriptionHandlers.push(handler);
-            },
-        );
+        const { gate, sub } = refusing(RedisQueue.prototype);
 
         // the join path itself has to schedule the retry - nothing in the test
         // touches scheduleSync, so removing that wiring must fail here
@@ -1070,7 +1068,7 @@ describe('ClusteredRedisQueue handler catch-up', () => {
             'the first catch-up should have failed',
         );
 
-        refuse = false;
+        gate.refuse = false;
         t.mock.timers.tick(1000);
         await settled();
         await settled();
@@ -1086,6 +1084,38 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         await cq.destroy().catch(() => undefined);
     });
 
+    it('a member that refuses a live registration is retried by the cluster itself', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = clusterOf();
+
+        // already a member when the registration arrives: the live path, and
+        // the only one a statically configured cluster ever takes
+        const host = hostOf(cq);
+        const { gate, sub } = refusing(host);
+
+        await assert.rejects(cq.subscribe('Events', first), /refused/);
+        assert.deepEqual(host.subscriptionHandlers, []);
+
+        // nothing in the test touches scheduleSync. A rejected subscribe()
+        // cannot be repeated without registering a duplicate, so removing the
+        // cluster's own retry must fail here
+        gate.refuse = false;
+        t.mock.timers.tick(1000);
+        await settled();
+        await settled();
+
+        assert.deepEqual(
+            host.subscriptionHandlers,
+            [first],
+            'the refused registration should have been installed by the retry',
+        );
+
+        sub.mock.restore();
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
     it('releases a parked send once a retried host recovers', async t => {
         t.mock.timers.enable({ apis: ['setTimeout'] });
 
@@ -1096,18 +1126,7 @@ describe('ClusteredRedisQueue handler catch-up', () => {
 
         await cq.subscribe('Events', first);
 
-        let refuse = true;
-        const sub = mock.method(
-            RedisQueue.prototype,
-            'subscribe',
-            async function (this: any, channel: string, handler: any) {
-                if (refuse) {
-                    throw new Error('refused');
-                }
-
-                this.subscriptionHandlers.push(handler);
-            },
-        );
+        const { gate, sub } = refusing(RedisQueue.prototype);
         const send = mock.method(
             RedisQueue.prototype,
             'send',
@@ -1123,7 +1142,7 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         // the join failed its catch-up, so nothing was announced yet
         assert.equal(send.mock.callCount(), 0);
 
-        refuse = false;
+        gate.refuse = false;
         t.mock.timers.tick(1000);
         await settled();
         await settled();
@@ -1154,27 +1173,12 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         assert.deepEqual(host.subscriptionHandlers, [first]);
 
         // the second registration fails on this host, the first is already in
-        let refuse = true;
-        const sub = mock.method(
-            host,
-            'subscribe',
-            async function (
-                this: any,
-                channel: string,
-                handler: (data: any) => void,
-            ) {
-                if (refuse) {
-                    throw new Error('refused');
-                }
+        const { gate, sub } = refusing(host);
 
-                this.subscriptionHandlers.push(handler);
-            },
-        );
-
+        // the rejection schedules the retry itself: nothing here asks for one
         await assert.rejects(cq.subscribe('Events', second), /refused/);
 
-        cq.scheduleSync(host, Promise.resolve(), () => undefined);
-        refuse = false;
+        gate.refuse = false;
 
         t.mock.timers.tick(1000);
         await settled();
@@ -1198,9 +1202,7 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         await cq.subscribe('Events', first);
 
         const host = hostOf(cq);
-        const sub = mock.method(host, 'subscribe', async () => {
-            throw new Error('refused');
-        });
+        const { sub } = refusing(host);
 
         await assert.rejects(cq.syncHost(host), /refused/);
         cq.scheduleSync(host, Promise.resolve(), () => undefined);

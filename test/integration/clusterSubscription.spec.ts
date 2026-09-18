@@ -124,6 +124,36 @@ const settle = async (received: unknown[], count: number): Promise<void> => {
     await new Promise(resolve => setTimeout(resolve, 150));
 };
 
+/**
+ * Resolves once the broker reports a subscriber on `channel`, or rejects on
+ * timeout. The live registration path announces nothing, so the broker is the
+ * only witness that a refused member was subscribed after all.
+ */
+const subscribed = async (
+    publisher: Redis,
+    channel: string,
+    timeoutMs: number,
+): Promise<void> => {
+    const deadline = Date.now() + timeoutMs;
+
+    for (;;) {
+        const [, count] = (await publisher.pubsub('NUMSUB', channel)) as [
+            string,
+            number,
+        ];
+
+        if (+count > 0) {
+            return;
+        }
+
+        if (Date.now() > deadline) {
+            throw new Error(`timed out waiting for a subscriber on ${channel}`);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 25));
+    }
+};
+
 /** Bounds a test gate without leaving a timer behind on success or failure. */
 const bounded = async <T>(
     promise: Promise<T>,
@@ -232,11 +262,15 @@ class RedisProxy {
 describe('ClusteredRedisQueue subscription over a real broker', () => {
     const queues: ClusteredRedisQueue[] = [];
 
-    const cluster = (name: string, logger = quiet): ClusteredRedisQueue => {
-        // starts EMPTY: the server is added after subscribe(), which is the
-        // path where handlers used to be lost
+    const cluster = (
+        name: string,
+        logger = quiet,
+        servers: Array<{ host: string; port: number }> = [],
+    ): ClusteredRedisQueue => {
+        // starts EMPTY unless told otherwise: the server is added after
+        // subscribe(), which is the path where handlers used to be lost
         const queue = new ClusteredRedisQueue(name, {
-            cluster: [],
+            cluster: servers,
             logger,
         });
 
@@ -557,6 +591,63 @@ describe('ClusteredRedisQueue subscription over a real broker', () => {
                 // Stop producers first. Keep the bridge live while the queue
                 // closes its subscription, then tear down both ends of every
                 // bridged socket before closing the listening socket.
+                publisher?.disconnect();
+                await queue.destroy().catch(() => undefined);
+                await proxy.close().catch(() => undefined);
+            }
+        },
+    );
+
+    it(
+        'repairs a member whose first live subscription connection is refused',
+        { skip },
+        async () => {
+            const channel = `member-${uuid()}`;
+            const port = await closedPort();
+            const proxy = new RedisProxy(port);
+            const received: unknown[] = [];
+            // a statically configured cluster: the host is a member before any
+            // registration, so the live path is the only one that reaches it
+            const queue = cluster(`member-${uuid()}`, quiet, [
+                { host: '127.0.0.1', port },
+            ]);
+            let publisher: Redis | undefined;
+
+            try {
+                // nothing listens on the port yet, so this is the real refusal
+                await assert.rejects(
+                    queue.subscribe(channel, data => received.push(data)),
+                );
+
+                await proxy.start();
+
+                publisher = new Redis({
+                    host: HOST,
+                    port: PORT,
+                    lazyConnect: true,
+                    retryStrategy: null,
+                });
+                publisher.on('error', quiet.error);
+                await publisher.connect();
+
+                const target = `${(queue as any).options.prefix}:${channel}`;
+
+                // Reconnect and catch-up are each due after one second, and a
+                // catch-up that loses that race is due again two seconds
+                // later; ten seconds leaves ample scheduler and broker slack.
+                await subscribed(publisher, target, 10000);
+
+                assert.equal(
+                    await publisher.publish(
+                        target,
+                        JSON.stringify({ mark: channel }),
+                    ),
+                    1,
+                    'the recovered Redis connection has one subscriber',
+                );
+                await settle(received, 1);
+                assert.deepEqual(received, [{ mark: channel }]);
+            } finally {
                 publisher?.disconnect();
                 await queue.destroy().catch(() => undefined);
                 await proxy.close().catch(() => undefined);

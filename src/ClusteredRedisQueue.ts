@@ -1026,6 +1026,12 @@ export class ClusteredRedisQueue
      * including for future hosts. To rebuild a known registration set, await
      * unsubscribe() and then register the desired handlers again.
      *
+     * A host that refused the registration is not left behind: the cluster
+     * retries its catch-up on its own, with capped backoff, until it succeeds,
+     * the host leaves or the cluster is destroyed. A rejection therefore reports
+     * that a host was unreachable when the call was made, not that it stays
+     * unsubscribed.
+     *
      * The handler receives one invocation per host that delivers the message.
      */
     public async subscribe(
@@ -1062,7 +1068,20 @@ export class ClusteredRedisQueue
                 `${channel}`,
         );
 
-        await Promise.all(this.imqs.map(imq => this.syncHost(imq)));
+        await Promise.all(
+            this.imqs.map(imq =>
+                this.syncHost(imq).catch(err => {
+                    // a member that refuses a live registration has no other
+                    // route back: the caller cannot retry, because calling
+                    // again registers a second copy, and a service that
+                    // subscribes once at start-up never registers again. So the
+                    // cluster retries on its own, exactly as it does for a join
+                    this.scheduleSync(imq);
+
+                    throw err;
+                }),
+            ),
+        );
     }
 
     /**
@@ -1392,13 +1411,22 @@ export class ClusteredRedisQueue
     }
 
     /**
-     * Retries a joining host's subscription catch-up until it succeeds, the
-     * host leaves the cluster, or the cluster is destroyed.
+     * Retries a host's subscription catch-up until it succeeds, the host leaves
+     * the cluster, or the cluster is destroyed.
      *
      * @param imq - the queue whose catch-up failed
+     * @param started - the joining host's startup, which the announcement waits
+     *        for. A live registration has nothing to announce and omits it
+     * @param announce - emits `initialized` for a joining host that only became
+     *        usable through this retry. Omitted by a live registration, whose
+     *        host is already a member that sends are routed to
      *
      * @remarks
-     * A joining host whose first {@link RedisQueue.subscribe} rejects records
+     * Both routes to a first subscribe end here: a joining host's catch-up, and
+     * a live registration on a host that is already a member, which is the only
+     * route a statically configured cluster ever takes.
+     *
+     * A host whose first {@link RedisQueue.subscribe} rejects records
      * nothing: `subscriptionHandlers` stays empty, so the connection layer's
      * own reconnect has nothing to replay and restores a socket subscribed to
      * no channel. Without this, that host never receives another installation —
@@ -1415,8 +1443,8 @@ export class ClusteredRedisQueue
      */
     private scheduleSync(
         imq: RedisQueue,
-        started: Promise<void>,
-        announce: () => void,
+        started: Promise<void> = Promise.resolve(),
+        announce: () => void = () => undefined,
     ): void {
         if (this.closed || !this.imqs.includes(imq)) {
             return;
@@ -1529,8 +1557,8 @@ export class ClusteredRedisQueue
                     'error',
                     `server ${imq.redisKey} failed to subscribe to channel ` +
                         `${channel}, code ${errorCode(err)}: some handlers remain ` +
-                        'uninstalled. A joining host retries this on its own; a ' +
-                        'failure during a live registration is repaired by the next one',
+                        'uninstalled until the retry the cluster schedules for ' +
+                        'this host succeeds',
                 );
 
                 throw err;

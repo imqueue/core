@@ -708,6 +708,13 @@ export class RedisQueue
 
         await chan.subscribe(fcn);
 
+        // Reconcile rather than append. connect() binds a connection before it
+        // awaits it and hands that same object to any concurrent caller, so a
+        // subscribe() racing a reconnect can attach a handler to this very
+        // connection before this runs. Appending there would leave the socket
+        // carrying the handler twice and deliver every message twice.
+        chan.removeAllListeners('message');
+
         for (const handler of this.subscriptionHandlers) {
             this.attachSubscriptionHandler(chan, handler);
         }

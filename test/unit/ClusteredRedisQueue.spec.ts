@@ -987,6 +987,250 @@ describe('ClusteredRedisQueue handler catch-up', () => {
         await cq.destroy();
     });
 
+    it('retries a joining host whose first catch-up failed', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = clusterOf();
+        await cq.subscribe('Events', first);
+
+        // a host that joins while its subscription connection is refused:
+        // nothing is recorded, so the connection layer has nothing to replay
+        const host = hostOf(cq);
+        let refuse = true;
+        const sub = mock.method(
+            host,
+            'subscribe',
+            async function (
+                this: any,
+                channel: string,
+                handler: (data: any) => void,
+            ) {
+                if (refuse) {
+                    throw new Error('refused');
+                }
+
+                this.subscriptionHandlers.push(handler);
+            },
+        );
+
+        await assert.rejects(cq.syncHost(host), /refused/);
+        assert.deepEqual(host.subscriptionHandlers, []);
+
+        cq.scheduleSync(host, Promise.resolve(), () => undefined);
+        refuse = false;
+
+        t.mock.timers.tick(1000);
+        await settled();
+        await settled();
+
+        assert.deepEqual(
+            host.subscriptionHandlers,
+            [first],
+            'the missing registration should have been installed by the retry',
+        );
+
+        sub.mock.restore();
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
+    it('a joining host whose catch-up fails is retried by the join itself', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq: any = new ClusteredRedisQueue('JoinRetry', {
+            cluster: [],
+            logger,
+        });
+
+        await cq.subscribe('Events', first);
+
+        let refuse = true;
+        const sub = mock.method(
+            RedisQueue.prototype,
+            'subscribe',
+            async function (this: any, channel: string, handler: any) {
+                if (refuse) {
+                    throw new Error('refused');
+                }
+
+                this.subscriptionHandlers.push(handler);
+            },
+        );
+
+        // the join path itself has to schedule the retry - nothing in the test
+        // touches scheduleSync, so removing that wiring must fail here
+        cq.addServer({ host: '127.0.0.1', port: 6379 });
+        await settled();
+
+        const host = cq.imqs[0];
+
+        assert.deepEqual(
+            host.subscriptionHandlers,
+            [],
+            'the first catch-up should have failed',
+        );
+
+        refuse = false;
+        t.mock.timers.tick(1000);
+        await settled();
+        await settled();
+
+        assert.deepEqual(
+            host.subscriptionHandlers,
+            [first],
+            'the join should have retried the failed catch-up',
+        );
+
+        sub.mock.restore();
+        t.mock.timers.reset();
+        await cq.destroy().catch(() => undefined);
+    });
+
+    it('releases a parked send once a retried host recovers', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq: any = new ClusteredRedisQueue('ParkedSend', {
+            cluster: [],
+            logger,
+        });
+
+        await cq.subscribe('Events', first);
+
+        let refuse = true;
+        const sub = mock.method(
+            RedisQueue.prototype,
+            'subscribe',
+            async function (this: any, channel: string, handler: any) {
+                if (refuse) {
+                    throw new Error('refused');
+                }
+
+                this.subscriptionHandlers.push(handler);
+            },
+        );
+        const send = mock.method(
+            RedisQueue.prototype,
+            'send',
+            async () => 'sent',
+        );
+
+        // parked: the cluster is empty, so this waits for 'initialized'
+        const parked = cq.send('Somewhere', { a: 1 });
+
+        cq.addServer({ host: '127.0.0.1', port: 6379 });
+        await settled();
+
+        // the join failed its catch-up, so nothing was announced yet
+        assert.equal(send.mock.callCount(), 0);
+
+        refuse = false;
+        t.mock.timers.tick(1000);
+        await settled();
+        await settled();
+
+        assert.equal(
+            await parked,
+            'sent',
+            'the retry must release a send parked on initialized',
+        );
+        assert.equal(
+            send.mock.callCount(),
+            1,
+            'the parked send must be released exactly once',
+        );
+
+        sub.mock.restore();
+        send.mock.restore();
+        t.mock.timers.reset();
+        await cq.destroy().catch(() => undefined);
+    });
+
+    it('retrying a catch-up installs only the missing suffix', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = clusterOf();
+        const host = hostOf(cq);
+        await cq.subscribe('Events', first);
+        assert.deepEqual(host.subscriptionHandlers, [first]);
+
+        // the second registration fails on this host, the first is already in
+        let refuse = true;
+        const sub = mock.method(
+            host,
+            'subscribe',
+            async function (
+                this: any,
+                channel: string,
+                handler: (data: any) => void,
+            ) {
+                if (refuse) {
+                    throw new Error('refused');
+                }
+
+                this.subscriptionHandlers.push(handler);
+            },
+        );
+
+        await assert.rejects(cq.subscribe('Events', second), /refused/);
+
+        cq.scheduleSync(host, Promise.resolve(), () => undefined);
+        refuse = false;
+
+        t.mock.timers.tick(1000);
+        await settled();
+        await settled();
+
+        assert.deepEqual(
+            host.subscriptionHandlers,
+            [first, second],
+            'the retry must not reinstall a handler that already landed',
+        );
+
+        sub.mock.restore();
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
+    it('stops retrying a host that left the cluster', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = clusterOf();
+        await cq.subscribe('Events', first);
+
+        const host = hostOf(cq);
+        const sub = mock.method(host, 'subscribe', async () => {
+            throw new Error('refused');
+        });
+
+        await assert.rejects(cq.syncHost(host), /refused/);
+        cq.scheduleSync(host, Promise.resolve(), () => undefined);
+
+        // the host goes away before the retry is due
+        cq.imqs = cq.imqs.filter((each: any) => each !== host);
+        sub.mock.restore();
+
+        const sync = mock.method(cq, 'syncHost');
+
+        t.mock.timers.tick(60000);
+        await settled();
+
+        assert.equal(
+            sync.mock.callCount(),
+            0,
+            'a pending retry must not run catch-up for a host that left',
+        );
+        assert.deepEqual(
+            host.subscriptionHandlers,
+            [],
+            'a host that left must not be installed on by a pending retry',
+        );
+
+        sync.mock.restore();
+
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
     it('rebuilds a known registration set after partial fan-out failure', async () => {
         const cq = clusterOf();
         const healthy = hostOf(cq);

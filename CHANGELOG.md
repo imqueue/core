@@ -157,6 +157,42 @@ release.
 
 ### Fixed
 
+- **A joining host whose first subscription attempt failed stayed silent for the
+  life of the process.** `RedisQueue.subscribe()` records a handler only after
+  the subscribe resolves, so a first failure left that host's handler list
+  empty — and the connection layer's own reconnect replays from that list, so it
+  restored a socket that was connected, `ready` and subscribed to nothing.
+  Nothing brought the host back: the joining catch-up's rejection was swallowed,
+  `start()` fans out startup only, a re-announced address is recognised as a
+  known server and skipped, and no event reported the failure. A service that
+  subscribes once at start-up never registers again, so the promise of repair
+  "on a later registration" never came due. `send()` was unaffected throughout,
+  which is what made it hard to see.
+
+  The join now retries the subscription leg with capped exponential backoff,
+  cancelled when the host leaves the cluster or the cluster is destroyed, on an
+  unref'd timer so a host that never returns cannot hold the process open. Only
+  that leg is retried: a failed `start()` is already retryable through an
+  explicit `start()`, and retrying it here would poll a connection object the
+  reconnect path owns. Retrying is safe because catch-up reads the cluster-owned
+  installed count inside the per-host chain and installs only the missing
+  suffix, so it cannot reinstall a handler that already landed.
+
+  A host that becomes usable only through a retry is announced as `initialized`
+  once its startup has also succeeded and while it is still a member. Sends
+  parked waiting for a usable server wait on that event, so without it they
+  would time out against a cluster that had recovered.
+
+- **A subscription handler could be attached twice to the same connection,
+  delivering every message twice.** `connect()` binds a connection before it
+  awaits it and returns that same object to any concurrent caller, so a
+  `subscribe()` racing a reconnect attached its handler to a connection whose
+  restore had not yet run; the restore then re-attached every remembered
+  handler, including that one. Reachable before this release by a live
+  `subscribe()` during a reconnect; the retry above made it likely, which is how
+  it was found. `restoreSubscription()` now reconciles the connection's listeners
+  to exactly the remembered handlers instead of appending to them.
+
 - **A clustered queue gave a server that joined later only the last-registered
   subscription handler, silencing every other handler on that host.**
   `ClusteredRedisQueue` remembered one `{ channel, handler }` pair, so each

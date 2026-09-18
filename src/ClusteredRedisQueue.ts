@@ -45,6 +45,17 @@ import {
 const SEND_INIT_TIMEOUT = +(process.env.IMQ_SEND_INIT_TIMEOUT || 0) || 30000;
 
 /**
+ * Delay (ms) before the first retry of a joining host's subscription catch-up,
+ * doubling up to {@link SYNC_RETRY_MAX_DELAY}. Mirrors the connection layer's
+ * own reconnect policy, which this retry has to outlive: the socket may take
+ * several attempts to come back, and the handlers have to go on afterwards.
+ */
+const SYNC_RETRY_BASE_DELAY = 1000;
+
+/** Longest delay (ms) between subscription catch-up retries. */
+const SYNC_RETRY_MAX_DELAY = 30000;
+
+/**
  * A server registered in a {@link ClusteredRedisQueue}: its address, plus the
  * {@link RedisQueue} instance serving that host.
  *
@@ -85,6 +96,10 @@ interface HostProgress {
     chain: Promise<void>;
     /** Registrations successfully installed by this cluster since teardown. */
     installed: number;
+    /** Pending catch-up retry, so teardown can cancel it. */
+    retryTimer?: ReturnType<typeof setTimeout>;
+    /** Consecutive failed catch-up attempts, for the backoff. */
+    retryAttempts: number;
 }
 
 /**
@@ -518,6 +533,7 @@ export class ClusteredRedisQueue
             this.state.started = false;
 
             for (const imq of this.imqs) {
+                this.cancelSync(imq);
                 this.cleanup.add(() => imq.destroy());
             }
 
@@ -1132,6 +1148,9 @@ export class ClusteredRedisQueue
         const imqToRemove = remove.imq;
 
         if (imqToRemove) {
+            // a retry scheduled for this host must not outlive it
+            this.cancelSync(imqToRemove);
+
             // dropped from routing first: a catch-up run in progress tests
             // membership between handlers and stops as soon as it sees this
             this.imqs = this.imqs.filter(
@@ -1214,21 +1233,36 @@ export class ClusteredRedisQueue
         if (initializeQueue) {
             // Lifecycle and subscription use separate connections: a stalled
             // start must not hold up the host's subscription chain.
-            Promise.all([this.startHost(imq), this.syncHost(imq)]).then(
-                () => {
-                    // a host dropped while it was being brought up to date
-                    // never became a member, and announcing it would release a
-                    // send that is waiting for a usable server onto a queue
-                    // that is being destroyed
-                    if (!this.imqs.includes(imq)) {
-                        return;
-                    }
+            const started = this.startHost(imq);
+            const synced = this.syncHost(imq);
 
-                    this.clusterEmitter.emit('initialized', {
-                        server: newServer,
-                        imq,
-                    });
-                },
+            // Sends park on this event, so a host that only becomes usable
+            // after a retry has to reach it too, or they wait out their whole
+            // budget against a cluster that recovered. A host dropped while it
+            // was being brought up to date never became a member, and
+            // announcing it would release those sends onto a queue that is
+            // being destroyed. Exactly one of the two paths below reaches this:
+            // a join whose legs both succeeded, or a retry repairing a catch-up
+            // whose failure already rejected that join
+            const announce = (): void => {
+                if (!this.imqs.includes(imq)) {
+                    return;
+                }
+
+                this.clusterEmitter.emit('initialized', {
+                    server: newServer,
+                    imq,
+                });
+            };
+
+            // only the subscription leg is retried. A failed start is already
+            // retryable through an explicit start(), and retrying it here would
+            // poll a connection object the reconnect path owns; a failed
+            // catch-up has no other route back
+            synced.catch(() => this.scheduleSync(imq, started, announce));
+
+            Promise.all([started, synced]).then(
+                announce,
                 // reported inside the run; without a handler here a host that
                 // simply refuses a connection - routine - becomes an unhandled
                 // rejection, which is fatal on current node defaults
@@ -1297,6 +1331,7 @@ export class ClusteredRedisQueue
             progress = {
                 chain: Promise.resolve(),
                 installed: 0,
+                retryAttempts: 0,
             };
 
             this.progress.set(imq, progress);
@@ -1357,6 +1392,88 @@ export class ClusteredRedisQueue
     }
 
     /**
+     * Retries a joining host's subscription catch-up until it succeeds, the
+     * host leaves the cluster, or the cluster is destroyed.
+     *
+     * @param imq - the queue whose catch-up failed
+     *
+     * @remarks
+     * A joining host whose first {@link RedisQueue.subscribe} rejects records
+     * nothing: `subscriptionHandlers` stays empty, so the connection layer's
+     * own reconnect has nothing to replay and restores a socket subscribed to
+     * no channel. Without this, that host never receives another installation —
+     * `start()` fans out startup only, a re-announced address is recognised as a
+     * known server and skipped, and a service that subscribes once at boot never
+     * registers again. The host stays a silent member for the life of the
+     * process while every probe it answers reports health.
+     *
+     * Retrying is safe because catch-up is idempotent: {@link
+     * ClusteredRedisQueue.syncHost} reads the cluster-owned installed count
+     * inside the per-host chain and installs only the missing suffix, so a retry
+     * cannot duplicate a handler that did land. The backoff mirrors the
+     * connection layer's, which this has to outlive.
+     */
+    private scheduleSync(
+        imq: RedisQueue,
+        started: Promise<void>,
+        announce: () => void,
+    ): void {
+        if (this.closed || !this.imqs.includes(imq)) {
+            return;
+        }
+
+        const progress = this.progressOf(imq);
+
+        if (progress.retryTimer) {
+            return;
+        }
+
+        const attempts = progress.retryAttempts + 1;
+        const delay = Math.min(
+            SYNC_RETRY_MAX_DELAY,
+            SYNC_RETRY_BASE_DELAY * 2 ** (attempts - 1),
+        );
+
+        progress.retryAttempts = attempts;
+
+        const timer = setTimeout(() => {
+            progress.retryTimer = undefined;
+
+            if (this.closed || !this.imqs.includes(imq)) {
+                return;
+            }
+
+            this.syncHost(imq).then(
+                () => {
+                    progress.retryAttempts = 0;
+
+                    // the host is only usable once its lifecycle came up too
+                    started.then(announce, () => undefined);
+                },
+                () => this.scheduleSync(imq, started, announce),
+            );
+        }, delay);
+
+        // a host that never comes back must not hold the process open
+        timer.unref?.();
+        progress.retryTimer = timer;
+    }
+
+    /**
+     * Cancels a pending catch-up retry for a host being torn down.
+     *
+     * @param imq - the queue leaving the cluster
+     */
+    private cancelSync(imq: RedisQueue): void {
+        const progress = this.progress.get(imq);
+
+        if (progress?.retryTimer) {
+            clearTimeout(progress.retryTimer);
+            progress.retryTimer = undefined;
+        }
+    }
+
+    /**
      * Installs registrations this cluster has not yet installed on a host.
      *
      * @param imq - the queue to bring up to date
@@ -1412,7 +1529,8 @@ export class ClusteredRedisQueue
                     'error',
                     `server ${imq.redisKey} failed to subscribe to channel ` +
                         `${channel}, code ${errorCode(err)}: some handlers remain ` +
-                        'uninstalled until a later registration triggers another catch-up',
+                        'uninstalled. A joining host retries this on its own; a ' +
+                        'failure during a live registration is repaired by the next one',
                 );
 
                 throw err;

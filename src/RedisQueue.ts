@@ -1658,9 +1658,14 @@ export class RedisQueue
                 break;
             case 'writer':
                 await this.processDelayed(this.key);
+                this.restoreWatch();
                 break;
             case 'watcher':
-                await this.initWatcher();
+                if (this.watchOwner) {
+                    this.restoreWatch();
+                } else {
+                    await this.initWatcher();
+                }
                 break;
             case 'subscription':
                 await this.restoreSubscription();
@@ -2253,6 +2258,29 @@ export class RedisQueue
         this.verbose(`Adding "${missing}" to keyspace events "${current}"`);
 
         await this.writer.config('SET', NOTIFY_EVENTS_PARAM, current + missing);
+    }
+
+    /**
+     * Re-arms the watcher this queue owns on a connection that replaced the
+     * previous one.
+     *
+     * @remarks
+     * The pattern subscription and the `pmessage` handler belong to the
+     * socket, not to the queue, so a reconnect that only swaps the connection
+     * leaves the owner deaf to expiry events: delayed messages then wait for
+     * the periodic check instead of being moved on time, for as long as the
+     * process lives. A broker restart also drops a `notify-keyspace-events`
+     * set at runtime, which {@link RedisQueue.watch} re-applies.
+     *
+     * Called from both the writer and the watcher reconnect, because
+     * {@link RedisQueue.watch} needs both and after an outage they come back in
+     * either order; whichever arrives second arms it. `watch()` is idempotent
+     * per connection, so arming twice is not possible.
+     */
+    private restoreWatch(): void {
+        if (this.watchOwner) {
+            this.watch();
+        }
     }
 
     /**

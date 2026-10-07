@@ -1356,6 +1356,95 @@ describe('RedisQueue reconnection', () => {
         await rq.destroy().catch(() => undefined);
     });
 
+    // The pattern subscription and the pmessage handler live on the socket, so
+    // a reconnect that only replaces the connection leaves the owner deaf to
+    // expiry events: delayed messages then wait for the periodic check instead
+    // of being moved on time, until the process restarts.
+    it('a reconnected watcher listens for expiry events again', async t => {
+        const rq: any = new RedisQueue('ReconnWatchArm', { logger });
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+        assert.ok(rq.watchOwner, 'the only queue must own the watcher');
+
+        const psubscribe = t.mock.method(Redis.prototype, 'psubscribe');
+
+        await rq.reconnectNow('watcher');
+
+        assert.equal(psubscribe.mock.callCount(), 1);
+        assert.deepEqual(psubscribe.mock.calls[0].arguments.slice(0, 2), [
+            '__keyevent@0__:expired',
+            `${rq.options.prefix}:delayed:*`,
+        ]);
+        assert.equal(
+            rq.watcher.listenerCount('pmessage'),
+            1,
+            'expiry events must reach onWatchMessage again',
+        );
+    });
+
+    it('a reconnected watcher re-applies keyspace events a restart dropped', async t => {
+        const rq: any = new RedisQueue('ReconnWatchEvents', { logger });
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+
+        // what a Redis restart does to a CONFIG SET made at runtime
+        (RedisClientMock as any).__notifyEvents = '';
+
+        await rq.reconnectNow('watcher');
+        await new Promise(resolve => setImmediate(resolve));
+
+        const events = (RedisClientMock as any).__notifyEvents;
+
+        assert.ok(
+            events.includes('E') && events.includes('x'),
+            `keyspace events must be restored, got "${events}"`,
+        );
+    });
+
+    it('the watcher is re-armed once when the writer comes back after it', async t => {
+        const rq: any = new RedisQueue('ReconnWatchOrder', { logger });
+        await rq.start();
+        t.after(() => rq.destroy().catch(() => undefined));
+
+        const psubscribe = t.mock.method(Redis.prototype, 'psubscribe');
+
+        // after an outage both channels reconnect on their own timers; when
+        // the watcher wins, watch() has no writer yet and must be retried by
+        // the writer, not skipped
+        rq.destroyWriter(false);
+        rq.destroyWatcher();
+        await rq.connect('watcher', rq.options);
+        await rq.connect('writer', rq.options);
+
+        assert.equal(psubscribe.mock.callCount(), 1);
+        assert.equal(rq.watcher.listenerCount('pmessage'), 1);
+
+        // and a second writer reconnect must not subscribe twice
+        await rq.reconnectNow('writer');
+
+        assert.equal(psubscribe.mock.callCount(), 1);
+        assert.equal(rq.watcher.listenerCount('pmessage'), 1);
+    });
+
+    it('a writer reconnect does not arm a watcher this queue does not own', async t => {
+        const rq: any = new RedisQueue('ReconnWatchNotOwner', { logger });
+        await rq.start();
+        // ownership is handed back first, so destroy() releases the pooled
+        // watcher instead of leaving it to the next test
+        t.after(() => {
+            rq.watchOwner = true;
+
+            return rq.destroy().catch(() => undefined);
+        });
+
+        rq.watchOwner = false;
+        const psubscribe = t.mock.method(Redis.prototype, 'psubscribe');
+
+        await rq.reconnectNow('writer');
+
+        assert.equal(psubscribe.mock.callCount(), 0);
+    });
+
     it('reconnectNow() reconnects the subscription channel', async () => {
         const rq: any = new RedisQueue('ReconnSub', { logger });
         await rq.start();

@@ -157,6 +157,32 @@ release.
 
 ### Fixed
 
+- **After the watcher's connection was replaced, delayed messages were released
+  up to `watcherCheckDelay` late for the life of the process.** The pattern
+  subscription to expiry events and the `pmessage` handler that moves a due
+  message onto its queue belong to the connection, not to the queue. A
+  reconnect opened a new watcher connection and stopped there: `connect()`
+  handed it to `initWatcher()`, which counted the watchers on the broker, found
+  the new connection itself, and returned before `watch()` ran. Every other
+  process saw the same live watcher and took nothing over, so the fleet fell
+  back to the periodic check — 1 s delays measured at up to 5.9 s — until the
+  owning process restarted. Nothing was lost and nothing was logged, which is
+  what kept it out of sight.
+
+  Any reconnect of that one connection did it, not only a broker restart: a
+  dropped socket, a proxy closing idle connections, a `CLIENT KILL`. A broker
+  restart additionally discarded a `notify-keyspace-events` value the queue had
+  set at runtime, and nothing set it again.
+
+  The owner now re-arms the watcher on a reconnect — subscription, handler and
+  keyspace-event flags — from both the writer and the watcher reconnect,
+  because `watch()` needs both connections and after an outage they come back
+  in either order. `watch()` already refuses to arm the same connection twice,
+  so whichever arrives second arms it once. A queue that does not own the
+  watcher is unchanged. Re-applying the flags issues `CONFIG GET` again, and
+  `CONFIG SET` only when a flag is missing; where `CONFIG` is not permitted this
+  logs the same `events config error` line as at start-up.
+
 - **A joining host whose first subscription attempt failed stayed silent for the
   life of the process.** `RedisQueue.subscribe()` records a handler only after
   the subscribe resolves, so a first failure left that host's handler list

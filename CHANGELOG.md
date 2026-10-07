@@ -9,151 +9,7 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-The clustered subscription changes below are **patch-level bug fixes**: they
-restore additive subscription replay and close lifecycle races without adding a
-public API. Package versions are updated separately; other unreleased features may require a minor
-release.
-
-### Added
-
-- **TLS on connections to the redis broker.** A new `tls` option encrypts every
-  connection a queue opens — reader, writer, watcher and subscription alike.
-  Pass `true` for Node's defaults, or an object handed to `tls.connect()` as
-  given, so a private CA (`ca`) and mutual TLS (`cert`/`key`) both work. The
-  option was previously accepted by the type system and dropped on the way to
-  the client, which meant the bus could not be encrypted at all.
-
-  Cluster entries may carry their own `tls`, overriding the cluster-wide one
-  for that server alone; an entry that omits it falls back to the top level.
-  Per-entry `username` and `password` are still ignored, exactly as before —
-  honouring them would change what an existing cluster authenticates with, and
-  that has nothing to do with this feature.
-
-  With `tls` left unset the environment is consulted — `IMQ_REDIS_TLS`,
-  `IMQ_REDIS_TLS_CA_FILE`, `IMQ_REDIS_TLS_CERT_FILE`, `IMQ_REDIS_TLS_KEY_FILE`,
-  `IMQ_REDIS_TLS_KEY_PASSPHRASE`, `IMQ_REDIS_TLS_SERVERNAME` and
-  `IMQ_REDIS_TLS_REJECT_UNAUTHORIZED` — so a deployment can encrypt a fleet
-  without a code change. Certificate files are read as the queue is
-  constructed, and an unreadable one throws: an unmounted secret stops the
-  process rather than leaving it talking to the broker in the clear. Passing
-  `tls` explicitly always wins, `tls: false` included, and
-  `rejectUnauthorized: false` is warned about because it leaves a connection
-  encrypted but unauthenticated.
-
-  This covers the queue's own connections. `UDPClusterManager` announcements
-  remain unauthenticated UDP broadcast and are unaffected.
-
-- **Integration specs covering clustered subscription against a real broker**,
-  in `test/integration/clusterSubscription.spec.ts`. Unit mocks verify call
-  ordering and simulated delivery; these additionally verify Redis subscription
-  acknowledgments and actual deliveries. Unlike the TLS specs they do not stand
-  up their own server: they use an ambient one at `REDIS_HOST`/`REDIS_PORT` (default
-  `127.0.0.1:6379`) and skip, with a reason, when none answers. `npm test` does
-  not run them.
-
-- **Integration specs covering TLS against a real broker**, in
-  `test/integration/`, run by `npm run test-integration`. They stand up a
-  throwaway TLS-only redis and assert what a mocked `ioredis` cannot: that the
-  handshake completes and is verified, that a message crosses it, that the
-  connection pool keeps differing TLS configurations apart, and that plaintext,
-  an unverifiable certificate and a wrong server name are all refused rather
-  than downgraded. They skip themselves, with a reason, wherever
-  `redis-server` and `openssl` are not both available, so a checkout without
-  redis still passes. `npm test` now globs `test/unit` and does not run them.
-
-### Changed
-
-- **Clustered subscribe()/unsubscribe() now serialise per host.** A call can
-  block behind an earlier subscription operation on that host that never
-  settles. Different hosts proceed independently. Rejected registrations remain
-  remembered and may have succeeded on some hosts; **subscribe() is not
-  retryable**. Repeating it adds another registration, including on future
-  hosts. To rebuild a known set, await unsubscribe() and register that set again.
-  Function-identity deduplication would break deliberate additive registrations;
-  rolling back a partial fan-out would require tearing down working subscribers.
-
-- **Clustered destroy() clears routing membership and subscription state
-  synchronously.** Queued work cannot reopen a destroyed host. Teardown bypasses
-  subscription chains so a wedged operation cannot hold it up. Concurrent callers
-  await the same teardown (including manager removal) and observe the same
-  AggregateError if it fails. Every independent host teardown and manager removal
-  is attempted even if others fail. A later destroy() retries only failed tasks;
-  successful cleanup is not repeated. Discovery admission closes synchronously
-  and stays closed during and after teardown, including retries. A `send()`
-  already parked waiting for the first server is rejected as teardown begins,
-  rather than waiting out `IMQ_SEND_INIT_TIMEOUT` on a timer that keeps the
-  process alive; `send()` and `subscribe()` on a destroyed instance are
-  rejected outright instead of stalling or repopulating the cleared state.
-  Destroyed instances must not be reused.
-
-- **`ClusteredRedisQueue.subscribe()` now rejects a bad channel on an empty
-  cluster, where it used to resolve.** Validation lived in the underlying
-  queues, so with no servers yet there was nothing to raise it: a second
-  channel name, or an empty one, resolved and left the remembered subscription
-  naming a channel nothing was subscribed to. The cluster now applies the same
-  two checks itself, with the same messages the underlying queue uses, before
-  touching any state. An empty cluster is the normal starting point for
-  membership discovered at runtime, so a caller that registers before the first
-  server arrives will see an error it previously did not.
-
-- **Nothing changes for a queue that does not use TLS.** The option is absent
-  from `options` unless it was configured, the connection pool key stays the
-  plain `host:port`, the redis client is handed no `tls` option, and no new
-  warning is emitted. The only added work on that path is one environment
-  lookup per queue construction, about a microsecond, and nothing at all per
-  message. This is covered by its own group of specs rather than left as a
-  claim.
-
-- **A connection failure no longer takes the process down during teardown.**
-  This is a behaviour change for everyone, not only TLS users: a socket that
-  reported a second failure after the one that closed it used to reach an
-  `error` with no listener and terminate the process. Such a process now stays
-  up, and the failure is still logged and emitted as it always was. Nothing
-  that previously succeeded behaves differently; a crash becomes a log line.
-
-- **Shared writer and watcher connections are now keyed by TLS configuration as
-  well as by `host:port`.** These connections are shared per server within a
-  process; queues reaching one server under different TLS configurations now get
-  separate connections, so a queue that asked for encryption can never be handed
-  a plaintext socket another queue opened first, nor the reverse. Configurations
-  equal by value still share, and the public `redisKey` still reports the plain
-  `host:port` address.
-
-- **`safeDeliveryTtl` is now the longest a message may be worked on**, and its
-  default moves from `5000` to `300000`. It used to be a hand-off recovery
-  deadline, which meant it bounded nothing that mattered: the key was deleted at
-  dispatch, so it never covered processing at all. It now bounds processing,
-  which is the only thing that recovers a message from a worker that is alive,
-  connected and serving other messages while one handler has wedged on this one.
-  Liveness cannot see that case, and restarting an otherwise healthy process is
-  not a recovery strategy.
-
-  Set it to the longest a handler in this system can legitimately take, with
-  headroom — a slow upstream is the usual reason for a large value, such as a
-  data vendor with no job API or screen-scraping behind an HTTP call. Too low
-  and a message is reclaimed from a worker still legitimately working on it.
-
-  The default rose because the meaning changed: 5000 was a sane hand-off
-  deadline and is a poor processing budget.
-
-- **The maintenance sweep now runs on `watcherCheckDelay`** (5000 ms by
-  default) rather than on `safeDeliveryTtl`. How long a message may be worked on
-  and how often the watcher looks for abandoned ones are different questions,
-  and tying them would make a crashed worker's message wait out a budget meant
-  for a live one. `watcherCheckDelay` is therefore the worst-case latency for a
-  crashed worker's message coming back; with the watcher check disabled the
-  sweep falls back to `safeDeliveryTtl`.
-
-- **The reader's blocking pop is half `safeDeliveryTtl` capped at 5000 ms.** A
-  lease deadline is stamped before the pop that fills the key, so an uncapped
-  wait would hand a message a sizeable part of its budget already spent. At the
-  old defaults both of these resolve to exactly what they were.
-
-- The safe-delivery changes above alter meanings and defaults only —
-  `safeDelivery`, `safeDeliveryTtl` and `watcherCheckDelay` are the same three
-  options they were.
+## [3.5.4] - 2026-10-07
 
 ### Fixed
 
@@ -182,6 +38,10 @@ release.
   watcher is unchanged. Re-applying the flags issues `CONFIG GET` again, and
   `CONFIG SET` only when a flag is missing; where `CONFIG` is not permitted this
   logs the same `events config error` line as at start-up.
+
+## [3.5.3] - 2026-09-18
+
+### Fixed
 
 - **A joining host whose first subscription attempt failed stayed silent for the
   life of the process.** `RedisQueue.subscribe()` records a handler only after
@@ -231,6 +91,59 @@ release.
   it was found. `restoreSubscription()` now reconciles the connection's listeners
   to exactly the remembered handlers instead of appending to them.
 
+## [3.5.2] - 2026-09-14
+
+The clustered subscription changes below are **patch-level bug fixes**: they
+restore additive subscription replay and close lifecycle races without adding a
+public API.
+
+### Added
+
+- **Integration specs covering clustered subscription against a real broker**,
+  in `test/integration/clusterSubscription.spec.ts`. Unit mocks verify call
+  ordering and simulated delivery; these additionally verify Redis subscription
+  acknowledgments and actual deliveries. Unlike the TLS specs they do not stand
+  up their own server: they use an ambient one at `REDIS_HOST`/`REDIS_PORT` (default
+  `127.0.0.1:6379`) and skip, with a reason, when none answers. `npm test` does
+  not run them.
+
+### Changed
+
+- **Clustered subscribe()/unsubscribe() now serialise per host.** A call can
+  block behind an earlier subscription operation on that host that never
+  settles. Different hosts proceed independently. Rejected registrations remain
+  remembered and may have succeeded on some hosts; **subscribe() is not
+  retryable**. Repeating it adds another registration, including on future
+  hosts. To rebuild a known set, await unsubscribe() and register that set again.
+  Function-identity deduplication would break deliberate additive registrations;
+  rolling back a partial fan-out would require tearing down working subscribers.
+
+- **Clustered destroy() clears routing membership and subscription state
+  synchronously.** Queued work cannot reopen a destroyed host. Teardown bypasses
+  subscription chains so a wedged operation cannot hold it up. Concurrent callers
+  await the same teardown (including manager removal) and observe the same
+  AggregateError if it fails. Every independent host teardown and manager removal
+  is attempted even if others fail. A later destroy() retries only failed tasks;
+  successful cleanup is not repeated. Discovery admission closes synchronously
+  and stays closed during and after teardown, including retries. A `send()`
+  already parked waiting for the first server is rejected as teardown begins,
+  rather than waiting out `IMQ_SEND_INIT_TIMEOUT` on a timer that keeps the
+  process alive; `send()` and `subscribe()` on a destroyed instance are
+  rejected outright instead of stalling or repopulating the cleared state.
+  Destroyed instances must not be reused.
+
+- **`ClusteredRedisQueue.subscribe()` now rejects a bad channel on an empty
+  cluster, where it used to resolve.** Validation lived in the underlying
+  queues, so with no servers yet there was nothing to raise it: a second
+  channel name, or an empty one, resolved and left the remembered subscription
+  naming a channel nothing was subscribed to. The cluster now applies the same
+  two checks itself, with the same messages the underlying queue uses, before
+  touching any state. An empty cluster is the normal starting point for
+  membership discovered at runtime, so a caller that registers before the first
+  server arrives will see an error it previously did not.
+
+### Fixed
+
 - **A clustered queue gave a server that joined later only the last-registered
   subscription handler, silencing every other handler on that host.**
   `ClusteredRedisQueue` remembered one `{ channel, handler }` pair, so each
@@ -273,6 +186,74 @@ release.
   they cannot start that host concurrently. Settled startup is released so an
   explicit later start() can retry.
 
+## [3.5.0] - 2026-09-01
+
+### Added
+
+- **TLS on connections to the redis broker.** A new `tls` option encrypts every
+  connection a queue opens — reader, writer, watcher and subscription alike.
+  Pass `true` for Node's defaults, or an object handed to `tls.connect()` as
+  given, so a private CA (`ca`) and mutual TLS (`cert`/`key`) both work. The
+  option was previously accepted by the type system and dropped on the way to
+  the client, which meant the bus could not be encrypted at all.
+
+  Cluster entries may carry their own `tls`, overriding the cluster-wide one
+  for that server alone; an entry that omits it falls back to the top level.
+  Per-entry `username` and `password` are still ignored, exactly as before —
+  honouring them would change what an existing cluster authenticates with, and
+  that has nothing to do with this feature.
+
+  With `tls` left unset the environment is consulted — `IMQ_REDIS_TLS`,
+  `IMQ_REDIS_TLS_CA_FILE`, `IMQ_REDIS_TLS_CERT_FILE`, `IMQ_REDIS_TLS_KEY_FILE`,
+  `IMQ_REDIS_TLS_KEY_PASSPHRASE`, `IMQ_REDIS_TLS_SERVERNAME` and
+  `IMQ_REDIS_TLS_REJECT_UNAUTHORIZED` — so a deployment can encrypt a fleet
+  without a code change. Certificate files are read as the queue is
+  constructed, and an unreadable one throws: an unmounted secret stops the
+  process rather than leaving it talking to the broker in the clear. Passing
+  `tls` explicitly always wins, `tls: false` included, and
+  `rejectUnauthorized: false` is warned about because it leaves a connection
+  encrypted but unauthenticated.
+
+  This covers the queue's own connections. `UDPClusterManager` announcements
+  remain unauthenticated UDP broadcast and are unaffected.
+
+- **Integration specs covering TLS against a real broker**, in
+  `test/integration/`, run by `npm run test-integration`. They stand up a
+  throwaway TLS-only redis and assert what a mocked `ioredis` cannot: that the
+  handshake completes and is verified, that a message crosses it, that the
+  connection pool keeps differing TLS configurations apart, and that plaintext,
+  an unverifiable certificate and a wrong server name are all refused rather
+  than downgraded. They skip themselves, with a reason, wherever
+  `redis-server` and `openssl` are not both available, so a checkout without
+  redis still passes. `npm test` now globs `test/unit` and does not run them.
+
+### Changed
+
+- **Nothing changes for a queue that does not use TLS.** The option is absent
+  from `options` unless it was configured, the connection pool key stays the
+  plain `host:port`, the redis client is handed no `tls` option, and no new
+  warning is emitted. The only added work on that path is one environment
+  lookup per queue construction, about a microsecond, and nothing at all per
+  message. This is covered by its own group of specs rather than left as a
+  claim.
+
+- **A connection failure no longer takes the process down during teardown.**
+  This is a behaviour change for everyone, not only TLS users: a socket that
+  reported a second failure after the one that closed it used to reach an
+  `error` with no listener and terminate the process. Such a process now stays
+  up, and the failure is still logged and emitted as it always was. Nothing
+  that previously succeeded behaves differently; a crash becomes a log line.
+
+- **Shared writer and watcher connections are now keyed by TLS configuration as
+  well as by `host:port`.** These connections are shared per server within a
+  process; queues reaching one server under different TLS configurations now get
+  separate connections, so a queue that asked for encryption can never be handed
+  a plaintext socket another queue opened first, nor the reverse. Configurations
+  equal by value still share, and the public `redisKey` still reports the plain
+  `host:port` address.
+
+### Fixed
+
 - **A failed connection could crash the process as it was being torn down.**
   The redis client guards its socket with a one-shot `error` listener, which
   the failure that brings the connection down spends. A socket that goes on to
@@ -286,6 +267,46 @@ release.
   Reachable without TLS in principle, but TLS is what makes it ordinary: a
   service started against a broker it cannot verify would reject `start()` and
   then die inside `destroy()` rather than reporting the misconfiguration.
+
+## [3.4.3] - 2026-08-30
+
+### Changed
+
+- **`safeDeliveryTtl` is now the longest a message may be worked on**, and its
+  default moves from `5000` to `300000`. It used to be a hand-off recovery
+  deadline, which meant it bounded nothing that mattered: the key was deleted at
+  dispatch, so it never covered processing at all. It now bounds processing,
+  which is the only thing that recovers a message from a worker that is alive,
+  connected and serving other messages while one handler has wedged on this one.
+  Liveness cannot see that case, and restarting an otherwise healthy process is
+  not a recovery strategy.
+
+  Set it to the longest a handler in this system can legitimately take, with
+  headroom — a slow upstream is the usual reason for a large value, such as a
+  data vendor with no job API or screen-scraping behind an HTTP call. Too low
+  and a message is reclaimed from a worker still legitimately working on it.
+
+  The default rose because the meaning changed: 5000 was a sane hand-off
+  deadline and is a poor processing budget.
+
+- **The maintenance sweep now runs on `watcherCheckDelay`** (5000 ms by
+  default) rather than on `safeDeliveryTtl`. How long a message may be worked on
+  and how often the watcher looks for abandoned ones are different questions,
+  and tying them would make a crashed worker's message wait out a budget meant
+  for a live one. `watcherCheckDelay` is therefore the worst-case latency for a
+  crashed worker's message coming back; with the watcher check disabled the
+  sweep falls back to `safeDeliveryTtl`.
+
+- **The reader's blocking pop is half `safeDeliveryTtl` capped at 5000 ms.** A
+  lease deadline is stamped before the pop that fills the key, so an uncapped
+  wait would hand a message a sizeable part of its budget already spent. At the
+  old defaults both of these resolve to exactly what they were.
+
+- The safe-delivery changes above alter meanings and defaults only —
+  `safeDelivery`, `safeDeliveryTtl` and `watcherCheckDelay` are the same three
+  options they were.
+
+### Fixed
 
 - **`safeDelivery` lost a message when a worker died mid-handler.** It released
   the message's worker key the instant the message was dispatched to the

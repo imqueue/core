@@ -54,3 +54,9 @@ scripts/
 # debug* are manual dev scripts; `!*.d.ts` above re-includes their declaration
 # files, so re-exclude those here (a later rule wins)
 debug*.d.ts
+
+# repository papers, not part of the package
+AGENTS.md
+CLAUDE.md
+CONTRIBUTION-TERMS.md
+signatures/

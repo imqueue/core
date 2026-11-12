@@ -39,9 +39,9 @@ import {
     buildOptions,
     escapeRegExp,
     randomInt,
-    pack,
+    packer,
     sha1,
-    unpack,
+    unpackAny,
     envInt,
     envTls,
     tlsFingerprint,
@@ -424,8 +424,9 @@ export class RedisQueue
      * Serializes a given data object into string
      *
      * @param data - the value to serialize; must be JSON-serializable
-     * @returns the wire representation, gzipped when
-     *          {@link IMQOptions.useGzip} is on
+     * @returns the wire representation: gzipped when
+     *          {@link IMQOptions.useGzip} is on, zstd-compressed when it is
+     *          longer than {@link IMQOptions.compressAbove}, JSON otherwise
      */
     private readonly pack: (data: unknown) => string;
 
@@ -434,8 +435,11 @@ export class RedisQueue
      *
      * @param data - the wire representation, as produced by `pack`
      * @returns the deserialized value
-     * @throws when the payload is malformed, or was packed with a different
-     *         {@link IMQOptions.useGzip} setting
+     * @throws when the payload is malformed
+     *
+     * @remarks
+     * Reads plain, gzipped and zstd messages alike, whatever this queue's own
+     * settings, so writers can change format one at a time.
      */
     private readonly unpack: (data: string) => unknown;
 
@@ -496,8 +500,12 @@ export class RedisQueue
             }
         }
 
-        this.pack = this.options.useGzip ? pack : JSON.stringify;
-        this.unpack = this.options.useGzip ? unpack : JSON.parse;
+        if (this.options.compressAbove === undefined) {
+            this.options.compressAbove = envInt('IMQ_COMPRESS_ABOVE', 0);
+        }
+
+        this.pack = packer(!!this.options.useGzip, this.options.compressAbove);
+        this.unpack = unpackAny;
         this.redisKey = `${this.options.host}:${this.options.port}`;
         this.poolKey = this.options.tls
             ? `${this.redisKey}#${tlsFingerprint(this.options.tls)}`

@@ -9,6 +9,26 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **zstd for large messages, `compressAbove`.** A queue message whose JSON is
+  longer than `compressAbove` characters (or `IMQ_COMPRESS_ABOVE`, when the
+  option is not given) is written zstd-compressed at the fastest level, as
+  base64 behind a one-character mark. Smaller messages are written as before.
+  Off by default. Measured on a real 4.6 MB message: 293 KB on the wire for
+  about 3 ms of extra CPU, where `useGzip` gave 491 KB for about 19 ms, and
+  gzip's binary string grows by about half again as it is written as UTF-8.
+
+### Changed
+
+- **Every queue reads plain, gzipped and zstd messages, whatever its own
+  settings.** The format is told apart by the first character, so producer and
+  consumer no longer have to agree on `useGzip`, and a fleet can turn
+  compression on one writer at a time once every reader runs this version.
+  Writing is unchanged unless `compressAbove` is set.
+
 ## [3.5.4] - 2026-10-07
 
 ### Fixed

@@ -26,6 +26,7 @@ export * from './sha1.js';
 export * from './randomInt.js';
 export * from './pack.js';
 export * from './unpack.js';
+export * from './compress.js';
 export * from './escapeRegExp.js';
 export * from './copyEventEmitter.js';
 export * from './envInt.js';

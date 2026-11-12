@@ -357,17 +357,35 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
      * to `false`.
      *
      * @remarks
-     * Must be set identically on every producer and consumer of a queue: a
-     * mismatch makes deserialization fail, which emits an `error` event with the
-     * event name `OnMessage` and drops the message — permanently, even under
-     * {@link IMQOptions.safeDelivery}: a message that cannot be unpacked reaches
-     * no listener, so nothing is pending on it and its lease is released at
-     * once. Re-delivering it would only fail the same way.
+     * It decides how this queue writes. Every queue reads plain, gzipped and
+     * zstd messages alike, so producers and consumers need not agree on it. A
+     * consumer older than that reader still has to agree: there a mismatch
+     * fails deserialization, emits an `error` event named `OnMessage` and drops
+     * the message permanently, even under {@link IMQOptions.safeDelivery}.
+     *
+     * Every gzipped byte travels as a character of a UTF-8 string, so about
+     * half of them take two bytes on the wire;
+     * {@link IMQOptions.compressAbove} is usually the better choice.
      *
      * Applies to queue messages only. {@link IMessageQueue.publish} and
      * {@link IMessageQueue.subscribe} payloads are always plain JSON.
      */
     useGzip?: boolean;
+
+    /**
+     * Compress a queue message with zstd when its JSON is longer than this
+     * many characters. `0`, the default, never does. Read from
+     * `IMQ_COMPRESS_ABOVE` when not given.
+     *
+     * @remarks
+     * Unlike {@link IMQOptions.useGzip} it need not agree between producer and
+     * consumer: every queue reads plain, gzipped and zstd messages alike. Turn
+     * it on only once every consumer runs a version that reads zstd, and on
+     * Node 22.15 or later; an older Node writes plain JSON whatever it says.
+     * {@link IMQOptions.useGzip} wins where both are set. Applies to queue
+     * messages only, not to {@link IMessageQueue.publish}.
+     */
+    compressAbove?: number;
 
     /**
      * Enable guaranteed message delivery. When enabled, reading a message

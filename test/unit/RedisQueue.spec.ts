@@ -214,6 +214,53 @@ describe('RedisQueue', () => {
             });
         });
 
+        it('should deliver a compressed message to a queue that compresses nothing', (t, done) => {
+            const message: any = {
+                rows: Array.from({ length: 500 }, (_, at) => `row ${at}`),
+            };
+            const rqFrom = new RedisQueue('IMQUnitTestsFromZ', {
+                logger,
+                compressAbove: 256,
+            });
+            const rqTo = new RedisQueue('IMQUnitTestsToZ', { logger });
+
+            rqTo.on('message', msg => {
+                assert.deepEqual(msg, message);
+                rqFrom.destroy().catch();
+                rqTo.destroy().catch();
+                done();
+            });
+
+            rqFrom.start().then(() => {
+                rqTo.start().then(() => {
+                    rqFrom.send('IMQUnitTestsToZ', message).catch();
+                });
+            });
+        });
+
+        it('should take the compression threshold from IMQ_COMPRESS_ABOVE', async () => {
+            const was = process.env.IMQ_COMPRESS_ABOVE;
+
+            process.env.IMQ_COMPRESS_ABOVE = '4096';
+
+            const rq: any = new RedisQueue(uuid(), { logger });
+            const told: any = new RedisQueue(uuid(), {
+                logger,
+                compressAbove: 0,
+            });
+
+            if (was === undefined) {
+                delete process.env.IMQ_COMPRESS_ABOVE;
+            } else {
+                process.env.IMQ_COMPRESS_ABOVE = was;
+            }
+
+            assert.equal(rq.options.compressAbove, 4096);
+            assert.equal(told.options.compressAbove, 0);
+            await rq.destroy();
+            await told.destroy();
+        });
+
         it('should guaranty message delivery if safeDelivery is on', (t, done) => {
             // it is hard to emulate mq crash at a certain time of
             // its runtime execution, so we simply assume delivery works itself

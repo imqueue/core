@@ -39,6 +39,10 @@ export class RedisClientMock extends EventEmitter {
     private static __queues__: any = {};
     private static __clientList: any = {};
     private __rt: any;
+    private __unblock?: () => void;
+    private static __ids = 0;
+    private static __byId: Map<number, RedisClientMock> = new Map();
+    public __id: number = ++RedisClientMock.__ids;
     private static __keys: any = {};
     private static __scripts: any = {};
     private static readonly __notifyEventsParam = 'notify-keyspace-events';
@@ -57,6 +61,7 @@ export class RedisClientMock extends EventEmitter {
     constructor(options: any = {}) {
         super();
         this.options = options;
+        RedisClientMock.__byId.set(this.__id, this);
         setTimeout(() => {
             this.emit('ready', this);
         });
@@ -68,6 +73,10 @@ export class RedisClientMock extends EventEmitter {
     }
 
     public end() {}
+
+    public ping(): Promise<string> {
+        return Promise.resolve('PONG');
+    }
 
     public quit() {
         return new Promise(resolve => resolve(undefined));
@@ -119,10 +128,15 @@ export class RedisClientMock extends EventEmitter {
             }
 
             return new Promise(resolve => {
-                this.__rt = setTimeout(
-                    () => resolve(this.brpop(key, timeout, cb)),
-                    timeout || 100,
-                );
+                this.__unblock = () => {
+                    clearTimeout(this.__rt);
+                    this.__unblock = undefined;
+                    resolve(null as any);
+                };
+                this.__rt = setTimeout(() => {
+                    this.__unblock = undefined;
+                    resolve(this.brpop(key, timeout, cb));
+                }, timeout || 100);
             });
         } else {
             const result = [key, q.shift()];
@@ -282,7 +296,10 @@ export class RedisClientMock extends EventEmitter {
     public client(...args: any[]): string | boolean {
         const self = RedisClientMock;
         const cmd = args.shift();
-        const cb = args.pop();
+        const cb =
+            typeof args[args.length - 1] === 'function'
+                ? args.pop()
+                : undefined;
         const name = args.shift();
 
         if (cmd === 'LIST') {
@@ -295,6 +312,15 @@ export class RedisClientMock extends EventEmitter {
         } else if (cmd === 'SETNAME') {
             this.__name = name;
             self.__clientList[name] = true;
+        } else if (cmd === 'ID') {
+            return Promise.resolve(this.__id) as any;
+        } else if (cmd === 'UNBLOCK') {
+            const blocked = self.__byId.get(Number(name));
+            const pending = blocked?.__unblock;
+
+            pending?.();
+
+            return Promise.resolve(pending ? 1 : 0) as any;
         }
 
         this.cbExecute(cb, null, true);

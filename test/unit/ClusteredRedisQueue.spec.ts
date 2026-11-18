@@ -1958,3 +1958,81 @@ describe('ClusteredRedisQueue joining-server failure logging', () => {
         await cq.destroy();
     });
 });
+
+describe('ClusteredRedisQueue - a server whose announcements lapsed', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    const settled = () => new Promise(resolve => setTimeout(resolve, 20));
+
+    it('is kept where it still answers on its connection', async () => {
+        const cq: any = new ClusteredRedisQueue('TestLapsedKept', {
+            clusterManagers: [new (ClusterManager as any)()],
+        });
+
+        cq.addServer(clusterConfig.cluster[0]);
+
+        const imq = cq.imqs[0];
+        const destroy = mock.method(imq, 'destroy');
+
+        mock.method(imq, 'answers', async () => true);
+        cq.removeServer(clusterConfig.cluster[0], { lapsed: true });
+        await settled();
+
+        assert.equal(cq.servers.length, 1, 'a broker that answers was dropped');
+        assert.equal(cq.imqs.length, 1);
+        assert.equal(destroy.mock.callCount(), 0);
+    });
+
+    it('is removed where it does not answer', async () => {
+        const cq: any = new ClusteredRedisQueue('TestLapsedGone', {
+            clusterManagers: [new (ClusterManager as any)()],
+        });
+
+        cq.addServer(clusterConfig.cluster[0]);
+        mock.method(cq.imqs[0], 'answers', async () => false);
+        cq.removeServer(clusterConfig.cluster[0], { lapsed: true });
+        await settled();
+
+        assert.equal(cq.servers.length, 0);
+        assert.equal(cq.imqs.length, 0);
+    });
+
+    it('is removed at once where it said it went down', () => {
+        const cq: any = new ClusteredRedisQueue('TestDown', {
+            clusterManagers: [new (ClusterManager as any)()],
+        });
+
+        cq.addServer(clusterConfig.cluster[0]);
+
+        const answers = mock.method(cq.imqs[0], 'answers', async () => true);
+
+        cq.removeServer(clusterConfig.cluster[0]);
+
+        assert.equal(cq.servers.length, 0);
+        assert.equal(answers.mock.callCount(), 0);
+    });
+
+    it('drains what its reader already read before it is torn down', async () => {
+        const cq: any = new ClusteredRedisQueue('TestDrainFirst', {
+            clusterManagers: [new (ClusterManager as any)()],
+        });
+
+        cq.addServer(clusterConfig.cluster[0]);
+
+        const imq = cq.imqs[0];
+        const order: string[] = [];
+
+        mock.method(imq, 'drain', async () => {
+            order.push('drain');
+        });
+        mock.method(imq, 'destroy', async () => {
+            order.push('destroy');
+        });
+        cq.removeServer(clusterConfig.cluster[0]);
+        await settled();
+
+        assert.deepEqual(order, ['drain', 'destroy']);
+    });
+});

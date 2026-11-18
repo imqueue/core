@@ -22,8 +22,16 @@
  * <support@imqueue.com> to get commercial licensing options.
  */
 import { EventEmitter } from 'node:events';
-import { type InitializedCluster } from './ClusterManager.js';
-import { buildOptions, copyEventEmitter, errorCode } from './helpers/index.js';
+import {
+    type InitializedCluster,
+    type ServerRemoval,
+} from './ClusterManager.js';
+import {
+    buildOptions,
+    copyEventEmitter,
+    envInt,
+    errorCode,
+} from './helpers/index.js';
 import {
     DEFAULT_IMQ_OPTIONS,
     type EventMap,
@@ -54,6 +62,13 @@ const SYNC_RETRY_BASE_DELAY = 1000;
 
 /** Longest delay (ms) between subscription catch-up retries. */
 const SYNC_RETRY_MAX_DELAY = 30000;
+
+/**
+ * Time (ms) a server whose announcements lapsed is given to answer a PING
+ * before it is removed. Configurable via the IMQ_LAPSED_ANSWER_TIMEOUT
+ * environment variable, defaults to 2,000.
+ */
+const LAPSED_ANSWER_TIMEOUT = envInt('IMQ_LAPSED_ANSWER_TIMEOUT', 2000);
 
 /**
  * A server registered in a {@link ClusteredRedisQueue}: its address, plus the
@@ -1155,9 +1170,51 @@ export class ClusteredRedisQueue
      * Because the underlying queues are matched by host and port, all entries
      * sharing an address are removed together.
      */
-    protected removeServer(server: IServerInput): void {
+    protected removeServer(
+        server: IServerInput,
+        removal?: ServerRemoval,
+    ): void {
         this.verbose(`Removing the server: ${JSON.stringify(server)}`);
 
+        const remove = this.findServer(server);
+
+        if (!remove) {
+            return;
+        }
+
+        // only its announcements lapsed - a busy process misses them as
+        // easily as a dead broker stops sending them - so the broker is
+        // asked first, and kept where it still answers
+        if (removal?.lapsed && remove.imq) {
+            const kept = remove.imq;
+
+            void kept.answers(LAPSED_ANSWER_TIMEOUT).then(answers => {
+                if (answers) {
+                    this.verbose(
+                        `Kept the server ${kept.redisKey}: its announcements lapsed, but it answers`,
+                    );
+
+                    return;
+                }
+
+                if (this.findServer(server)?.imq === kept) {
+                    this.dropServer(server);
+                }
+            });
+
+            return;
+        }
+
+        this.dropServer(server);
+    }
+
+    /**
+     * Removes a server known to be gone: out of routing at once, its queue
+     * drained of what it already read and then torn down.
+     *
+     * @param server - address of the server to remove
+     */
+    private dropServer(server: IServerInput): void {
         const remove = this.findServer(server);
 
         if (!remove) {
@@ -1180,8 +1237,11 @@ export class ClusteredRedisQueue
             // connection that never answers would then never be torn down at
             // all, and teardown is the one operation that has to happen
             // regardless of what the host is doing
+            // drained first: a reply its reader already took from the
+            // broker reaches its caller rather than going with the socket
             imqToRemove
-                .destroy()
+                .drain()
+                .then(() => imqToRemove.destroy())
                 .catch((err: unknown) =>
                     this.verbose(`Error destroying removed server: ${err}`),
                 );

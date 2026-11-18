@@ -129,6 +129,14 @@ not add these specs to a runner that CI invokes.
   this property in any queue change. `ClusteredRedisQueue` balances round-robin
   across instances.
 - Idle queues must consume no resources — do not introduce background intervals.
+- **A server is dropped only when it is gone, and never with what it already
+  delivered.** A cluster manager says when only a server's announcements lapsed
+  (`ServerRemoval.lapsed`); `ClusteredRedisQueue` then PINGs it and keeps it if
+  it answers, since a busy process misses announcements as easily as a dead
+  broker stops sending them. A server that is removed is drained first:
+  `RedisQueue.drain()` releases the blocked reader with `CLIENT UNBLOCK` from
+  the writer, so a reply it already took reaches the listeners before teardown
+  removes them and drops the socket.
 
 ## Using this package correctly (for consumer-facing code an agent writes)
 

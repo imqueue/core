@@ -3146,3 +3146,72 @@ describe('RedisQueue publish visibility', () => {
         assert.equal(matching(cap.warn, /no subscribers/).length, 0);
     });
 });
+
+describe('RedisQueue.drain()', () => {
+    it('hands on a message its reader already took, and reads no more', async () => {
+        const rq: any = new RedisQueue(`DrainQueue${Date.now()}`, { logger });
+        const got: unknown[] = [];
+
+        rq.on('message', (message: unknown) => got.push(message));
+        await rq.start();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        assert.ok(rq.readerId !== undefined, 'the reader has no id to unblock');
+
+        await rq.send(rq.name, { reply: 'already on its way' });
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await rq.drain(1000);
+
+        assert.deepEqual(got, [{ reply: 'already on its way' }]);
+        assert.equal(rq.draining, true);
+
+        await rq.send(rq.name, { reply: 'after the drain' });
+        await new Promise(resolve => setTimeout(resolve, 250));
+
+        assert.deepEqual(
+            got,
+            [{ reply: 'already on its way' }],
+            'the reader went on reading after it was drained',
+        );
+
+        await rq.destroy();
+    });
+
+    it('releases a reader blocked on an empty queue at once', async () => {
+        const rq: any = new RedisQueue(`DrainEmpty${Date.now()}`, { logger });
+
+        await rq.start();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        const started = Date.now();
+
+        await rq.drain(5000);
+
+        assert.ok(
+            Date.now() - started < 1000,
+            'the drain waited out its time instead of releasing the reader',
+        );
+
+        await rq.destroy();
+    });
+});
+
+describe('RedisQueue.answers()', () => {
+    it('is true where the broker answers a PING', async () => {
+        const rq: any = new RedisQueue(`Answers${Date.now()}`, { logger });
+
+        await rq.start();
+        assert.equal(await rq.answers(500), true);
+        await rq.destroy();
+    });
+
+    it('is false where the PING goes unanswered', async () => {
+        const rq: any = new RedisQueue(`Silent${Date.now()}`, { logger });
+
+        await rq.start();
+        mock.method(rq.writer, 'ping', () => new Promise(() => undefined));
+        assert.equal(await rq.answers(50), false);
+        mock.restoreAll();
+        await rq.destroy();
+    });
+});

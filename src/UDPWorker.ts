@@ -187,12 +187,15 @@ export class UDPWorker {
      *
      * @param message - the announcement that named it, whether a `down` notice
      *        or the stale `up` whose liveness timer expired
+     * @param lapsed - true where only its announcements stopped arriving, and
+     *        no `down` notice said it went away
      */
-    private removeServer(message: Message): void {
+    private removeServer(message: Message, lapsed = false): void {
         this.servers.delete(UDPWorker.getServerKey(message));
         this.messagePort.postMessage({
             type: 'cluster:remove',
             server: UDPWorker.mapMessage(message),
+            lapsed,
         });
     }
 
@@ -241,7 +244,7 @@ export class UDPWorker {
             () =>
                 setImmediate(() => {
                     if (this.servers.get(key) === stamp) {
-                        this.removeServer(message);
+                        this.removeServer(message, true);
                     }
                 }),
             effectiveTimeout,

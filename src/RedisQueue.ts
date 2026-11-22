@@ -264,6 +264,23 @@ export class RedisQueue
     private reader?: IRedisClient;
 
     /**
+     * The reader's id on the broker, which {@link RedisQueue.drain} unblocks
+     * it by from another connection.
+     */
+    private readerId?: number;
+
+    /**
+     * The read loop running on the reader, settled once it stops.
+     */
+    private reading?: Promise<void>;
+
+    /**
+     * Set while {@link RedisQueue.drain} runs: the read loop hands on what it
+     * already read and stops instead of reading again.
+     */
+    private draining: boolean = false;
+
+    /**
      * Channel connection associated with this queue instance
      * Specially designed for client subscriptions to server-emitted events
      */
@@ -1354,6 +1371,93 @@ export class RedisQueue
     }
 
     /**
+     * Whether the broker answers this queue's writer within the given time.
+     *
+     * @param timeoutMs - how long to wait for its answer, in milliseconds
+     * @returns true where a PING came back in time, false otherwise
+     *
+     * @remarks
+     * A connection that only reports itself ready may sit on a socket nobody
+     * answers; this asks the broker itself. Never rejects.
+     */
+    public async answers(timeoutMs: number): Promise<boolean> {
+        const writer = this.writer;
+
+        if (!writer || writer.status !== 'ready' || this.destroyed) {
+            return false;
+        }
+
+        let timer: NodeJS.Timeout | undefined;
+
+        try {
+            return await Promise.race([
+                writer.ping().then(reply => reply === 'PONG'),
+                new Promise<boolean>(resolve => {
+                    timer = setTimeout(() => resolve(false), timeoutMs);
+                    timer.unref();
+                }),
+            ]);
+        } catch {
+            return false;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    /**
+     * Stops reading and hands on every message the reader already took from
+     * the broker, before a teardown that would drop the reader at once.
+     *
+     * @param timeoutMs - how long to wait for the read loop to stop, in
+     *        milliseconds
+     *
+     * @remarks
+     * The reader is released from its blocking read by `CLIENT UNBLOCK` sent
+     * on the writer. A message the broker already handed it is still in the
+     * socket, ahead of the release, so it reaches the `message` listeners
+     * before the loop stops; nothing further is taken. Without this, a reply
+     * popped but not yet read was lost with the socket, and its caller waited
+     * out its whole timeout. Never rejects; a host that does not answer is
+     * given up on after `timeoutMs`.
+     */
+    public async drain(
+        timeoutMs: number = IMQ_CONNECTION_QUIT_TIMEOUT,
+    ): Promise<void> {
+        const reading = this.reading;
+
+        if (!this.reader || !reading || this.destroyed) {
+            return;
+        }
+
+        this.draining = true;
+
+        let timer: NodeJS.Timeout | undefined;
+
+        try {
+            if (this.readerId !== undefined && this.writer) {
+                await Promise.race([
+                    this.writer.client('UNBLOCK', this.readerId),
+                    new Promise(resolve => {
+                        timer = setTimeout(resolve, timeoutMs);
+                        timer.unref();
+                    }),
+                ]).catch(() => undefined);
+                clearTimeout(timer);
+            }
+
+            await Promise.race([
+                reading,
+                new Promise(resolve => {
+                    timer = setTimeout(resolve, timeoutMs);
+                    timer.unref();
+                }),
+            ]);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    /**
      * Writer connection associated with this queue instance. Shared by every
      * queue in the process that targets the same {@link RedisQueue.poolKey}.
      */
@@ -1662,6 +1766,12 @@ export class RedisQueue
 
         switch (channel) {
             case 'reader':
+                // asked before the first blocking read: a blocked reader
+                // answers nothing else until its read returns
+                this.readerId = await redis
+                    .client('ID')
+                    .then(id => Number(id))
+                    .catch(() => undefined);
                 this.read();
                 break;
             case 'writer':
@@ -2571,7 +2681,7 @@ export class RedisQueue
             const key = this.key;
 
             while (true) {
-                if (!this.reader) {
+                if (!this.reader || this.draining) {
                     break;
                 }
 
@@ -2648,7 +2758,12 @@ export class RedisQueue
         );
 
         while (true) {
-            if (!this.reader || !this.writer || this.destroyed) {
+            if (
+                !this.reader ||
+                !this.writer ||
+                this.destroyed ||
+                this.draining
+            ) {
                 break;
             }
 
@@ -2751,7 +2866,11 @@ export class RedisQueue
             ? this.readSafe
             : this.readUnsafe;
 
-        process.nextTick(runReader.bind(this));
+        this.reading = new Promise<void>(resolve => {
+            process.nextTick(() => {
+                runReader.call(this).then(resolve, () => resolve());
+            });
+        });
 
         return this;
     }

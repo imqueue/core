@@ -96,6 +96,7 @@ describe('UDPWorker', () => {
 
         assert.equal(message.type, 'cluster:remove');
         assert.equal(message.server.id, 'id-1');
+        assert.equal(message.lapsed, false, 'a down notice read as a lapse');
     });
 
     it('should drop malformed datagrams without crashing', () => {
@@ -232,6 +233,11 @@ describe('UDPWorker', () => {
         const types = postedMessages(port).map(message => message.type);
 
         assert.deepEqual(types, ['cluster:add', 'cluster:remove']);
+        assert.equal(
+            postedMessages(port)[1].lapsed,
+            true,
+            'a lapse read as a down notice',
+        );
     });
 
     it('should keep a server alive while heartbeats keep arriving', async () => {

@@ -23,7 +23,11 @@
  */
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { ClusterManager, type ICluster } from './ClusterManager.js';
+import {
+    ClusterManager,
+    type ICluster,
+    type ServerRemoval,
+} from './ClusterManager.js';
 import { type ILogger, type IServerInput } from './IMessageQueue.js';
 
 /** Shape of a message posted from the UDP worker thread */
@@ -31,6 +35,7 @@ interface WorkerMessage {
     type?: string;
     server?: unknown;
     error?: string;
+    lapsed?: boolean;
 }
 
 /**
@@ -513,8 +518,14 @@ export class UDPClusterManager extends ClusterManager {
             }
 
             const handler = cluster[action] as
-                | ((server: IServerInput) => unknown)
+                | ((server: IServerInput, removal?: ServerRemoval) => unknown)
                 | undefined;
+
+            if (action === 'remove') {
+                handler?.(server, { lapsed: message.lapsed === true });
+
+                return;
+            }
 
             handler?.(server);
         });

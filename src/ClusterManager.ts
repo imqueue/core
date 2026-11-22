@@ -28,6 +28,17 @@ import {
 } from './IMessageQueue.js';
 
 /**
+ * Why a {@link ClusterManager} removes a server, where it can say.
+ */
+export interface ServerRemoval {
+    /**
+     * True where the server's announcements stopped arriving and nothing said
+     * it went away: a missed heartbeat, not a `down` notice.
+     */
+    lapsed?: boolean;
+}
+
+/**
  * Membership callbacks a clustered queue hands to a {@link ClusterManager} so
  * the manager can add and remove servers as it discovers them.
  *
@@ -43,8 +54,10 @@ export interface ICluster {
     add: (server: IServerInput) => IMessageQueueConnection;
     /**
      * Removes a server from the cluster. A no-op when the server is unknown.
+     * With `removal.lapsed`, only the server's announcements stopped arriving,
+     * and a cluster may keep a server that still answers on its connections.
      */
-    remove: (server: IServerInput) => void;
+    remove: (server: IServerInput, removal?: ServerRemoval) => void;
     /**
      * Looks a server up, matching by `id` when both sides carry one and by host
      * and port otherwise. Returns `undefined` when it is not registered.

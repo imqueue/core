@@ -521,3 +521,36 @@ describe('UDPClusterManager.respawn() guard', () => {
         );
     });
 });
+
+describe('UDPClusterManager - why a server is removed', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    for (const [lapsed, said] of [
+        [true, 'its announcements lapsed'],
+        [false, 'it went down'],
+    ] as const) {
+        it(`tells the cluster ${said}`, async () => {
+            const removals: unknown[] = [];
+            const cluster: any = {
+                add: () => {},
+                remove: (_server: unknown, removal: unknown) =>
+                    removals.push(removal),
+                find: () => undefined,
+            };
+            const manager: any = new UDPClusterManager();
+
+            manager.init(cluster);
+            getSocket(manager).emit('message', {
+                type: 'cluster:remove',
+                server: testMessageDown,
+                lapsed,
+            });
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            assert.deepEqual(removals, [{ lapsed }]);
+            await manager.destroy();
+        });
+    }
+});

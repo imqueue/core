@@ -9,6 +9,30 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] - 2026-11-22
+
+### Fixed
+
+- **A broker whose heartbeats lapsed was dropped while its connections were
+  healthy, and the replies it had already delivered were lost.** The UDP
+  cluster manager removes a server once it misses its heartbeats for the
+  check's timeout. A busy process misses them without the broker being gone,
+  and the removal destroyed the server's queue at once: its listeners went
+  before its reader was disconnected, so a reply already read was dropped and
+  its caller waited out its whole timeout. Now a server removed for lapsed
+  heartbeats is asked first; one that answers within
+  `IMQ_LAPSED_ANSWER_TIMEOUT` (2 s) is kept. One that does not is drained
+  before it is destroyed: its blocked read is unblocked, and what it already
+  read is handed on before its listeners go.
+
+### Added
+
+- **`IMQ_LAPSED_ANSWER_TIMEOUT`**, how long a server whose heartbeats lapsed
+  has to answer before it is removed, in milliseconds (default 2000).
+- **`ServerRemoval`**, the optional second argument of a cluster's
+  `remove()`: `{ lapsed: true }` where the removal is for missed heartbeats
+  rather than a server that said it was leaving.
+
 ## [3.6.0] - 2026-11-12
 
 ### Added

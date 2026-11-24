@@ -2036,3 +2036,298 @@ describe('ClusteredRedisQueue - a server whose announcements lapsed', () => {
         assert.deepEqual(order, ['drain', 'destroy']);
     });
 });
+
+describe('ClusteredRedisQueue - a server kept after its announcements lapsed', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    // the lapse checks run on mocked setTimeout; promise callbacks and
+    // setImmediate are left real, so this lets an answered PING land
+    const flush = () => new Promise(resolve => setImmediate(resolve));
+
+    // as a UDP announcement hands it over: the interval it was announced at
+    const announced = { ...clusterConfig.cluster[0], timeout: 5000 };
+
+    const keptCluster = (name: string) => {
+        const cq: any = new ClusteredRedisQueue(name, {
+            logger,
+            clusterManagers: [new (ClusterManager as any)()],
+        });
+
+        cq.addServer(announced);
+
+        return cq;
+    };
+
+    it('is asked again at its announced interval, and dropped once it stops answering', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = keptCluster('TestKeptThenHung');
+        const imq = cq.imqs[0];
+        const verdicts = [true, true, false];
+        const answers = mock.method(imq, 'answers', async () =>
+            verdicts.shift(),
+        );
+        const drain = mock.method(imq, 'drain', async () => undefined);
+
+        cq.removeServer(announced, { lapsed: true });
+        await flush();
+        assert.equal(answers.mock.callCount(), 1);
+        assert.equal(cq.servers.length, 1, 'a broker that answers was dropped');
+
+        t.mock.timers.tick(4999);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            1,
+            'asked again before its announced interval was up',
+        );
+
+        t.mock.timers.tick(1);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            2,
+            'a kept server was never asked again',
+        );
+        assert.equal(cq.servers.length, 1);
+
+        t.mock.timers.tick(5000);
+        await flush();
+        assert.equal(answers.mock.callCount(), 3);
+        assert.equal(
+            cq.servers.length,
+            0,
+            'a kept broker that stopped answering stayed in routing',
+        );
+        assert.equal(cq.imqs.length, 0);
+        assert.equal(drain.mock.callCount(), 1, 'it was not drained first');
+        assert.equal(cq.lapsedWatches.size, 0);
+
+        t.mock.timers.tick(60000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            3,
+            'a dropped server is still asked',
+        );
+
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
+    it('is no longer asked once an add reports it again', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = keptCluster('TestKeptResumed');
+        const answers = mock.method(cq.imqs[0], 'answers', async () => true);
+
+        cq.removeServer(announced, { lapsed: true });
+        await flush();
+        t.mock.timers.tick(5000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            2,
+            'a kept server was never asked again',
+        );
+
+        // its announcements resumed
+        cq.addServer(announced);
+        assert.equal(cq.lapsedWatches.size, 0);
+
+        t.mock.timers.tick(60000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            2,
+            'a server announcing itself again is still being asked',
+        );
+        assert.equal(cq.servers.length, 1);
+
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
+    it('is no longer asked once the cluster is destroyed', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = keptCluster('TestKeptDestroyed');
+        const answers = mock.method(cq.imqs[0], 'answers', async () => true);
+
+        cq.removeServer(announced, { lapsed: true });
+        await flush();
+        t.mock.timers.tick(5000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            2,
+            'a kept server was never asked again',
+        );
+
+        await cq.destroy();
+        assert.equal(cq.lapsedWatches.size, 0);
+
+        t.mock.timers.tick(60000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            2,
+            'a destroyed cluster went on asking its server',
+        );
+
+        t.mock.timers.reset();
+    });
+
+    it('is no longer asked once a down notice removes it', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = keptCluster('TestKeptThenDown');
+        const answers = mock.method(cq.imqs[0], 'answers', async () => true);
+
+        cq.removeServer(announced, { lapsed: true });
+        await flush();
+        t.mock.timers.tick(5000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            2,
+            'a kept server was never asked again',
+        );
+
+        cq.removeServer(announced);
+        assert.equal(cq.servers.length, 0);
+        assert.equal(cq.lapsedWatches.size, 0);
+
+        t.mock.timers.tick(60000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            2,
+            'a removed server is still asked',
+        );
+
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
+    it('is checked once at a time when its lapse is reported again', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = keptCluster('TestKeptLapsedTwice');
+        const answers = mock.method(cq.imqs[0], 'answers', async () => true);
+
+        cq.removeServer(announced, { lapsed: true });
+        cq.removeServer(announced, { lapsed: true });
+        await flush();
+        assert.equal(answers.mock.callCount(), 1, 'one lapse asked twice');
+
+        t.mock.timers.tick(5000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            2,
+            'a repeated lapse started a second chain of checks',
+        );
+
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
+    it('does not hold the process open while it is kept', async () => {
+        const cq = keptCluster('TestKeptUnref');
+
+        mock.method(cq.imqs[0], 'answers', async () => true);
+        cq.removeServer(announced, { lapsed: true });
+        await flush();
+
+        const { timer } = cq.lapsedWatches.get(cq.imqs[0]);
+
+        assert.ok(timer, 'no check was scheduled for a kept server');
+        assert.equal(timer.hasRef(), false, 'the check holds the process open');
+
+        await cq.destroy();
+    });
+
+    it('is asked at the default interval where the removal does not name one', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = keptCluster('TestKeptDefaultInterval');
+        const answers = mock.method(cq.imqs[0], 'answers', async () => true);
+
+        // a manager that hands over only the address
+        cq.removeServer(clusterConfig.cluster[0], { lapsed: true });
+        await flush();
+        t.mock.timers.tick(999);
+        await flush();
+        assert.equal(answers.mock.callCount(), 1);
+        t.mock.timers.tick(1);
+        await flush();
+        assert.equal(answers.mock.callCount(), 2);
+
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
+    for (const timeout of [0, -5, 250, Number.NaN]) {
+        it(`is asked once a second where it announced ${timeout} ms`, async t => {
+            t.mock.timers.enable({ apis: ['setTimeout'] });
+
+            const cq = keptCluster(`TestKeptFloor${timeout}`);
+            const answers = mock.method(
+                cq.imqs[0],
+                'answers',
+                async () => true,
+            );
+
+            cq.removeServer({ ...announced, timeout }, { lapsed: true });
+            await flush();
+            t.mock.timers.tick(999);
+            await flush();
+            assert.equal(answers.mock.callCount(), 1, 'asked below the floor');
+            t.mock.timers.tick(1);
+            await flush();
+            assert.equal(answers.mock.callCount(), 2);
+
+            t.mock.timers.reset();
+            await cq.destroy();
+        });
+    }
+
+    it('schedules nothing for a server whose announcements never lapsed', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = keptCluster('TestNeverLapsed');
+        const answers = mock.method(cq.imqs[0], 'answers', async () => true);
+
+        t.mock.timers.tick(60000);
+        await flush();
+        assert.equal(answers.mock.callCount(), 0);
+
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+
+    it('leaves no check behind once a lapsed server is dropped for silence', async t => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+
+        const cq = keptCluster('TestLapsedDroppedAtOnce');
+        const answers = mock.method(cq.imqs[0], 'answers', async () => false);
+
+        cq.removeServer(announced, { lapsed: true });
+        await flush();
+        assert.equal(cq.servers.length, 0);
+
+        t.mock.timers.tick(60000);
+        await flush();
+        assert.equal(
+            answers.mock.callCount(),
+            1,
+            'a dropped server is still asked',
+        );
+
+        t.mock.timers.reset();
+        await cq.destroy();
+    });
+});

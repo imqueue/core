@@ -49,13 +49,16 @@ export interface ICluster {
     /**
      * Adds a server to the cluster and returns its registration record.
      * Registration is idempotent — an already-known server is returned
-     * unchanged.
+     * unchanged. A manager calls it again for a known server whose
+     * announcements resumed after a lapse, so a cluster still checking that
+     * server can stop.
      */
     add: (server: IServerInput) => IMessageQueueConnection;
     /**
      * Removes a server from the cluster. A no-op when the server is unknown.
      * With `removal.lapsed`, only the server's announcements stopped arriving,
-     * and a cluster may keep a server that still answers on its connections.
+     * and a cluster may keep a server that still answers on its connections —
+     * checking it itself until it stops answering or `add` reports it again.
      */
     remove: (server: IServerInput, removal?: ServerRemoval) => void;
     /**

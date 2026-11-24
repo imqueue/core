@@ -170,11 +170,23 @@ export class UDPWorker {
      * when {@link UDPWorkerOptions.useAliveCheck} is on.
      *
      * @param message - the announcement that named it
+     *
+     * @remarks
+     * With the alive check on, the first announcement of a server this worker
+     * is not tracking - first heard, or heard again after its announcements
+     * lapsed - is marked `resumed`. The manager hands that one to a cluster
+     * even where the cluster already has the server: a cluster that kept a
+     * lapsed server learns from it that the server announces itself again.
      */
     private addServer(message: Message): void {
+        const resumed =
+            this.options.useAliveCheck &&
+            !this.servers.has(UDPWorker.getServerKey(message));
+
         this.messagePort.postMessage({
             type: 'cluster:add',
             server: UDPWorker.mapMessage(message),
+            ...(resumed ? { resumed } : {}),
         });
 
         if (this.options.useAliveCheck) {

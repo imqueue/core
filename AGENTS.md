@@ -132,8 +132,16 @@ not add these specs to a runner that CI invokes.
 - **A server is dropped only when it is gone, and never with what it already
   delivered.** A cluster manager says when only a server's announcements lapsed
   (`ServerRemoval.lapsed`); `ClusteredRedisQueue` then PINGs it and keeps it if
-  it answers, since a busy process misses announcements as easily as a dead
-  broker stops sending them. A server that is removed is drained first:
+  it answers, since a lapse says only that announcements stopped arriving (lost
+  on the network, or not sent), not that the broker is gone. A kept server has
+  no liveness check left but the cluster's own: it is PINGed again at the
+  interval it announced (`IServerInput.timeout`, in ms; floor and default
+  1 s) for as
+  long as it stays silent, and dropped the first time it does not answer. That
+  timer exists only while a server is kept but silent — the manager's `add()`
+  for the server (the UDP manager sends one on the first announcement after a
+  lapse), its removal and `destroy()` all cancel it. A server that is removed
+  is drained first:
   `RedisQueue.drain()` releases the blocked reader with `CLIENT UNBLOCK` from
   the writer, so a reply it already took reaches the listeners before teardown
   removes them and drops the socket.

@@ -26,6 +26,7 @@ import { randomUUID as uuid } from 'node:crypto';
 import { describe, it } from 'node:test';
 import { Redis } from 'ioredis';
 import { ClusteredRedisQueue, RedisQueue } from '../../src/index.js';
+import { startFreezingProxy } from './freezingProxy.js';
 
 process.setMaxListeners(100);
 
@@ -75,11 +76,11 @@ const busy = (ms: number): void => {
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /** A clustered queue on the one broker, started and listening. */
-const joined = async (name: string, got: unknown[]) => {
+const joined = async (name: string, got: unknown[], port = PORT) => {
     const queue = new ClusteredRedisQueue(name, {
         logger: quiet,
         prefix: `test-${uuid()}`,
-        cluster: [{ host: HOST, port: PORT }],
+        cluster: [{ host: HOST, port }],
     });
 
     queue.on('message', (message: unknown) => got.push(message));
@@ -165,6 +166,53 @@ describe('a server removed from a cluster', { skip }, () => {
             assert.deepEqual(got, [{ reply: 'after the lapse' }]);
         } finally {
             await sender.destroy();
+            await queue.destroy();
+        }
+    });
+
+    it('is removed once it stops answering, after it was kept for a lapse', async () => {
+        const proxy = await startFreezingProxy(HOST, PORT);
+        const address = { host: '127.0.0.1', port: proxy.port };
+        const queue = await joined(`KeptThenHung${uuid()}`, [], proxy.port);
+
+        try {
+            // as a UDP announcement hands it over: announced every second
+            (queue as any).removeServer(
+                { ...address, timeout: 1000 },
+                { lapsed: true },
+            );
+            await wait(300);
+
+            assert.equal(
+                (queue as any).servers.length,
+                1,
+                'a broker that answers was dropped for a missed heartbeat',
+            );
+
+            // the broker hangs: its socket stays open and nothing answers.
+            // No announcement will ever report it again
+            proxy.freeze();
+
+            const frozenAt = Date.now();
+            // the next check is due within the announced second, and the
+            // PING is given IMQ_LAPSED_ANSWER_TIMEOUT (2 s) to come back
+            const deadline = frozenAt + 1000 + 2000 + 1500;
+
+            while ((queue as any).servers.length > 0 && Date.now() < deadline) {
+                await wait(50);
+            }
+
+            assert.equal(
+                (queue as any).servers.length,
+                0,
+                'a kept broker that stopped answering stayed in routing ' +
+                    `${Date.now() - frozenAt} ms after it hung`,
+            );
+            assert.equal((queue as any).imqs.length, 0);
+        } finally {
+            // the proxy first: a queue still holding a frozen connection
+            // would otherwise wait on it for its whole teardown
+            await proxy.close();
             await queue.destroy();
         }
     });

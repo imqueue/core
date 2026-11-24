@@ -36,6 +36,11 @@ interface WorkerMessage {
     server?: unknown;
     error?: string;
     lapsed?: boolean;
+    /**
+     * On an add: the first announcement since the worker stopped tracking
+     * the server, which a cluster that already has it must still hear.
+     */
+    resumed?: boolean;
 }
 
 /**
@@ -511,9 +516,17 @@ export class UDPClusterManager extends ClusterManager {
         const action = method as keyof ICluster;
 
         await this.forEachCluster(cluster => {
+            // the worker's announcement, its `timeout` already converted from
+            // the wire's seconds to the milliseconds IServerInput declares
             const server = message.server as IServerInput;
 
-            if (action === 'add' && cluster.find(server)) {
+            // a known server is announced again every interval, and only the
+            // first announcement after a lapse tells its cluster anything
+            if (
+                action === 'add' &&
+                message.resumed !== true &&
+                cluster.find(server)
+            ) {
                 return;
             }
 

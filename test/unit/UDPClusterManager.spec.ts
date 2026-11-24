@@ -554,3 +554,38 @@ describe('UDPClusterManager - why a server is removed', () => {
         });
     }
 });
+
+describe('UDPClusterManager - a known server announcing itself again', () => {
+    afterEach(() => {
+        mock.restoreAll();
+    });
+
+    for (const [resumed, said, calls] of [
+        [true, 'hands the first announcement after a lapse to the cluster', 1],
+        [false, 'keeps every later announcement from the cluster', 0],
+    ] as const) {
+        it(said, async () => {
+            const cluster: any = {
+                add: () => {},
+                remove: () => {},
+                find: () => ({}),
+            };
+            const manager: any = new UDPClusterManager();
+            const add = mock.method(cluster, 'add');
+
+            try {
+                manager.init(cluster);
+                getSocket(manager).emit('message', {
+                    type: 'cluster:add',
+                    server: testMessageUp,
+                    ...(resumed ? { resumed } : {}),
+                });
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                assert.equal(add.mock.callCount(), calls);
+            } finally {
+                await manager.destroy();
+            }
+        });
+    }
+});

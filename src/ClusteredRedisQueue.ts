@@ -71,6 +71,27 @@ const SYNC_RETRY_MAX_DELAY = 30000;
 const LAPSED_ANSWER_TIMEOUT = envInt('IMQ_LAPSED_ANSWER_TIMEOUT', 2000);
 
 /**
+ * Shortest interval (ms) between two checks of a server kept after its
+ * announcements lapsed, and the interval used where the removal does not say
+ * how often the server announced itself.
+ *
+ * @remarks
+ * A kept server is asked again at the interval it announced itself at - the
+ * `timeout` a UDP announcement carries, how long its sender may go unheard,
+ * which brokers set to their announcement interval (`REDIS_BROADCAST_INTERVAL`,
+ * one second by default). The cluster does not know the manager's
+ * `aliveTimeoutCorrection`, and does not need it: that correction is slack
+ * for datagrams lost on the way, while a PING travels on the connection the
+ * queue already holds and carries its own budget,
+ * {@link LAPSED_ANSWER_TIMEOUT}. So a broker kept
+ * while silent is watched at the cadence its announcements promised, and one
+ * that hangs is out of routing within that interval plus the answer budget.
+ * The floor keeps a server announcing a zero or tiny interval from turning
+ * the check into a PING loop.
+ */
+const LAPSED_RECHECK_INTERVAL = 1000;
+
+/**
  * A server registered in a {@link ClusteredRedisQueue}: its address, plus the
  * {@link RedisQueue} instance serving that host.
  *
@@ -115,6 +136,16 @@ interface HostProgress {
     retryTimer?: ReturnType<typeof setTimeout>;
     /** Consecutive failed catch-up attempts, for the backoff. */
     retryAttempts: number;
+}
+
+/**
+ * The watch over a server kept after its announcements lapsed. It exists only
+ * while the server is kept but silent: announcements resuming, the server
+ * being removed and the cluster being destroyed all end it.
+ */
+interface LapsedWatch {
+    /** The next check, while none is in flight. */
+    timer?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -243,6 +274,9 @@ export class ClusteredRedisQueue
 
     /** Pending startup shared by batch startup and joining-host initialization. */
     private readonly starting = new WeakMap<RedisQueue, Promise<void>>();
+
+    /** Servers kept after their announcements lapsed, while they stay silent. */
+    private readonly lapsedWatches = new Map<RedisQueue, LapsedWatch>();
 
     /** Membership admission stays closed after the first destroy() call. */
     private closed = false;
@@ -549,6 +583,7 @@ export class ClusteredRedisQueue
 
             for (const imq of this.imqs) {
                 this.cancelSync(imq);
+                this.cancelLapsed(imq);
                 this.cleanup.add(() => imq.destroy());
             }
 
@@ -1160,12 +1195,19 @@ export class ClusteredRedisQueue
      * Removes a server from the cluster, matching by `id` or by host and port.
      *
      * @param server - address of the server to remove
+     * @param removal - why it is removed, where the manager can say
      *
      * @remarks
      * A silent no-op when no server matches. Routing stops using the host
      * immediately, but teardown of its redis connections is started in the
-     * background and not awaited: in-flight work on that host is not drained,
-     * and teardown errors are only logged.
+     * background and not awaited: what its reader already took is drained to
+     * the listeners first, and teardown errors are only logged.
+     *
+     * With `removal.lapsed` the server is not removed yet: it is asked a PING
+     * and kept while it answers within `IMQ_LAPSED_ANSWER_TIMEOUT`, asked
+     * again at the interval it announced itself at for as long as its
+     * announcements stay away, and removed the first time it does not answer.
+     * An `add` for the same server ends that watch.
      *
      * Because the underlying queues are matched by host and port, all entries
      * sharing an address are removed together.
@@ -1182,30 +1224,151 @@ export class ClusteredRedisQueue
             return;
         }
 
-        // only its announcements lapsed - a busy process misses them as
-        // easily as a dead broker stops sending them - so the broker is
-        // asked first, and kept where it still answers
+        // only its announcements lapsed, and a lapse says only that they
+        // stopped arriving - lost on the network, or not sent - not that the
+        // broker is gone. So the broker is asked first, kept where it still
+        // answers, and asked again for as long as it stays silent
         if (removal?.lapsed && remove.imq) {
-            const kept = remove.imq;
-
-            void kept.answers(LAPSED_ANSWER_TIMEOUT).then(answers => {
-                if (answers) {
-                    this.verbose(
-                        `Kept the server ${kept.redisKey}: its announcements lapsed, but it answers`,
-                    );
-
-                    return;
-                }
-
-                if (this.findServer(server)?.imq === kept) {
-                    this.dropServer(server);
-                }
-            });
+            this.watchLapsed(server, remove.imq);
 
             return;
         }
 
         this.dropServer(server);
+    }
+
+    /**
+     * Starts watching a server whose announcements lapsed: it is kept while
+     * it answers a PING, and dropped the first time it does not.
+     *
+     * @param server - the removal's address, carrying the interval the server
+     *        announced itself at where the manager knows it
+     * @param imq - the queue serving that server
+     *
+     * @remarks
+     * Once a server is kept, nothing else would look at it again: its cluster
+     * manager has already reported the lapse and arms no further liveness
+     * check. Without this watch a kept broker that later hung - its socket
+     * open, nothing answering - stayed in round-robin until the process
+     * restarted, and every call routed to it timed out.
+     *
+     * A repeated lapse for a server already watched is ignored: the watch in
+     * progress already decides it.
+     */
+    private watchLapsed(server: IServerInput, imq: RedisQueue): void {
+        if (this.closed || this.lapsedWatches.has(imq)) {
+            return;
+        }
+
+        const watch: LapsedWatch = {};
+
+        this.lapsedWatches.set(imq, watch);
+        this.checkLapsed(server, imq, watch, true);
+    }
+
+    /**
+     * Asks a lapsed server whether it answers, keeps it and schedules the
+     * next check where it does, and drops it where it does not.
+     *
+     * @param server - the removal's address
+     * @param imq - the queue serving that server
+     * @param watch - the watch this check belongs to; a check whose watch has
+     *        ended meanwhile does nothing
+     * @param first - whether this is the check made when the lapse was
+     *        reported, which is the one that logs the server as kept
+     */
+    private checkLapsed(
+        server: IServerInput,
+        imq: RedisQueue,
+        watch: LapsedWatch,
+        first: boolean,
+    ): void {
+        void imq.answers(LAPSED_ANSWER_TIMEOUT).then(answers => {
+            // announcements resumed, the server was removed or the cluster
+            // destroyed while the PING was out: this verdict is no longer
+            // anybody's to act on
+            if (this.closed || this.lapsedWatches.get(imq) !== watch) {
+                return;
+            }
+
+            if (!answers) {
+                this.lapsedWatches.delete(imq);
+
+                if (this.findServer(server)?.imq === imq) {
+                    if (!first) {
+                        this.verbose(
+                            `Removing the server ${imq.redisKey}: kept after its announcements lapsed, it no longer answers`,
+                        );
+                    }
+
+                    this.dropServer(server);
+                }
+
+                return;
+            }
+
+            if (first) {
+                this.verbose(
+                    `Kept the server ${imq.redisKey}: its announcements lapsed, but it answers`,
+                );
+            }
+
+            const timer = setTimeout(() => {
+                watch.timer = undefined;
+
+                if (!this.closed && this.lapsedWatches.get(imq) === watch) {
+                    this.checkLapsed(server, imq, watch, false);
+                }
+            }, ClusteredRedisQueue.recheckInterval(server));
+
+            // a kept server must not hold the process open on its own
+            timer.unref?.();
+            watch.timer = timer;
+        });
+    }
+
+    /**
+     * Ends the watch over a lapsed server: its announcements resumed, it is
+     * being removed, or the cluster is being destroyed.
+     *
+     * @param imq - the queue serving that server
+     * @returns whether a watch was in progress
+     */
+    private cancelLapsed(imq: RedisQueue): boolean {
+        const watch = this.lapsedWatches.get(imq);
+
+        if (!watch) {
+            return false;
+        }
+
+        clearTimeout(watch.timer);
+        this.lapsedWatches.delete(imq);
+
+        return true;
+    }
+
+    /**
+     * How long to wait before asking a kept server again.
+     *
+     * @param server - the removal's address
+     * @returns the interval the server announced itself at, where the
+     *          removal carries it, but never less than
+     *          {@link LAPSED_RECHECK_INTERVAL}
+     *
+     * @remarks
+     * The interval is {@link IServerInput.timeout}, which
+     * {@link UDPClusterManager} sets from the announcement. A manager that
+     * does not set it, or sets a value that is not a positive number, gets
+     * the default.
+     */
+    private static recheckInterval(server: IServerInput): number {
+        const announced = server.timeout;
+
+        return announced !== undefined &&
+            Number.isFinite(announced) &&
+            announced > 0
+            ? Math.max(LAPSED_RECHECK_INTERVAL, announced)
+            : LAPSED_RECHECK_INTERVAL;
     }
 
     /**
@@ -1224,8 +1387,10 @@ export class ClusteredRedisQueue
         const imqToRemove = remove.imq;
 
         if (imqToRemove) {
-            // a retry scheduled for this host must not outlive it
+            // a retry or a lapse check scheduled for this host must not
+            // outlive it
             this.cancelSync(imqToRemove);
+            this.cancelLapsed(imqToRemove);
 
             // dropped from routing first: a catch-up run in progress tests
             // membership between handlers and stops as soon as it sees this
@@ -1279,6 +1444,15 @@ export class ClusteredRedisQueue
         const existingServer = this.findServer(server);
 
         if (existingServer) {
+            // a server kept after its announcements lapsed is announcing
+            // itself again: it is back under its manager's liveness check,
+            // and no longer needs this cluster's
+            if (existingServer.imq && this.cancelLapsed(existingServer.imq)) {
+                this.verbose(
+                    `Stopped checking the server ${existingServer.imq.redisKey}: its announcements resumed`,
+                );
+            }
+
             return existingServer;
         }
 

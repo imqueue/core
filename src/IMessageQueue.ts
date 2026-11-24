@@ -158,6 +158,19 @@ export interface IServerInput {
      * TCP port the server listens on.
      */
     port: number;
+
+    /**
+     * How long this server may go unheard, in milliseconds, as announced to a
+     * discovering cluster manager — {@link UDPClusterManager} sets it from the
+     * interval carried by the server's announcement. Static `cluster` entries
+     * leave it out.
+     *
+     * @remarks
+     * {@link ClusteredRedisQueue} uses it as the interval at which it asks a
+     * server kept after its announcements lapsed whether it still answers,
+     * never less than one second, and one second where it is missing.
+     */
+    timeout?: number;
 }
 
 /**

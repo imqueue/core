@@ -263,4 +263,46 @@ describe('UDPWorker', () => {
 
         assert.deepEqual(types, ['cluster:add', 'cluster:add']);
     });
+
+    it('marks the first announcement of a server it is not tracking as resumed', async () => {
+        const { worker, port } = makeWorker({
+            ...OPTIONS,
+            useAliveCheck: true,
+            aliveTimeoutCorrection: 0,
+        });
+        const heartbeat = (): void =>
+            worker.socket.emit(
+                'message',
+                datagram('IMQ', 'id-1', 'up', '127.0.0.1:6379', '0.01'),
+            );
+
+        heartbeat();
+        heartbeat();
+        // silent well past its timeout: the lapse forgets it
+        await new Promise(resolve => setTimeout(resolve, 100));
+        heartbeat();
+
+        const posted = postedMessages(port).map(message => [
+            message.type,
+            message.resumed === true,
+        ]);
+
+        assert.deepEqual(posted, [
+            ['cluster:add', true],
+            ['cluster:add', false],
+            ['cluster:remove', false],
+            ['cluster:add', true],
+        ]);
+    });
+
+    it('marks nothing as resumed without the alive check', () => {
+        const { worker, port } = makeWorker();
+
+        worker.socket.emit(
+            'message',
+            datagram('IMQ', 'id-1', 'up', '127.0.0.1:6379', '30'),
+        );
+
+        assert.equal(postedMessages(port)[0].resumed, undefined);
+    });
 });

@@ -9,6 +9,56 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A broker kept after its announcements lapsed was never checked again, so
+  one that later hung stayed in routing until the process restarted.** Since
+  3.7.0 a server whose UDP announcements lapse is kept while it answers a
+  PING. But the cluster manager reports a lapse once and arms no further
+  liveness check, so nothing looked at a kept server again: if its
+  announcements never resumed and the broker then stopped answering — its
+  connection open and nothing coming back, as with a frozen or partitioned
+  host — it kept its share of round-robin and every call routed to it timed
+  out. Measured with two brokers at 50 calls/s, one kept and then frozen for
+  25 s: 822 calls timed out, and the broker was never removed. Now a kept
+  server is asked again at the interval it announced itself at (one second
+  by default, never less), for as long as its announcements stay away, and is
+  drained and removed the first time it does not answer within
+  `IMQ_LAPSED_ANSWER_TIMEOUT`. The same run lost 93 calls, those already sent
+  to the broker before it was removed 3 s after it froze. The check stops when
+  the server's announcements resume, when it is removed, and on `destroy()`;
+  nothing is scheduled for a server whose announcements never lapsed.
+
+  A lapse means the announcements did not arrive — lost on the network, or
+  not sent by the announcer — not that the receiving process was busy:
+  holding a service's event loop for 10 s, and stopping its whole process for
+  10 s, both kept their brokers with no lapse, since announcements are
+  received on the UDP worker thread and datagrams already buffered renew the
+  server before its expiry is acted on.
+
+### Added
+
+- **`IServerInput.timeout`**, how long a server may go unheard, in
+  milliseconds, as announced to a discovering cluster manager.
+  `UDPClusterManager` sets it from the announcement's interval, static
+  `cluster` entries leave it out, and a clustered queue re-checks a server
+  kept after its announcements lapsed at that interval (never less than one
+  second, and one second where it is missing).
+
+### Changed
+
+- **The UDP cluster manager tells a cluster when a server it already has
+  announces itself again after a lapse.** Repeat announcements of a known
+  server were all withheld from the cluster, so a cluster that kept a lapsed
+  server could not learn that its announcements had resumed. With the alive
+  check on, the first announcement the manager hears from a server — after a
+  lapse, or at all — now reaches the cluster's `add()` even where the cluster
+  already has that server; later ones are withheld as before. `add()` is
+  idempotent, so a custom cluster sees one extra call per resumption (and one
+  at start for a server it was configured with) and nothing else changes.
+
 ## [3.7.0] - 2026-11-22
 
 ### Fixed
@@ -16,8 +66,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **A broker whose heartbeats lapsed was dropped while its connections were
   healthy, and the replies it had already delivered were lost.** The UDP
   cluster manager removes a server once it misses its heartbeats for the
-  check's timeout. A busy process misses them without the broker being gone,
-  and the removal destroyed the server's queue at once: its listeners went
+  check's timeout. A lapse means only that the announcements did not arrive —
+  lost on the network, or not sent by the announcer — not that the broker is
+  gone, and the removal destroyed the server's queue at once: its listeners went
   before its reader was disconnected, so a reply already read was dropped and
   its caller waited out its whole timeout. Now a server removed for lapsed
   heartbeats is asked first; one that answers within

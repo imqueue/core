@@ -9,6 +9,45 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A clustered `publish()` goes to one broker of the fleet, not to every
+  broker.** `subscribe()` already opens the channel on every broker,
+  including brokers that join later, so an event published on any one of them
+  reaches every subscriber. Publishing on all of them put the whole pub/sub
+  stream on every broker — adding brokers took no pub/sub load off the others
+  — and ran every subscriber's handler once per broker. Now the broker is
+  picked by health-aware round-robin, as for `send()`: publishes spread across
+  the fleet, and each subscriber receives an event once. A broker that was
+  just discovered is not picked until it has been known for
+  `publishSettleTime`, so that subscribers have had time to discover it and
+  subscribe on it; when no broker is that old, any ready one is used. A
+  publish that fails on its broker is retried once on another ready broker
+  before the call rejects, and a broker whose publishes fail is reported once,
+  on entering that state. Brokers listed in a static `cluster` are settled from
+  the start. An empty cluster still resolves without publishing and logs
+  `knownServers=0`.
+
+  An event now reaches only the subscribers subscribed on the broker it went
+  to, so a subscriber that has just started, or whose subscription on that
+  broker is still being retried, can miss one that a fan-out would have
+  delivered through another broker. A fleet whose subscribers do not each hold
+  every broker — a single-host queue, or a cluster manager limited to part of
+  the fleet — keeps the old behavior with `publishFanOut: true` on the
+  publisher.
+
+### Added
+
+- **`IMQOptions.publishSettleTime`**, how long (ms) a clustered queue must
+  have known a discovered broker before a publish prefers it. Defaults to
+  `IMQ_PUBLISH_SETTLE_TIME`, or 7000: the UDP announcement interval (1 s) plus
+  the default `aliveTimeoutCorrection` (5 s), plus one interval for the
+  subscription.
+- **`IMQOptions.publishFanOut`**, which makes a clustered `publish()` write
+  every event to every broker, as before.
+
 ## [3.8.0] - 2026-11-24
 
 ### Fixed

@@ -495,6 +495,50 @@ export interface IMQOptions extends Partial<IMessageQueueConnection> {
     clusterManagers?: ClusterManager[];
 
     /**
+     * How long (ms) a clustered queue must have known a server before
+     * {@link ClusteredRedisQueue.publish} prefers it as the one server an
+     * event goes to.
+     *
+     * @defaultValue the `IMQ_PUBLISH_SETTLE_TIME` environment variable, or
+     * 7000
+     *
+     * @remarks
+     * A clustered publish goes to one server, and reaches every subscriber
+     * only where each of them has already discovered that server and opened
+     * the channel on it. Subscribers discover a server at about the time the
+     * publisher does, but not at the same moment: a discovered server is
+     * therefore not preferred until it has been known this long. The default
+     * covers the UDP announcement interval (1 s) plus
+     * {@link UDPClusterManagerOptions.aliveTimeoutCorrection} (5 s) — the
+     * delay a manager already tolerates between two announcements it hears —
+     * plus one more interval for the subscription itself. Set it to match
+     * other intervals or corrections where your fleet uses them.
+     *
+     * Servers listed in {@link IMQOptions.cluster} are settled from the
+     * start: every process is configured with them, so nobody has to
+     * discover them. When no server has been known long enough — a process
+     * that has just started, say — any ready server is used. Ignored with
+     * {@link IMQOptions.publishFanOut}.
+     */
+    publishSettleTime?: number;
+
+    /**
+     * Makes {@link ClusteredRedisQueue.publish} write every event to every
+     * server of the cluster, as it did before 3.9.0, instead of to one.
+     *
+     * @defaultValue false
+     *
+     * @remarks
+     * Only for a fleet whose subscribers do not each hold the whole cluster:
+     * a subscriber connected to one server alone (a single-host queue, or a
+     * cluster manager limited to part of the fleet) receives only what is
+     * published on that server. Fan-out costs every server the whole event
+     * stream, and delivers each event to a clustered subscriber once per
+     * server, so its handlers must deduplicate.
+     */
+    publishFanOut?: boolean;
+
+    /**
      * Enable process signal handling (SIGTERM, SIGINT, SIGABRT) by the queue.
      * When enabled, the queue releases its watcher lock on these signals and
      * then exits the process. It does not wait for in-flight `message` handlers

@@ -31,6 +31,7 @@ import {
     copyEventEmitter,
     envInt,
     errorCode,
+    nextRoundRobin,
 } from './helpers/index.js';
 import {
     DEFAULT_IMQ_OPTIONS,
@@ -90,6 +91,20 @@ const LAPSED_ANSWER_TIMEOUT = envInt('IMQ_LAPSED_ANSWER_TIMEOUT', 2000);
  * the check into a PING loop.
  */
 const LAPSED_RECHECK_INTERVAL = 1000;
+
+/**
+ * Default for {@link IMQOptions.publishSettleTime}: how long (ms) a discovered
+ * server must have been known before a publish prefers it. Configurable via
+ * the IMQ_PUBLISH_SETTLE_TIME environment variable, defaults to 7,000.
+ *
+ * @remarks
+ * The UDP announcement interval (1 s) plus the manager's default
+ * `aliveTimeoutCorrection` (5 s) is the longest a subscriber may go without
+ * hearing a broker that the manager still treats as normal, so it is also how
+ * late a subscriber may discover a broker the publisher already knows. One
+ * more interval covers opening the channel on it once discovered.
+ */
+const PUBLISH_SETTLE_TIME = envInt('IMQ_PUBLISH_SETTLE_TIME', 7000);
 
 /**
  * A server registered in a {@link ClusteredRedisQueue}: its address, plus the
@@ -155,11 +170,14 @@ interface LapsedWatch {
  *
  * @remarks
  * Distribution is asymmetric, and this is the most important thing to know about
- * the class: {@link ClusteredRedisQueue.send} routes each message to exactly
- * one server, chosen by health-aware round-robin that skips instances whose
+ * the class: {@link ClusteredRedisQueue.send} and
+ * {@link ClusteredRedisQueue.publish} route each message to exactly one
+ * server, chosen by health-aware round-robin that skips instances whose
  * writer connection is not ready. Every other operation — `start`, `stop`,
- * `clear`, `destroy`, `publish`, `subscribe`, `unsubscribe` and `queueLength` —
- * fans out to every server.
+ * `clear`, `destroy`, `subscribe`, `unsubscribe` and `queueLength` — fans out
+ * to every server. That pairing is what makes pub/sub split across the
+ * cluster: every subscriber listens on every server, so an event published on
+ * any one of them reaches each subscriber once.
  *
  * Fan-out normally uses `Promise.all`, with no rollback on failure. Destroy
  * attempts every cleanup task and reports failures together in an AggregateError.
@@ -207,6 +225,31 @@ export class ClusteredRedisQueue
      * Current queue index (round-robin)
      */
     private currentQueue: number = 0;
+
+    /**
+     * Round-robin position of the next publish, kept apart from sends so that
+     * publishes spread evenly whatever the mix of the two
+     */
+    private publishCursor: number = 0;
+
+    /**
+     * How long (ms) a discovered server must have been known before a
+     * publish prefers it, see {@link IMQOptions.publishSettleTime}
+     */
+    private readonly publishSettleTime: number;
+
+    /**
+     * When each server's queue joined this cluster (ms since the epoch), or 0
+     * for servers listed in the static configuration, which nobody has to
+     * discover
+     */
+    private readonly joinedAt = new WeakMap<RedisQueue, number>();
+
+    /**
+     * Servers whose last publish failed, so that a failing server is reported
+     * on entering the state only and not on every publish
+     */
+    private readonly publishFailing = new WeakSet<RedisQueue>();
 
     /**
      * Time (ms) send() waits for the first server when the cluster is empty
@@ -336,6 +379,15 @@ export class ClusteredRedisQueue
         this.options = buildOptions<IMQOptions>(DEFAULT_IMQ_OPTIONS, options);
 
         this.logger = this.options.logger || console;
+
+        const settleTime = this.options.publishSettleTime;
+
+        this.publishSettleTime =
+            settleTime !== undefined &&
+            Number.isFinite(settleTime) &&
+            settleTime >= 0
+                ? settleTime
+                : PUBLISH_SETTLE_TIME;
 
         if (!this.options.cluster && !this.options.clusterManagers?.length) {
             throw new TypeError(
@@ -472,17 +524,13 @@ export class ClusteredRedisQueue
     private selectQueue(): RedisQueue {
         const count = this.imqLength;
         const start = this.currentQueue % count;
+        const index = nextRoundRobin(this.imqs, start, imq => imq.available);
 
-        for (let offset = 0; offset < count; offset++) {
-            const index = (start + offset) % count;
-            const candidate = this.imqs[index];
+        if (index >= 0) {
+            this.currentQueue = index + 1;
+            this.noneAvailable = false;
 
-            if (candidate.available) {
-                this.currentQueue = index + 1;
-                this.noneAvailable = false;
-
-                return candidate;
-            }
+            return this.imqs[index];
         }
 
         // every instance reports its connection as not ready, so the message
@@ -1000,48 +1048,162 @@ export class ClusteredRedisQueue
     }
 
     /**
-     * Publishes the payload on every redis host in the cluster.
+     * Publishes the payload on one redis host of the cluster, chosen by
+     * health-aware round-robin among the hosts every subscriber can be
+     * expected to know.
      *
      * @param data - payload to publish as a channel message
      * @param toName - optional different pub/sub name to publish to
-     * @throws TypeError propagated from any host that has no writer connection
+     * @throws TypeError propagated from the chosen host when it has no writer
+     *         connection and no other host is ready to take the publish
      *
      * @remarks
-     * This is the opposite of {@link ClusteredRedisQueue.send}: the same payload
-     * goes to all hosts. A subscriber connected to several of them therefore
-     * receives one copy per host.
+     * Like {@link ClusteredRedisQueue.send}, the payload goes to a single host.
+     * One is enough: {@link ClusteredRedisQueue.subscribe} opens the channel on
+     * every host, including hosts that join later, so each subscriber receives
+     * the event exactly once, and the pub/sub stream splits across the cluster
+     * the way queued messages do.
      *
-     * Publication is not atomic — if any host has no writer connection the call
-     * rejects even though other hosts may already have published. On an empty
-     * cluster it resolves without publishing anything — reporting that through
-     * the logger on entering the state — and unlike `send()` it does not wait
-     * for a server to appear.
+     * The host is picked in this order: a ready host known for at least
+     * {@link IMQOptions.publishSettleTime}, so that subscribers have had time
+     * to discover it; any ready host, when none has been known that long; and,
+     * when no host is ready, the next one in turn, which is known to be down.
+     * If publishing on the chosen host fails, the publish is retried once on
+     * another ready host, picked the same way, before the call rejects. A
+     * publish whose reply was lost after the host accepted it is therefore
+     * delivered twice — redis pub/sub is at-most-once per host, not
+     * exactly-once.
+     *
+     * An event reaches only subscribers that have discovered the chosen host
+     * and opened the channel on it. A subscriber that has just started, or
+     * whose subscription on that host is still being retried, misses it,
+     * where fanning out would have reached it through another host. Fleets
+     * whose subscribers do not each hold the whole cluster need
+     * {@link IMQOptions.publishFanOut}, which writes every event to every
+     * host as before — and then rejects if any host has no writer connection,
+     * even though other hosts may already have published.
+     *
+     * On an empty cluster it resolves without publishing anything — reporting
+     * that through the logger on entering the state — and unlike `send()` it
+     * does not wait for a server to appear.
      */
     public async publish(data: JsonObject, toName?: string): Promise<void> {
-        const promises: Array<Promise<void>> = [];
+        const channel = toName || this.name;
 
-        for (const imq of this.imqs) {
-            promises.push(imq.publish(data, toName));
-        }
-
-        // an empty cluster resolves an empty Promise.all, so the caller is
+        // an empty cluster has nowhere to publish, so the caller would be
         // told the event went out while nothing was published at all.
         // Reported on entering the state only
-        if (!promises.length) {
+        if (!this.imqs.length) {
             if (!this.noPublishTargets) {
                 this.noPublishTargets = true;
                 this.logLine(
                     'error',
-                    `nothing published to channel ${
-                        toName || this.name
-                    }: knownServers=0`,
+                    `nothing published to channel ${channel}: knownServers=0`,
                 );
             }
-        } else {
-            this.noPublishTargets = false;
+
+            return;
         }
 
-        await Promise.all(promises);
+        this.noPublishTargets = false;
+
+        if (this.options.publishFanOut) {
+            await Promise.all(this.imqs.map(imq => imq.publish(data, toName)));
+
+            return;
+        }
+
+        const target = this.selectPublishQueue();
+
+        try {
+            await this.publishOn(target, data, channel, toName);
+        } catch (err) {
+            const fallback = this.selectPublishQueue(target);
+
+            if (!fallback) {
+                throw err;
+            }
+
+            await this.publishOn(fallback, data, channel, toName);
+        }
+    }
+
+    /**
+     * Picks the host a publish goes to.
+     *
+     * @param failed - a host that has just failed this publish, which is
+     *        excluded; with it, only a ready host is returned
+     * @returns the chosen host, or `undefined` when `failed` is given and no
+     *          other host is ready
+     *
+     * @remarks
+     * Scans in round-robin order from where the previous publish stopped, so
+     * publishes spread across the hosts of each tier: ready hosts known for
+     * {@link IMQOptions.publishSettleTime} first, then any ready host. Without
+     * a host that just failed, and with no host ready at all, the next host in
+     * turn is returned anyway, as `send()` does: its publish then reports why.
+     */
+    private selectPublishQueue(): RedisQueue;
+    private selectPublishQueue(failed: RedisQueue): RedisQueue | undefined;
+    private selectPublishQueue(failed?: RedisQueue): RedisQueue | undefined {
+        const settledSince = Date.now() - this.publishSettleTime;
+        const ready = (imq: RedisQueue): boolean =>
+            imq !== failed && imq.available;
+        const settled = (imq: RedisQueue): boolean =>
+            ready(imq) && (this.joinedAt.get(imq) ?? 0) <= settledSince;
+
+        for (const accept of [settled, ready]) {
+            const index = nextRoundRobin(this.imqs, this.publishCursor, accept);
+
+            if (index >= 0) {
+                this.publishCursor = index + 1;
+
+                return this.imqs[index];
+            }
+        }
+
+        if (failed) {
+            return undefined;
+        }
+
+        const index = this.publishCursor % this.imqs.length;
+
+        this.publishCursor = index + 1;
+
+        return this.imqs[index];
+    }
+
+    /**
+     * Publishes on one host, reporting a host whose publishes fail on
+     * entering that state and clearing it on its next success.
+     *
+     * @param imq - the host to publish on
+     * @param data - payload to publish
+     * @param channel - name the publish goes to, for the report only
+     * @param toName - the caller's pub/sub name, passed through
+     */
+    private async publishOn(
+        imq: RedisQueue,
+        data: JsonObject,
+        channel: string,
+        toName?: string,
+    ): Promise<void> {
+        try {
+            await imq.publish(data, toName);
+        } catch (err) {
+            if (!this.publishFailing.has(imq)) {
+                this.publishFailing.add(imq);
+                this.logLine(
+                    'warn',
+                    `failed to publish to channel ${channel} on server ` +
+                        `${imq.redisKey}, code ${errorCode(err)}`,
+                );
+            }
+
+            throw err;
+        }
+
+        this.publishFailing.delete(imq);
     }
 
     /**
@@ -1082,7 +1244,10 @@ export class ClusteredRedisQueue
      * that a host was unreachable when the call was made, not that it stays
      * unsubscribed.
      *
-     * The handler receives one invocation per host that delivers the message.
+     * Each event published through a {@link ClusteredRedisQueue} goes to one
+     * host, so the handler is invoked once per event — once per host only
+     * where the publisher uses {@link IMQOptions.publishFanOut}, or publishes
+     * the same event on several hosts by other means.
      */
     public async subscribe(
         channel: string,
@@ -1476,6 +1641,11 @@ export class ClusteredRedisQueue
         copyEventEmitter(this.templateEmitter, imq);
 
         newServer.imq = imq;
+
+        // a server from the static configuration is configured on every
+        // process alike, so nobody has to discover it before it may carry
+        // a publish. A discovered one is new to subscribers too
+        this.joinedAt.set(imq, initializeQueue ? Date.now() : 0);
 
         // registered before the catch-up run starts, so that run can test
         // membership against `imqs` and see the host it is working on. Nothing

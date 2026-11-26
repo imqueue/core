@@ -1705,8 +1705,11 @@ describe('ClusteredRedisQueue fan-out helpers', () => {
         await cq.destroy();
     });
 
-    it('publish() forwards to every queue', async () => {
-        const cq: any = new ClusteredRedisQueue('CQ-Pub', clusterConfig);
+    it('publish() forwards to every queue with publishFanOut', async () => {
+        const cq: any = new ClusteredRedisQueue('CQ-Pub', {
+            ...clusterConfig,
+            publishFanOut: true,
+        });
 
         cq.imqs.forEach((imq: any) =>
             mock.method(imq, 'publish', async () => undefined),

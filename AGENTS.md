@@ -117,6 +117,14 @@ not add these specs to a runner that CI invokes.
   Redis has the `CONFIG` command disabled (e.g. AWS ElastiCache), keyspace
   notifications must be enabled out of band:
   `notify-keyspace-events Ex`.
+- **A clustered publish goes to one broker, a clustered subscribe to all.**
+  `ClusteredRedisQueue.subscribe()` opens the channel on every broker, joining
+  ones included, so `publish()` writes to a single broker (health-aware
+  round-robin, preferring brokers known for `publishSettleTime`, retried once
+  on another broker) and each subscriber receives an event once. Do not make
+  `publish()` fan out again by default: that puts the whole pub/sub stream on
+  every broker and delivers each event once per broker. `publishFanOut` is the
+  opt-out for fleets whose subscribers do not each hold every broker.
 - **Keyspace-notification flags are merged, never overwritten.**
   `notify-keyspace-events` is server-global, so `watch()` reads the current
   value and appends only the missing `E`/`x` flags (`A` counts as covering

@@ -33,3 +33,4 @@ export * from './envInt.js';
 export * from './envTls.js';
 export * from './tlsFingerprint.js';
 export * from './logging.js';
+export * from './nextRoundRobin.js';

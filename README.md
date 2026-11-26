@@ -47,7 +47,8 @@ With current implementation on RedisQueue:
 - **Safe, predictable scaling of queues**. Scaling the number of workers does not
   increase traffic usage.
 - **Round-robin message balancing between multiple Redis instances**. This
-  allows easy horizontal scaling of the messaging queue across Redis instances.
+  allows easy horizontal scaling of the messaging queue across Redis instances,
+  for queued messages and pub/sub events alike.
 - **TypeScript included!**
 
 # Requirements
@@ -191,6 +192,27 @@ Delivery is **at-least-once** in every mode. Holding the lease narrows the windo
 in which in-flight work is lost — it does not close it, and `SIGKILL` on the
 whole node, an OOM kill or a lost machine still take work with them — so handlers
 must be idempotent.
+
+# Pub/sub across several brokers
+
+A clustered queue subscribes on every broker it knows, including brokers that
+join later, and publishes each event on **one** of them, picked by the same
+health-aware round-robin that `send()` uses. So every subscriber receives each
+event once, and the event stream splits across the brokers: adding a broker
+takes pub/sub load off the others, as it does for queued messages.
+
+A broker that was just discovered is not picked until it has been known for
+`publishSettleTime` (7 s by default, or `IMQ_PUBLISH_SETTLE_TIME`), giving
+every subscriber time to discover it and subscribe on it; when no broker is
+that old, any ready one is used. A publish that fails on its broker is retried
+once on another ready broker before it rejects.
+
+An event reaches only the subscribers that are subscribed on the broker it
+went to. Where some subscribers do not hold the whole fleet — a single-host
+queue, or a cluster manager limited to part of it — set `publishFanOut: true`
+on the publisher to write every event to every broker, as releases before
+3.9.0 did. A clustered subscriber then receives each event once per broker
+and has to deduplicate.
 
 # Transport encryption (TLS)
 

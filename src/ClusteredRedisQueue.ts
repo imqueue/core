@@ -477,8 +477,8 @@ export class ClusteredRedisQueue
      *         {@link IMQMode.WORKER}-only mode
      *
      * @remarks
-     * This is the one operation that does not fan out — the message goes to a
-     * single server, and not to a stable one.
+     * Like {@link ClusteredRedisQueue.publish}, this does not fan out — the
+     * message goes to a single server, and not to a stable one.
      *
      * When the cluster currently has no servers the send is held until the first
      * server becomes ready, and rejects if none appears within 30 seconds

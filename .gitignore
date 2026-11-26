@@ -38,3 +38,6 @@ stats.json
 benchmark-result/
 
 *.tgz
+
+# local agent state and session worktrees — never part of the repository
+.claude/

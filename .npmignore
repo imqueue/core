@@ -60,3 +60,6 @@ AGENTS.md
 CLAUDE.md
 CONTRIBUTION-TERMS.md
 signatures/
+
+# local agent state and session worktrees, which live inside the package root
+.claude/

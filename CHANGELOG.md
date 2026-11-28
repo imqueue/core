@@ -9,7 +9,7 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.9.1] - 2026-11-28
 
 ### Fixed
 

@@ -97,6 +97,22 @@ export class UDPWorker {
     private readonly servers = new Map<string, string>();
 
     /**
+     * Servers that announced `down` and have not announced `up` since, keyed
+     * like {@link UDPWorker.servers}.
+     *
+     * @remarks
+     * A cluster keeps a server that is leaving for as long as it answers, so
+     * the first `up` after a `down` must reach it as `resumed`, or the server
+     * would stay out of routing. With the alive check on, {@link
+     * UDPWorker.servers} already says so and this stays empty; it is filled
+     * only with the alive check off, where nothing else is tracked. An entry
+     * is the server's key alone and goes when the server announces itself
+     * again, so the entries left are one short key per broker that announced
+     * `down` and never came back.
+     */
+    private readonly departed = new Set<string>();
+
+    /**
      * Binds the socket and starts listening for announcements.
      *
      * @param options - worker configuration, passed through `workerData`
@@ -177,11 +193,15 @@ export class UDPWorker {
      * lapsed - is marked `resumed`. The manager hands that one to a cluster
      * even where the cluster already has the server: a cluster that kept a
      * lapsed server learns from it that the server announces itself again.
+     * The first announcement after a `down` is marked `resumed` whether the
+     * alive check is on or not, so a cluster that kept a leaving server puts
+     * it back in routing.
      */
     private addServer(message: Message): void {
+        const key = UDPWorker.getServerKey(message);
+        const returned = this.departed.delete(key);
         const resumed =
-            this.options.useAliveCheck &&
-            !this.servers.has(UDPWorker.getServerKey(message));
+            returned || (this.options.useAliveCheck && !this.servers.has(key));
 
         this.messagePort.postMessage({
             type: 'cluster:add',
@@ -195,19 +215,34 @@ export class UDPWorker {
     }
 
     /**
-     * Drops a server from the cluster and forgets its liveness stamp.
+     * Reports a server as removed from the cluster and forgets its liveness
+     * stamp.
      *
      * @param message - the announcement that named it, whether a `down` notice
      *        or the stale `up` whose liveness timer expired
-     * @param lapsed - true where only its announcements stopped arriving, and
-     *        no `down` notice said it went away
+     * @param reason - `lapsed` where only its announcements stopped arriving,
+     *        `leaving` where a `down` notice said it is going away
+     *
+     * @remarks
+     * Neither reason says the server is gone, and a cluster keeps it while it
+     * answers; a leaving one takes no new messages meanwhile.
      */
-    private removeServer(message: Message, lapsed = false): void {
-        this.servers.delete(UDPWorker.getServerKey(message));
+    private removeServer(message: Message, reason: 'lapsed' | 'leaving'): void {
+        const key = UDPWorker.getServerKey(message);
+
+        this.servers.delete(key);
+
+        // with the alive check on, the deletion above already marks the next
+        // announcement as resumed
+        if (reason === 'leaving' && !this.options.useAliveCheck) {
+            this.departed.add(key);
+        }
+
         this.messagePort.postMessage({
             type: 'cluster:remove',
             server: UDPWorker.mapMessage(message),
-            lapsed,
+            lapsed: reason === 'lapsed',
+            leaving: reason === 'leaving',
         });
     }
 
@@ -256,7 +291,7 @@ export class UDPWorker {
             () =>
                 setImmediate(() => {
                     if (this.servers.get(key) === stamp) {
-                        this.removeServer(message, true);
+                        this.removeServer(message, 'lapsed');
                     }
                 }),
             effectiveTimeout,
@@ -274,7 +309,7 @@ export class UDPWorker {
      */
     private processMessage(message: Message): void {
         if (message.type === MessageType.Down) {
-            return this.removeServer(message);
+            return this.removeServer(message, 'leaving');
         }
 
         if (message.type === MessageType.Up) {

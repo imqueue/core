@@ -148,8 +148,15 @@ not add these specs to a runner that CI invokes.
   long as it stays silent, and dropped the first time it does not answer. That
   timer exists only while a server is kept but silent — the manager's `add()`
   for the server (the UDP manager sends one on the first announcement after a
-  lapse), its removal and `destroy()` all cancel it. A server that is removed
-  is drained first:
+  lapse), its removal and `destroy()` all cancel it. A `down` announcement is
+  not "gone" either: it reports the server as leaving
+  (`ServerRemoval.leaving`), and the cluster keeps it the same way, PINGed
+  until it stops answering, but out of routing — no `send()`/`publish()`
+  goes to it while another ready server can take it, and its reader and
+  subscriptions stay, so the backlog it holds is read off before it goes. That
+  is the "stop writing, keep reading" a broker scale-in needs; do not go back
+  to dropping on `down`. Only a removal with neither flag drops at once. A
+  server that is removed is drained first:
   `RedisQueue.drain()` releases the blocked reader with `CLIENT UNBLOCK` from
   the writer, so a reply it already took reaches the listeners before teardown
   removes them and drops the socket.

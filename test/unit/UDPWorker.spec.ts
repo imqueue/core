@@ -97,6 +97,11 @@ describe('UDPWorker', () => {
         assert.equal(message.type, 'cluster:remove');
         assert.equal(message.server.id, 'id-1');
         assert.equal(message.lapsed, false, 'a down notice read as a lapse');
+        assert.equal(
+            message.leaving,
+            true,
+            'a down notice not read as leaving',
+        );
     });
 
     it('should drop malformed datagrams without crashing', () => {
@@ -238,6 +243,11 @@ describe('UDPWorker', () => {
             true,
             'a lapse read as a down notice',
         );
+        assert.equal(
+            postedMessages(port)[1].leaving,
+            false,
+            'a lapse read as the server leaving',
+        );
     });
 
     it('should keep a server alive while heartbeats keep arriving', async () => {
@@ -305,4 +315,34 @@ describe('UDPWorker', () => {
 
         assert.equal(postedMessages(port)[0].resumed, undefined);
     });
+
+    // a cluster keeps a server that is leaving while it answers, and only an
+    // add marked resumed puts it back in routing
+    for (const useAliveCheck of [false, true]) {
+        it(`marks the first up after a down as resumed with the alive check ${useAliveCheck ? 'on' : 'off'}`, () => {
+            const { worker, port } = makeWorker({ ...OPTIONS, useAliveCheck });
+            const announce = (type: string): void =>
+                worker.socket.emit(
+                    'message',
+                    datagram('IMQ', 'id-1', type, '127.0.0.1:6379', '30'),
+                );
+
+            announce('up');
+            announce('down');
+            announce('up');
+            announce('up');
+
+            const posted = postedMessages(port).map(message => [
+                message.type,
+                message.resumed === true,
+            ]);
+
+            assert.deepEqual(posted, [
+                ['cluster:add', useAliveCheck],
+                ['cluster:remove', false],
+                ['cluster:add', true],
+                ['cluster:add', false],
+            ]);
+        });
+    }
 });

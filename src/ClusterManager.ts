@@ -36,6 +36,18 @@ export interface ServerRemoval {
      * it went away: a missed heartbeat, not a `down` notice.
      */
     lapsed?: boolean;
+
+    /**
+     * True where the server announced that it is going away - a `down` notice
+     * - and may still be serving. A cluster stops sending new messages to it
+     * but keeps reading it, so what it already holds still reaches its
+     * consumers, and removes it once it no longer answers.
+     *
+     * @remarks
+     * A removal carrying neither flag means the server is gone, and it is
+     * removed at once, connections and all.
+     */
+    leaving?: boolean;
 }
 
 /**
@@ -59,6 +71,8 @@ export interface ICluster {
      * With `removal.lapsed`, only the server's announcements stopped arriving,
      * and a cluster may keep a server that still answers on its connections —
      * checking it itself until it stops answering or `add` reports it again.
+     * With `removal.leaving`, the server said it is going away: a cluster
+     * keeps reading it the same way, but sends it no new messages.
      */
     remove: (server: IServerInput, removal?: ServerRemoval) => void;
     /**

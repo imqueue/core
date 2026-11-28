@@ -572,9 +572,9 @@ describe('UDPClusterManager - why a server is removed', () => {
         mock.restoreAll();
     });
 
-    for (const [lapsed, said] of [
-        [true, 'its announcements lapsed'],
-        [false, 'it went down'],
+    for (const [lapsed, leaving, said] of [
+        [true, false, 'its announcements lapsed'],
+        [false, true, 'it is leaving'],
     ] as const) {
         it(`tells the cluster ${said}`, async () => {
             const removals: unknown[] = [];
@@ -591,10 +591,11 @@ describe('UDPClusterManager - why a server is removed', () => {
                 type: 'cluster:remove',
                 server: testMessageDown,
                 lapsed,
+                leaving,
             });
             await new Promise(resolve => setTimeout(resolve, 10));
 
-            assert.deepEqual(removals, [{ lapsed }]);
+            assert.deepEqual(removals, [{ lapsed, leaving }]);
             await manager.destroy();
         });
     }

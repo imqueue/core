@@ -36,6 +36,8 @@ interface WorkerMessage {
     server?: unknown;
     error?: string;
     lapsed?: boolean;
+    /** On a remove: the server announced `down`, and may still be serving */
+    leaving?: boolean;
     /**
      * On an add: the first announcement since the worker stopped tracking
      * the server, which a cluster that already has it must still hear.
@@ -113,9 +115,9 @@ export interface UDPClusterManagerOptions {
      * @defaultValue true
      *
      * @remarks
-     * When disabled, a server is removed only on an explicit `down` announcement —
-     * so a host that dies silently is never removed and keeps receiving
-     * round-robin sends.
+     * When disabled, a server leaves routing only on an explicit `down`
+     * announcement — so a host that dies silently is never removed and keeps
+     * receiving round-robin sends.
      *
      * The default can be overridden with the
      * `IMQ_UDP_CLUSTER_MANAGER_ALIVE_CHECK` environment variable, which is read as
@@ -226,7 +228,10 @@ export const DEFAULT_UDP_CLUSTER_MANAGER_OPTIONS: UDPClusterManagerOptions = {
  * `host:port`, and the liveness timeout in seconds. Datagrams with a missing
  * field, a port outside 1-65535, or a negative timeout are ignored. An `up`
  * announcement adds the server and refreshes its liveness deadline; a `down`
- * announcement removes it immediately.
+ * announcement reports it as leaving: a {@link ClusteredRedisQueue} stops
+ * sending to it at once, but keeps reading it until it no longer answers, so
+ * what the broker already holds is not lost with it. An `up` after a `down`
+ * puts the server back in routing.
  */
 export class UDPClusterManager extends ClusterManager {
     /**
@@ -560,7 +565,10 @@ export class UDPClusterManager extends ClusterManager {
                 | undefined;
 
             if (action === 'remove') {
-                handler?.(server, { lapsed: message.lapsed === true });
+                handler?.(server, {
+                    lapsed: message.lapsed === true,
+                    leaving: message.leaving === true,
+                });
 
                 return;
             }

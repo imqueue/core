@@ -2002,7 +2002,7 @@ describe('ClusteredRedisQueue - a server whose announcements lapsed', () => {
         assert.equal(cq.imqs.length, 0);
     });
 
-    it('is removed at once where it said it went down', () => {
+    it('is removed at once where its manager says it is gone', () => {
         const cq: any = new ClusteredRedisQueue('TestDown', {
             clusterManagers: [new (ClusterManager as any)()],
         });
@@ -2106,7 +2106,7 @@ describe('ClusteredRedisQueue - a server kept after its announcements lapsed', (
         );
         assert.equal(cq.imqs.length, 0);
         assert.equal(drain.mock.callCount(), 1, 'it was not drained first');
-        assert.equal(cq.lapsedWatches.size, 0);
+        assert.equal(cq.keptServers.size, 0);
 
         t.mock.timers.tick(60000);
         await flush();
@@ -2138,7 +2138,7 @@ describe('ClusteredRedisQueue - a server kept after its announcements lapsed', (
 
         // its announcements resumed
         cq.addServer(announced);
-        assert.equal(cq.lapsedWatches.size, 0);
+        assert.equal(cq.keptServers.size, 0);
 
         t.mock.timers.tick(60000);
         await flush();
@@ -2170,7 +2170,7 @@ describe('ClusteredRedisQueue - a server kept after its announcements lapsed', (
         );
 
         await cq.destroy();
-        assert.equal(cq.lapsedWatches.size, 0);
+        assert.equal(cq.keptServers.size, 0);
 
         t.mock.timers.tick(60000);
         await flush();
@@ -2183,7 +2183,7 @@ describe('ClusteredRedisQueue - a server kept after its announcements lapsed', (
         t.mock.timers.reset();
     });
 
-    it('is no longer asked once a down notice removes it', async t => {
+    it('is no longer asked once it is removed outright', async t => {
         t.mock.timers.enable({ apis: ['setTimeout'] });
 
         const cq = keptCluster('TestKeptThenDown');
@@ -2201,7 +2201,7 @@ describe('ClusteredRedisQueue - a server kept after its announcements lapsed', (
 
         cq.removeServer(announced);
         assert.equal(cq.servers.length, 0);
-        assert.equal(cq.lapsedWatches.size, 0);
+        assert.equal(cq.keptServers.size, 0);
 
         t.mock.timers.tick(60000);
         await flush();
@@ -2245,7 +2245,7 @@ describe('ClusteredRedisQueue - a server kept after its announcements lapsed', (
         cq.removeServer(announced, { lapsed: true });
         await flush();
 
-        const { timer } = cq.lapsedWatches.get(cq.imqs[0]);
+        const { timer } = cq.keptServers.get(cq.imqs[0]);
 
         assert.ok(timer, 'no check was scheduled for a kept server');
         assert.equal(timer.hasRef(), false, 'the check holds the process open');

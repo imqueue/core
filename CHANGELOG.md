@@ -9,6 +9,32 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A broker that announces `down` is no longer dropped with the messages it
+  still holds.** A `down` announcement removed the broker at once, reading
+  and writing connections together, so whatever was queued on it — requests
+  no consumer had taken yet, replies their callers had not read, delayed
+  messages — went with it. That made every broker scale-in a loss, although
+  consumers read from every broker and a broker would empty itself once
+  producers stopped sending to it. Now a `down` reports the broker as
+  leaving (`ServerRemoval.leaving`): `ClusteredRedisQueue` stops routing
+  `send()` and `publish()` to it at once, keeps its reader and subscriptions,
+  and PINGs it as it does a broker whose announcements lapsed, dropping it
+  — drained first, as before — the first time it does not answer. A broker
+  shutting down stops answering at once, so it is still gone within about
+  three seconds; one that announces `down` while it goes on serving is read
+  until it is empty and stops. A leaving broker is still used where every
+  other broker is down, since it is serving and its consumers still read it,
+  and an `up` after a `down` puts it back in routing, with the UDP alive
+  check on or off. A removal carrying neither `lapsed` nor `leaving` still
+  removes the server at once, so cluster managers of your own behave as
+  before. Messages a leaving broker holds when it stops answering are still
+  lost; announcing `down` well before shutdown is the broker's side of the
+  change.
+
 ## [3.9.1] - 2026-11-28
 
 ### Fixed

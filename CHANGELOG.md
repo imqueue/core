@@ -9,6 +9,28 @@ queue does has an entry.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A `UDPClusterManager` cut a graceful drain short by signalling the process
+  a second time.** On `SIGTERM`, `SIGINT` or `SIGABRT` the manager stops its
+  UDP workers and then raises the signal again, to restore the default
+  termination that its own handler switched off. That only terminates the
+  process when nothing else listens for the signal. With another listener
+  attached — `@imqueue/rpc`'s drain, say — the default handler stays off, so
+  the re-raise terminated nothing and instead delivered that listener a
+  second signal nobody sent, milliseconds after the first. The drain took it
+  for the operator forcing an exit, logged `SIGTERM received during drain,
+  exiting immediately`, and dropped the requests still in flight, whose
+  callers then waited out their call timeout. One `SIGTERM` from a scale-down
+  was enough. Now the signal is raised again only when no listener for it is
+  left once the workers have stopped, so a host with its own handler receives
+  each signal once. A process where the manager's handler is the only one
+  still terminates on the signal, as before, and so does one whose other
+  listeners were registered with `once`, since those have consumed
+  themselves by the time the manager would re-raise.
+
 ## [3.9.0] - 2026-11-26
 
 ### Changed

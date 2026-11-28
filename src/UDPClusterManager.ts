@@ -134,6 +134,13 @@ export interface UDPClusterManagerOptions {
      * @defaultValue true
      *
      * @remarks
+     * The signal is re-raised only when no other listener for it is left once
+     * the workers have stopped. A listener that is left owns the shutdown, and
+     * raising the signal again would hand it a second signal nobody sent —
+     * which a graceful drain, such as `@imqueue/rpc`'s, takes as the operator
+     * forcing an immediate exit. So a host with its own persistent handler
+     * receives each signal once, and exits when that handler decides to.
+     *
      * The handlers are installed once per process, by the first manager created
      * with this enabled, and on a signal they stop every UDP worker in the
      * process — including those of managers created with this option disabled. So
@@ -320,9 +327,11 @@ export class UDPClusterManager extends ClusterManager {
 
     /**
      * Registers process-level shutdown handlers exactly once per process.
-     * After stopping the workers, the original signal is re-raised, so the
-     * default termination behavior (which registering a handler cancels)
-     * still applies, and the process exits.
+     * After stopping the workers, the original signal is re-raised when no
+     * other listener for it remains, so the default termination behavior
+     * (which registering a handler cancels) still applies, and the process
+     * exits. When another listener remains, that listener owns the shutdown
+     * and the signal is not raised again.
      */
     private static bindSignals(): void {
         if (UDPClusterManager.signalsBound) {
@@ -341,16 +350,32 @@ export class UDPClusterManager extends ClusterManager {
     }
 
     /**
-     * Stops all workers and re-raises the given signal, so the process
-     * terminates through the default signal behavior.
+     * Stops all workers and, when nothing else listens for the given signal,
+     * re-raises it, so the process terminates through the default signal
+     * behavior.
      *
      * @param signal -
+     *
+     * @remarks
+     * A listener still attached for the signal owns the process's shutdown:
+     * while it is attached the default handler is off, so a re-raise would not
+     * terminate the process — it would only deliver that listener a second
+     * signal nobody sent. A graceful drain reads exactly that as the operator
+     * forcing an immediate exit, and drops the work it was waiting for.
+     *
+     * The listeners are counted at the re-raise, not when the signal arrives:
+     * a `once` listener belonging to someone else has consumed itself by then,
+     * and the process must still terminate as it did before it was there.
      */
     private static async freeAndRaise(signal: NodeJS.Signals): Promise<void> {
         await UDPClusterManager.free();
+
         // the once-registered handler is already removed at this point, so
-        // re-raising hits the default handler and terminates the process
-        process.kill(process.pid, signal);
+        // with no listener left the re-raise hits the default handler and
+        // terminates the process
+        if (process.listenerCount(signal) === 0) {
+            process.kill(process.pid, signal);
+        }
     }
 
     /**

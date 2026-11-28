@@ -429,15 +429,60 @@ describe('UDPClusterManager lifecycle internals', () => {
 
     it('freeAndRaise() frees workers then re-raises the signal', async () => {
         const kill: Mock<any> = mock.method(process, 'kill', () => true);
-        mock.method(
+        const free: Mock<any> = mock.method(
             UDPClusterManager as any,
-            'destroyWorker',
+            'free',
             async () => undefined,
         );
 
+        mock.method(process, 'listenerCount', () => 0);
+
         await (UDPClusterManager as any).freeAndRaise('SIGTERM');
 
-        assert.ok(kill.mock.callCount() > 0);
+        assert.equal(free.mock.callCount(), 1);
+        assert.equal(kill.mock.callCount(), 1);
+        assert.deepEqual(kill.mock.calls[0].arguments, [
+            process.pid,
+            'SIGTERM',
+        ]);
+    });
+
+    it('freeAndRaise() frees workers but does not re-raise to a remaining listener', async () => {
+        const kill: Mock<any> = mock.method(process, 'kill', () => true);
+        const free: Mock<any> = mock.method(
+            UDPClusterManager as any,
+            'free',
+            async () => undefined,
+        );
+        const listenerCount: Mock<any> = mock.method(
+            process,
+            'listenerCount',
+            () => 1,
+        );
+
+        await (UDPClusterManager as any).freeAndRaise('SIGINT');
+
+        assert.equal(free.mock.callCount(), 1);
+        assert.equal(kill.mock.callCount(), 0);
+        assert.equal(listenerCount.mock.calls[0].arguments[0], 'SIGINT');
+    });
+
+    it('freeAndRaise() counts listeners only once the workers are freed', async () => {
+        const order: string[] = [];
+
+        mock.method(process, 'kill', () => true);
+        mock.method(UDPClusterManager as any, 'free', async () => {
+            order.push('free');
+        });
+        mock.method(process, 'listenerCount', () => {
+            order.push('count');
+
+            return 0;
+        });
+
+        await (UDPClusterManager as any).freeAndRaise('SIGTERM');
+
+        assert.deepEqual(order, ['free', 'count']);
     });
 
     it('binds a signal handler that frees and re-raises', async () => {
